@@ -50,9 +50,9 @@ func validateClients(clients []ClientConfig) error {
 		seen[c.Name] = struct{}{}
 
 		switch c.Platform {
-		case "gitlab", "github", "gitea":
+		case "gitlab", "gitlab-selfhosted", "github", "gitea", "gitea-selfhosted":
 		default:
-			return fmt.Errorf("clients[%d] %q: unknown platform %q (must be gitlab, github or gitea)", i, c.Name, c.Platform)
+			return fmt.Errorf("clients[%d] %q: unknown platform %q (must be gitlab, gitlab-selfhosted, github, gitea or gitea-selfhosted)", i, c.Name, c.Platform)
 		}
 		if c.BaseURL == "" {
 			return fmt.Errorf("clients[%d] %q: base_url is required", i, c.Name)

@@ -12,30 +12,43 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// Client implements domain.PlatformClient for Gitea (self-hosted).
+// Client implements domain.PlatformClient for Gitea.
 // projectRef must be "owner/repo".
 // Gitea's REST API mirrors GitHub's in most areas, simplifying implementation.
 type Client struct {
-	name     string
-	baseURL  string
-	token    string
-	secret   string
-	username string
-	http     *http.Client
+	platformType domain.PlatformType
+	name         string
+	baseURL      string
+	token        string
+	secret       string
+	username     string
+	http         *http.Client
 }
 
+// New creates a client for a generic Gitea instance.
 func New(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+	return newClient(domain.PlatformGitea, name, baseURL, token, secret, username, timeout)
+}
+
+// NewSelfHosted creates a client explicitly labelled as a self-hosted Gitea instance.
+// Functionally identical to New; the different PlatformType surfaces in logs and metrics.
+func NewSelfHosted(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+	return newClient(domain.PlatformGiteaSelfHosted, name, baseURL, token, secret, username, timeout)
+}
+
+func newClient(pt domain.PlatformType, name, baseURL, token, secret, username string, timeout time.Duration) *Client {
 	return &Client{
-		name:     name,
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		token:    token,
-		secret:   secret,
-		username: username,
-		http:     &http.Client{Timeout: timeout},
+		platformType: pt,
+		name:         name,
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		token:        token,
+		secret:       secret,
+		username:     username,
+		http:         &http.Client{Timeout: timeout},
 	}
 }
 
-func (c *Client) Platform() domain.PlatformType { return domain.PlatformGitea }
+func (c *Client) Platform() domain.PlatformType { return c.platformType }
 func (c *Client) ClientName() string             { return c.name }
 func (c *Client) WatchedUsername() string        { return c.username }
 

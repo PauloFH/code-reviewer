@@ -17,10 +17,14 @@ func Build(cfg config.ClientConfig, timeout time.Duration) (domain.PlatformClien
 	switch cfg.Platform {
 	case "gitlab":
 		return gitlab.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
+	case "gitlab-selfhosted":
+		return gitlab.NewSelfHosted(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
 	case "github":
 		return github.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
 	case "gitea":
 		return gitea.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
+	case "gitea-selfhosted":
+		return gitea.NewSelfHosted(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
 	default:
 		return nil, fmt.Errorf("unknown platform %q for client %q", cfg.Platform, cfg.Name)
 	}

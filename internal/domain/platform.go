@@ -4,9 +4,11 @@ package domain
 type PlatformType string
 
 const (
-	PlatformGitLab PlatformType = "gitlab"
-	PlatformGitHub PlatformType = "github"
-	PlatformGitea  PlatformType = "gitea"
+	PlatformGitLab           PlatformType = "gitlab"
+	PlatformGitLabSelfHosted PlatformType = "gitlab-selfhosted"
+	PlatformGitHub           PlatformType = "github"
+	PlatformGitea            PlatformType = "gitea"
+	PlatformGiteaSelfHosted  PlatformType = "gitea-selfhosted"
 )
 
 // RawWebhook carries the raw HTTP data from a webhook request,

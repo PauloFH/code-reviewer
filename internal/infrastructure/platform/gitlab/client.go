@@ -14,26 +14,36 @@ import (
 
 // Client implements domain.PlatformClient for GitLab (cloud and self-hosted).
 type Client struct {
-	name     string
-	baseURL  string
-	token    string
-	secret   string
-	username string
-	http     *http.Client
+	platformType domain.PlatformType
+	name         string
+	baseURL      string
+	token        string
+	secret       string
+	username     string
+	http         *http.Client
 }
 
 func New(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+	return newClient(domain.PlatformGitLab, name, baseURL, token, secret, username, timeout)
+}
+
+func NewSelfHosted(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+	return newClient(domain.PlatformGitLabSelfHosted, name, baseURL, token, secret, username, timeout)
+}
+
+func newClient(pt domain.PlatformType, name, baseURL, token, secret, username string, timeout time.Duration) *Client {
 	return &Client{
-		name:     name,
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		token:    token,
-		secret:   secret,
-		username: username,
-		http:     &http.Client{Timeout: timeout},
+		platformType: pt,
+		name:         name,
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		token:        token,
+		secret:       secret,
+		username:     username,
+		http:         &http.Client{Timeout: timeout},
 	}
 }
 
-func (c *Client) Platform() domain.PlatformType { return domain.PlatformGitLab }
+func (c *Client) Platform() domain.PlatformType { return c.platformType }
 func (c *Client) ClientName() string             { return c.name }
 func (c *Client) WatchedUsername() string        { return c.username }
 
