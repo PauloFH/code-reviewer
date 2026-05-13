@@ -16,6 +16,7 @@ type mockRegistry struct {
 }
 
 func (m *mockRegistry) Register(c domain.PlatformClient)          { m.client = c }
+func (m *mockRegistry) Unregister(_ string)                       {}
 func (m *mockRegistry) Get(name string) (domain.PlatformClient, bool) {
 	if m.client != nil && m.client.ClientName() == name {
 		return m.client, true
@@ -28,6 +29,15 @@ func (m *mockRegistry) All() []domain.PlatformClient {
 	}
 	return nil
 }
+
+type mockEventRepo struct{}
+
+func (m *mockEventRepo) SaveEvent(_ domain.ReviewEvent) error                         { return nil }
+func (m *mockEventRepo) ListEvents(_ domain.ReviewEventFilter) ([]domain.ReviewEvent, error) {
+	return nil, nil
+}
+func (m *mockEventRepo) CountEvents(_ domain.ReviewEventFilter) (int64, error) { return 0, nil }
+func (m *mockEventRepo) GetStats(_ string) (*domain.ReviewStats, error)        { return nil, nil }
 
 type mockClient struct {
 	name     string
@@ -114,7 +124,7 @@ func newUsecase(client *mockClient, repo *mockRepository, ai *mockAI) *ProcessMe
 	if client != nil {
 		reg.client = client
 	}
-	return NewProcessMergeRequest(reg, repo, ai, discardLogger())
+	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, ai, nil, 3.0, 15.0, discardLogger())
 }
 
 // ---------- tests ----------
@@ -277,7 +287,7 @@ func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
 func TestExecute_UnknownClient_ReturnsError(t *testing.T) {
 	// Registry is empty — client lookup will fail.
 	reg := &mockRegistry{}
-	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockAI{}, discardLogger())
+	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockAI{}, nil, 3.0, 15.0, discardLogger())
 
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error for unknown client name")

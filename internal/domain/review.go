@@ -7,8 +7,17 @@ type ReviewInput struct {
 	Diff         string
 }
 
+// TokenUsage holds token consumption data returned by the AI API.
+// Zero-value is safe — all mocks and tests that don't set it will produce $0 cost.
+type TokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
 type ReviewResult struct {
-	Body string
+	Body  string
+	Usage TokenUsage
 }
 
 type ReviewedMergeRequest struct {

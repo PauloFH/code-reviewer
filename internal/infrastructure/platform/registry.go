@@ -24,6 +24,22 @@ func (r *Registry) Register(client domain.PlatformClient) {
 	r.clients[client.ClientName()] = client
 }
 
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.clients, name)
+}
+
+// Replace atomically swaps old → new, handling renames safely.
+func (r *Registry) Replace(oldName string, client domain.PlatformClient) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if oldName != client.ClientName() {
+		delete(r.clients, oldName)
+	}
+	r.clients[client.ClientName()] = client
+}
+
 func (r *Registry) Get(name string) (domain.PlatformClient, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

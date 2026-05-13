@@ -13,3 +13,8 @@ data/
 *.test
 *.out
 coverage.html
+
+# Frontend (built by Vite, embedded in binary)
+internal/transport/http/frontend/dist/
+web/node_modules/
+web/dist/

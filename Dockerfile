@@ -1,4 +1,20 @@
-FROM golang:1.24-alpine AS builder
+# ─────────────────────────────────────────────
+# Stage 1: build the Vue 3 frontend
+# ─────────────────────────────────────────────
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /web
+COPY web/package*.json ./
+RUN npm ci --prefer-offline
+
+COPY web/ ./
+# vite.config.ts sets outDir to ../internal/transport/http/frontend/dist
+RUN npm run build
+
+# ─────────────────────────────────────────────
+# Stage 2: build the Go binary
+# ─────────────────────────────────────────────
+FROM golang:1.24-alpine AS go-builder
 
 # CGO is required by go-sqlite3
 RUN apk add --no-cache gcc musl-dev
@@ -9,17 +25,22 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Copy the compiled frontend into the embed path
+COPY --from=frontend-builder /web/../internal/transport/http/frontend/dist \
+     ./internal/transport/http/frontend/dist
+
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o code-reviewer ./cmd/server
 
-# ---- runtime image ----
+# ─────────────────────────────────────────────
+# Stage 3: minimal runtime image
+# ─────────────────────────────────────────────
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /app/code-reviewer .
-COPY migrations ./migrations
+COPY --from=go-builder /app/code-reviewer .
 
 RUN mkdir -p /app/data
 

@@ -46,6 +46,11 @@ type chatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, error) {
@@ -90,5 +95,12 @@ func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, err
 		return nil, fmt.Errorf("ai: empty response from API")
 	}
 
-	return &domain.ReviewResult{Body: out.Choices[0].Message.Content}, nil
+	return &domain.ReviewResult{
+		Body: out.Choices[0].Message.Content,
+		Usage: domain.TokenUsage{
+			PromptTokens:     out.Usage.PromptTokens,
+			CompletionTokens: out.Usage.CompletionTokens,
+			TotalTokens:      out.Usage.TotalTokens,
+		},
+	}, nil
 }
