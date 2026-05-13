@@ -1,0 +1,39 @@
+{
+  "action": "review_requested",
+  "number": 5,
+  "pull_request": {
+    "id": 3001,
+    "number": 5,
+    "title": "feat: add user authentication",
+    "body": "Implements JWT-based authentication for the API.",
+    "state": "open",
+    "html_url": "https://gitea.your-company.com/acme/backend-api/pulls/5",
+    "created_at": "2024-01-15T10:00:00Z",
+    "updated_at": "2024-01-15T10:00:00Z",
+    "user": {
+      "login": "contributor",
+      "id": 100
+    },
+    "requested_reviewers": [
+      {
+        "login": "paulorfholanda",
+        "id": 200
+      }
+    ],
+    "assignees": []
+  },
+  "requested_reviewer": {
+    "login": "paulorfholanda",
+    "id": 200
+  },
+  "repository": {
+    "id": 400,
+    "name": "backend-api",
+    "full_name": "acme/backend-api",
+    "html_url": "https://gitea.your-company.com/acme/backend-api"
+  },
+  "sender": {
+    "login": "contributor",
+    "id": 100
+  }
+}

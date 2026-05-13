@@ -1,0 +1,39 @@
+{
+  "object_kind": "merge_request",
+  "event_type": "merge_request",
+  "user": {
+    "id": 1,
+    "name": "Paulo Holanda",
+    "username": "paulorfholanda",
+    "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png"
+  },
+  "project": {
+    "id": 42,
+    "name": "backend-api",
+    "namespace": "acme",
+    "path_with_namespace": "acme/backend-api",
+    "web_url": "https://gitlab.com/acme/backend-api"
+  },
+  "object_attributes": {
+    "id": 1001,
+    "iid": 7,
+    "title": "feat: add user authentication",
+    "description": "Implements JWT-based authentication for the API.",
+    "state": "opened",
+    "action": "open",
+    "url": "https://gitlab.com/acme/backend-api/-/merge_requests/7",
+    "created_at": "2024-01-15T10:00:00.000Z",
+    "updated_at": "2024-01-15T10:00:00.000Z",
+    "source_branch": "feat/user-auth",
+    "target_branch": "main"
+  },
+  "assignees": [],
+  "reviewers": [
+    {
+      "id": 2,
+      "name": "Paulo Holanda",
+      "username": "paulorfholanda"
+    }
+  ],
+  "changes": {}
+}
