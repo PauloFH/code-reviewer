@@ -1,0 +1,15 @@
+# Environment
+.env
+clients.json
+
+# Build output
+/server
+/code-reviewer
+
+# Data
+data/
+
+# Go
+*.test
+*.out
+coverage.html

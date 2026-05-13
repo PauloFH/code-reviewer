@@ -1,0 +1,42 @@
+[
+  {
+    "name": "gitlab-cloud",
+    "platform": "gitlab",
+    "base_url": "https://gitlab.com",
+    "token": "glpat-xxxxxxxxxxxxxxxxxxxx",
+    "webhook_secret": "your-webhook-secret",
+    "username": "your-gitlab-username"
+  },
+  {
+    "name": "gitlab-corp",
+    "platform": "gitlab-selfhosted",
+    "base_url": "https://gitlab.your-company.com",
+    "token": "glpat-xxxxxxxxxxxxxxxxxxxx",
+    "webhook_secret": "your-webhook-secret",
+    "username": "your-gitlab-username"
+  },
+  {
+    "name": "github-cloud",
+    "platform": "github",
+    "base_url": "https://api.github.com",
+    "token": "ghp_xxxxxxxxxxxxxxxxxxxx",
+    "webhook_secret": "your-webhook-secret",
+    "username": "your-github-username"
+  },
+  {
+    "name": "gitea-corp",
+    "platform": "gitea",
+    "base_url": "https://gitea.your-company.com",
+    "token": "your-gitea-token",
+    "webhook_secret": "your-webhook-secret",
+    "username": "your-gitea-username"
+  },
+  {
+    "name": "gitea-internal",
+    "platform": "gitea-selfhosted",
+    "base_url": "https://git.internal.corp",
+    "token": "your-gitea-token",
+    "webhook_secret": "your-webhook-secret",
+    "username": "your-gitea-username"
+  }
+]
