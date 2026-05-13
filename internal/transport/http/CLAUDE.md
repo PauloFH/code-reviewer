@@ -2,57 +2,66 @@
 
 ## Papel
 
-Camada HTTP mais externa. Recebe webhooks das plataformas Git, valida e transforma a entrada, e chama o usecase. Não contém lógica de negócio.
+Camada HTTP mais externa. Recebe webhooks e requisições do dashboard, valida e delega para os usecases. Não contém lógica de negócio.
 
 ## Arquivos
 
 ### `router.go`
-- `NewRouter(uc, registry, log)` — monta o `http.ServeMux` com todas as rotas
-- `chain(handler, middlewares...)` — aplica middlewares da esquerda para direita
-- `registryAdapter` — adapta `domain.ClientRegistry` para a interface local `clientRegistry` (inversão de dependência)
+Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 
-**Rotas:**
-- `POST /webhook/{clientName}` — recebe webhook; passa por `webhookAuth` antes do handler
-- `GET /healthz` — liveness probe; retorna `200 OK`
+| Método | Rota | Auth | Handler |
+|--------|------|------|---------|
+| POST | `/webhook/{clientName}` | webhookAuth | WebhookHandler |
+| GET | `/healthz` | — | inline |
+| POST | `/api/v1/auth/login` | — | AuthHandler.Login |
+| GET | `/api/v1/events` | JWT | APIHandler.ListEvents |
+| GET | `/api/v1/events/stats` | JWT | APIHandler.GetStats |
+| GET | `/api/v1/events/daily` | JWT | APIHandler.GetDailyCosts |
+| GET | `/api/v1/events/stream` | JWT (query param) | EventBroadcaster.ServeSSE |
+| GET | `/api/v1/clients` | JWT | APIHandler.ListClients |
+| POST | `/api/v1/clients` | JWT | APIHandler.CreateClient |
+| GET | `/api/v1/clients/{name}` | JWT | APIHandler.GetClient |
+| PUT | `/api/v1/clients/{name}` | JWT | APIHandler.UpdateClient |
+| DELETE | `/api/v1/clients/{name}` | JWT | APIHandler.DeleteClient |
+| `/*` | SPA catch-all | — | frontendHandler |
+
+`{name}` usa Go 1.22 `r.PathValue("name")`.
+
+### `auth.go`
+- `AuthHandler.Login` — valida credenciais e retorna JWT HS256 (24h)
+- `jwtAuth(secret)` — middleware; aceita Bearer header ou query param `?token=`
+- JWT implementado com stdlib apenas (`crypto/hmac`, `crypto/sha256`, `encoding/base64`)
+- Se `DASHBOARD_JWT_SECRET` estiver vazio, gera secret aleatório por boot (tokens não sobrevivem restart)
+
+### `api_handler.go`
+- `APIHandler` — endpoints `/api/v1/events/*` e `/api/v1/clients/*`
+- Token e webhook_secret retornados como `"***"` (redact)
+- Paginação via `?limit=` e `?offset=`; filtros via `?client=`, `?since=`, `?until=`
+
+### `sse.go`
+- `EventBroadcaster` — fan-out não-bloqueante de `domain.ReviewEvent` para N clientes SSE
+- `Publish(e)` — chamado pelo usecase após cada review; usa `select/default` para não bloquear
+- `ServeSSE(w, r)` — HTTP handler; envia ping inicial, depois eventos até context cancelado
+- `subscribe()` / `unsubscribe()` — gerenciamento thread-safe de canais
+
+### `frontend.go`
+- Usa `embed.FS` com `//go:embed frontend/dist` para embeber a SPA Vue no binário
+- Serve arquivos estáticos; paths desconhecidos retornam `index.html` (SPA routing)
 
 ### `middleware.go`
-- `webhookAuth(registry, log)` — middleware de autenticação do webhook:
-  1. Extrai `clientName` da URL
-  2. Resolve o `PlatformClient` no registry
-  3. Lê o body uma vez (limite: 10 MB) e armazena em memória
-  4. Constrói `domain.RawWebhook` com headers em lowercase
-  5. Chama `client.ValidateWebhook(raw)` — plataforma-específico
-  6. Armazena no contexto via `withRawWebhook(r, raw)`
-- `logging(log)` — loga method, path, status e duração de toda requisição
+- `webhookAuth` — lê body uma única vez, normaliza headers, valida secret via `PlatformClient.ValidateWebhook`
+- `logging` — loga method, path, status e duração
 
 ### `handler.go`
-- `WebhookHandler.Handle(w, r)` — handler principal:
-  1. Lê `rawWebhookCarrier` do contexto (preenchido pelo middleware)
-  2. Resolve `PlatformClient` pelo clientName
-  3. Chama `client.ParseWebhook(raw)` para normalizar o payload
-  4. Chama `usecase.Execute(event)`
-  5. Retorna `200` para eventos ignorados (evita reenvios desnecessários)
+- `WebhookHandler.Handle` — parseia webhook via `PlatformClient.ParseWebhook` e chama o usecase
 
 ### `context.go`
-- `withRawWebhook` / `rawWebhookFromCtx` — armazenam/recuperam o `rawWebhookCarrier` no contexto HTTP sem expor o tipo para fora do pacote
+- `withRawWebhook` / `rawWebhookFromCtx` — armazenam `rawWebhookCarrier` no contexto HTTP
 
-## Decisões de design
+## Testes
 
-- **Body lido uma vez no middleware:** o body HTTP pode ser lido apenas uma vez. O middleware lê, armazena em `rawWebhookCarrier` e passa via contexto para o handler.
-- **Headers em lowercase:** normalização feita no middleware garante que `client.ValidateWebhook` e `client.ParseWebhook` não precisam se preocupar com capitalização (`X-Gitlab-Token` vs `x-gitlab-token`).
-- **200 para eventos ignorados:** plataformas interpretam `4xx/5xx` como falha e reenviam o webhook. Retornar `200` para eventos de tipo não suportado (ex: push event) evita reenvios desnecessários.
-- **Interface local `clientRegistry`:** o handler e o middleware usam a interface local em vez de `domain.ClientRegistry` diretamente, facilitando testes sem dependência do pacote domain.
-
-## Como as interfaces se encaixam
-
+```bash
+go test ./internal/transport/http/... -v
 ```
-HTTP Request
-    ↓
-logging middleware
-    ↓
-webhookAuth middleware
-    ↓  (valida secret via PlatformClient.ValidateWebhook)
-WebhookHandler.Handle
-    ↓  (parseia payload via PlatformClient.ParseWebhook)
-usecase.Execute(event)
-```
+
+`auth_test.go` cobre: issueToken+validate, token expirado, senha errada, body inválido, middleware com Bearer/query param/sem token.
