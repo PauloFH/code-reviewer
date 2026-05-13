@@ -11,3 +11,26 @@ type ReviewRepository interface {
 type AIReviewer interface {
 	ReviewDiff(input ReviewInput) (*ReviewResult, error)
 }
+
+// ClientRepository manages persistent platform client configurations.
+// It is the source of truth after the initial seed from clients.json.
+type ClientRepository interface {
+	ListClients() ([]Client, error)
+	GetClient(name string) (*Client, error)
+	CreateClient(c Client) (*Client, error)
+	UpdateClient(oldName string, c Client) (*Client, error)
+	DeleteClient(name string) error
+	// SeedFromConfigs inserts clients that don't already exist (one-time migration).
+	SeedFromConfigs(clients []Client) error
+	// CountClients returns the number of persisted clients.
+	CountClients() (int, error)
+}
+
+// ReviewEventRepository records and queries the per-review event log.
+type ReviewEventRepository interface {
+	SaveEvent(event ReviewEvent) error
+	ListEvents(filter ReviewEventFilter) ([]ReviewEvent, error)
+	CountEvents(filter ReviewEventFilter) (int64, error)
+	GetStats(clientName string) (*ReviewStats, error)
+	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
+}

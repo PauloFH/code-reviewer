@@ -42,3 +42,21 @@ func BuildAll(configs []config.ClientConfig, timeout time.Duration) (*Registry, 
 	}
 	return reg, nil
 }
+
+// Factory implements usecase.ClientFactory using the platform-specific builders.
+type Factory struct{}
+
+func NewFactory() *Factory { return &Factory{} }
+
+// BuildFromDomain creates a domain.PlatformClient from a domain.Client entity.
+func (f *Factory) BuildFromDomain(c domain.Client, timeout time.Duration) (domain.PlatformClient, error) {
+	cfg := config.ClientConfig{
+		Name:          c.Name,
+		Platform:      string(c.Platform),
+		BaseURL:       c.BaseURL,
+		Token:         c.Token,
+		WebhookSecret: c.WebhookSecret,
+		Username:      c.Username,
+	}
+	return Build(cfg, timeout)
+}

@@ -45,8 +45,13 @@ cp .env.example .env
 | `AI_TOKEN` | — | Token de autenticação da API de IA |
 | `AI_MODEL` | `claude-sonnet-4` | Modelo a ser usado |
 | `AI_TIMEOUT_SECONDS` | `120` | Timeout para chamadas à IA |
+| `AI_PRICE_PER_M_INPUT_TOKENS` | `3.0` | Preço por milhão de tokens de entrada (USD) |
+| `AI_PRICE_PER_M_OUTPUT_TOKENS` | `15.0` | Preço por milhão de tokens de saída (USD) |
 | `DATABASE_PATH` | `./data/reviewer.db` | Caminho do arquivo SQLite |
 | `CLIENTS_CONFIG_PATH` | `./clients.json` | Caminho para o arquivo de clientes |
+| `DASHBOARD_USER` | `admin` | Usuário do dashboard |
+| `DASHBOARD_PASSWORD` | — | Senha do dashboard (obrigatória para login) |
+| `DASHBOARD_JWT_SECRET` | — | Segredo para assinar JWTs (recomendado: 32+ chars aleatórios) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` ou `error` |
 
 ### 2. Arquivo de clientes (`clients.json`)
@@ -100,6 +105,63 @@ Para verificar que está rodando:
 curl http://localhost:8080/healthz
 # → 200 OK
 ```
+
+---
+
+## Dashboard de monitoramento
+
+Acesse `http://localhost:8080` para abrir o dashboard Vue 3.
+
+### Login
+
+Defina as variáveis de ambiente e faça login:
+
+```
+DASHBOARD_USER=admin
+DASHBOARD_PASSWORD=sua-senha
+DASHBOARD_JWT_SECRET=segredo-longo-aleatório
+```
+
+O dashboard inclui:
+- **Dashboard** — stats globais, custo diário (gráfico 30 dias), breakdown por cliente, live feed SSE
+- **Events** — tabela paginada com filtros por cliente e período; tokens + custo por review
+- **Clients** — CRUD completo de plataformas monitoradas sem precisar editar arquivos
+
+### Usando a API REST
+
+```bash
+# Login → JWT
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"sua-senha"}' | jq -r .token)
+
+# Stats globais
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/events/stats
+
+# Custo diário (últimos 30 dias)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/events/daily
+
+# Eventos paginados
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/events?limit=25&offset=0"
+
+# Live feed SSE
+curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
+```
+
+### Endpoints da API
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/api/v1/auth/login` | Retorna JWT |
+| `GET` | `/api/v1/events` | Lista eventos (paginado; filtros: `client`, `since`, `until`) |
+| `GET` | `/api/v1/events/stats` | Agregados globais e por cliente |
+| `GET` | `/api/v1/events/daily` | Custo diário (`?days=30`, `?client=nome`) |
+| `GET` | `/api/v1/events/stream` | Live feed SSE (`?token=JWT`) |
+| `GET` | `/api/v1/clients` | Lista clients (token/secret redacted) |
+| `POST` | `/api/v1/clients` | Cria client |
+| `GET` | `/api/v1/clients/{name}` | Detalhe de um client |
+| `PUT` | `/api/v1/clients/{name}` | Atualiza client (suporta rename) |
+| `DELETE` | `/api/v1/clients/{name}` | Remove client |
 
 ---
 
@@ -227,14 +289,18 @@ go tool cover -html=coverage.out -o coverage.html
 │   │   │   ├── gitlab/                        # GitLab cloud e self-hosted
 │   │   │   ├── github/                        # GitHub cloud e Enterprise
 │   │   │   └── gitea/                         # Gitea e Gitea self-hosted
-│   │   └── storage/                           # SQLite repository
-│   ├── transport/http/                        # Handler, middleware, router
-│   └── usecase/                               # Pipeline de review (regra de negócio)
-├── migrations/                                # SQL de referência
-├── test/fixtures/                             # Payloads de exemplo por plataforma
+│   │   └── storage/                           # SQLite repository (migrations versionadas)
+│   ├── transport/http/                        # Webhooks, API REST, SSE, SPA embed
+│   └── usecase/                               # Pipeline de review + CRUD de clients + custo
+├── web/                                       # Frontend Vue 3 + TypeScript + Vite
+│   └── src/
+│       ├── views/                             # Login, Dashboard, Events, Clients
+│       ├── components/                        # StatsCards, CostChart, LiveFeed, etc.
+│       ├── stores/                            # Pinia: auth, toast
+│       └── api/                               # Axios: events, clients, auth
 ├── clients.example.json                       # Modelo de clients.json
 ├── .env.example                               # Modelo de .env
-├── Dockerfile                                 # Multi-stage build com CGo
+├── Dockerfile                                 # Multi-stage: Node (Vite) + Go (CGo)
 └── docker-compose.yml
 ```
 

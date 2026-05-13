@@ -4,54 +4,61 @@
 
 Contém toda a regra de negócio do sistema. Não conhece HTTP, SQLite, GitLab ou IA diretamente — só fala com interfaces do domain.
 
-## `process_merge_request.go`
+## Arquivos
 
-### Pipeline de `Execute(event *domain.WebhookEvent)`
+### `process_merge_request.go`
+
+Pipeline de `Execute(event *domain.WebhookEvent)`:
 
 ```
 1. Resolve PlatformClient pelo event.ClientName no registry
 2. GetMergeRequest(projectRef, mrIID)       → retorna erro em falha de API
-3. mr.IsUserAssigned(username)              → ignora se usuário não está no MR
-4. repository.AlreadyReviewed(...)          → ignora se já foi revisado (idempotência)
+3. mr.IsUserAssigned(username)              → skip se usuário não está no MR
+4. repository.AlreadyReviewed(...)          → skip se já revisado (idempotência)
 5. GetMergeRequestDiff(projectRef, mrIID)   → retorna erro em falha de API
 6. reviewer.ReviewDiff(input)               → retorna erro se IA falhar
 7. CreateMergeRequestNote(projectRef, ...)  → retorna erro se post falhar
 8. repository.MarkAsReviewed(...)           → best-effort: loga erro, não retorna
+9. saveEvent(...)                           → best-effort: salva ReviewEvent + publica SSE
 ```
 
-### Decisões de design
+Steps 8 e 9 são best-effort. `saveEvent` chama `publisher.Publish(e)` para o live feed SSE.
 
-- **Step 8 é best-effort:** se `MarkAsReviewed` falhar após o comentário já ter sido postado, o usecase retorna `nil` (sucesso). A plataforma não vai receber `5xx` e não vai reenviar o webhook. O UNIQUE constraint no banco previne duplicatas em cenários de retry real.
+Dependências injetadas:
+- `registry domain.ClientRegistry`
+- `repository domain.ReviewRepository` — idempotência
+- `eventRepo domain.ReviewEventRepository` — analytics
+- `reviewer domain.AIReviewer`
+- `publisher EventPublisher` — interface local para SSE broadcaster
+- `pricePerMInput`, `pricePerMOut float64` — preços por milhão de tokens
 
-- **Sem lógica de plataforma aqui:** o usecase não sabe se está falando com GitLab ou GitHub. Tudo passa pela interface `PlatformClient`.
+### `cost.go`
 
-- **Busca o MR completo sempre:** em vez de tentar inferir o assignee do payload do webhook (que varia muito entre plataformas), o usecase sempre busca o MR completo via API para ter os dados confiáveis.
+`CalculateCost(usage domain.TokenUsage, pricePerMInput, pricePerMOutput float64) float64`
 
-## Dependências injetadas
+Calcula custo USD: `(promptTokens/1M * priceInput) + (completionTokens/1M * priceOutput)`.
 
+### `client_management.go`
+
+`ClientManagementService` — CRUD de clients com hot-reload do registry.
+
+Interface `ClientFactory`:
 ```go
-type ProcessMergeRequest struct {
-    registry   domain.ClientRegistry   // resolve PlatformClient por nome
-    repository domain.ReviewRepository // idempotência
-    reviewer   domain.AIReviewer       // gera o review
-    log        *slog.Logger
-}
+BuildFromDomain(c domain.Client, timeout time.Duration) (domain.PlatformClient, error)
 ```
+
+Métodos:
+- `ListClients()` → lista do DB
+- `GetClient(name)` → lookup por nome
+- `CreateClient(c)` → persiste no DB + registra no registry; rollback se build falhar
+- `UpdateClient(oldName, c)` → persiste no DB + replace no registry (suporta rename)
+- `DeleteClient(name)` → remove do DB + unregister do registry
 
 ## Testes
 
-`process_merge_request_test.go` testa com mocks via interfaces — sem nenhuma dependência externa. Casos cobertos:
-
-- Usuário não atribuído → skip
-- MR já revisado → skip
-- Erro ao buscar MR → retorna erro
-- Erro ao buscar diff → retorna erro
-- Erro na IA → retorna erro, sem comentário postado
-- Erro ao postar comentário → retorna erro, sem mark
-- Erro no mark após post → retorna nil (best-effort)
-- Erro no check de idempotência → retorna erro
-- Client desconhecido → retorna erro
-
 ```bash
-go test ./internal/usecase/...
+go test ./internal/usecase/... -v
 ```
+
+- `process_merge_request_test.go` — 9 cenários (skip, idempotência, erros em cada step)
+- `cost_test.go` — 5 casos (zero, input only, output only, mixed, custom prices)

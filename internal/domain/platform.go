@@ -48,6 +48,7 @@ type PlatformClient interface {
 // ClientRegistry holds all registered platform clients.
 type ClientRegistry interface {
 	Register(client PlatformClient)
+	Unregister(name string)
 	Get(name string) (PlatformClient, bool)
 	All() []PlatformClient
 }
