@@ -5,7 +5,9 @@
       <span v-if="loading" class="spinner" />
     </div>
     <div v-if="!loading && points.length === 0" class="empty">No data yet</div>
-    <Line v-else-if="points.length > 0" :data="chartData" :options="chartOptions" class="chart" />
+    <div v-else-if="points.length > 0" class="chart-box">
+      <Line :data="chartData" :options="chartOptions" class="chart" />
+    </div>
   </div>
 </template>
 
@@ -100,7 +102,17 @@ const chartOptions = {
   margin-bottom: 1rem;
 }
 h3 { font-size: 1rem; font-weight: 600; color: #e2e8f0; }
-.chart { height: 220px; }
+.chart-box {
+  position: relative;
+  height: 220px;
+  min-height: 220px;
+  max-height: 220px;
+}
+.chart {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
 .empty { text-align: center; color: #475569; padding: 3rem 0; font-size: .875rem; }
 .spinner {
   width: 14px; height: 14px;
