@@ -8,22 +8,16 @@ import (
 
 type Config struct {
 	App      AppConfig
-	GitLab   GitLabConfig
 	AI       AIConfig
 	Database DatabaseConfig
 	Log      LogConfig
+	// Path to the JSON file that lists all platform clients to monitor.
+	ClientsConfigPath string
 }
 
 type AppConfig struct {
 	Port string
 	Env  string
-}
-
-type GitLabConfig struct {
-	BaseURL       string
-	Token         string
-	WebhookSecret string
-	Username      string
 }
 
 type AIConfig struct {
@@ -52,12 +46,6 @@ func Load() (*Config, error) {
 			Port: getEnv("APP_PORT", "8080"),
 			Env:  getEnv("APP_ENV", "development"),
 		},
-		GitLab: GitLabConfig{
-			BaseURL:       requireEnv("GITLAB_BASE_URL"),
-			Token:         requireEnv("GITLAB_TOKEN"),
-			WebhookSecret: requireEnv("GITLAB_WEBHOOK_SECRET"),
-			Username:      requireEnv("GITLAB_USERNAME"),
-		},
 		AI: AIConfig{
 			BaseURL:        requireEnv("AI_BASE_URL"),
 			Token:          requireEnv("AI_TOKEN"),
@@ -70,6 +58,7 @@ func Load() (*Config, error) {
 		Log: LogConfig{
 			Level: getEnv("LOG_LEVEL", "info"),
 		},
+		ClientsConfigPath: getEnv("CLIENTS_CONFIG_PATH", "./clients.json"),
 	}
 
 	return cfg, nil

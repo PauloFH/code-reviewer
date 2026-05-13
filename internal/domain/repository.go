@@ -1,16 +1,13 @@
 package domain
 
+// ReviewRepository tracks which MRs have already been reviewed per client,
+// guaranteeing idempotency across service restarts.
 type ReviewRepository interface {
-	AlreadyReviewed(projectID, mrIID int64, username string) (bool, error)
-	MarkAsReviewed(projectID, mrIID, mrID int64, username string) error
+	AlreadyReviewed(clientName, projectRef string, mrIID int64, username string) (bool, error)
+	MarkAsReviewed(clientName, projectRef string, mrIID, mrID int64, username string) error
 }
 
-type GitLabClient interface {
-	GetMergeRequest(projectID, mrIID int64) (*MergeRequest, error)
-	GetMergeRequestDiff(projectID, mrIID int64) (string, error)
-	CreateMergeRequestNote(projectID, mrIID int64, body string) error
-}
-
+// AIReviewer sends a diff to an AI API and returns the review text.
 type AIReviewer interface {
 	ReviewDiff(input ReviewInput) (*ReviewResult, error)
 }
