@@ -15,6 +15,7 @@ data/
 coverage.html
 
 # Frontend (built by Vite, embedded in binary)
-internal/transport/http/frontend/dist/
+# Keep the placeholder index.html tracked; ignore compiled assets
+internal/transport/http/frontend/dist/assets/
 web/node_modules/
 web/dist/

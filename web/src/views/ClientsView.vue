@@ -64,11 +64,11 @@
     </div>
 
     <!-- Delete confirm modal -->
-    <div v-if="deleteTarget" class="overlay" @click.self="deleteTarget = null">
+    <div v-if="deleteTarget" class="overlay" @click.self="deleteTarget = ''">
       <div class="modal confirm">
         <p>Delete client <strong>{{ deleteTarget }}</strong>?</p>
         <div class="modal-actions">
-          <button @click="deleteTarget = null">Cancel</button>
+          <button @click="deleteTarget = ''">Cancel</button>
           <button class="danger" @click="doDelete">Delete</button>
         </div>
       </div>
