@@ -75,6 +75,12 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // buildRawWebhook normalises all header keys to lowercase for uniform access.
 func buildRawWebhook(r *http.Request, body []byte) rawWebhookCarrier {
 	headers := make(map[string]string, len(r.Header))
