@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed frontend/dist
@@ -17,11 +18,20 @@ func frontendHandler() http.Handler {
 		panic("frontend/dist not found in embed.FS: " + err.Error())
 	}
 
+	return frontendHandlerFromFS(sub)
+}
+
+func frontendHandlerFromFS(sub fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(sub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Try to serve the exact file; fall back to index.html for SPA routing.
-		f, err := sub.Open(r.URL.Path)
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+
+		f, err := sub.Open(path)
 		if err == nil {
 			f.Close()
 			fileServer.ServeHTTP(w, r)
