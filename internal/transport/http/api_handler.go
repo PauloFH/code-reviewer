@@ -10,7 +10,6 @@ import (
 	"github.com/paulofh/code-reviewer/internal/usecase"
 )
 
-
 // APIHandler serves all /api/v1/ routes.
 type APIHandler struct {
 	eventRepo domain.ReviewEventRepository
@@ -62,6 +61,9 @@ func (h *APIHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if stats != nil && stats.ByClient == nil {
+		stats.ByClient = []domain.ClientStat{}
 	}
 	writeJSON(w, http.StatusOK, stats)
 }
