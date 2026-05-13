@@ -38,6 +38,9 @@ func (m *mockEventRepo) ListEvents(_ domain.ReviewEventFilter) ([]domain.ReviewE
 }
 func (m *mockEventRepo) CountEvents(_ domain.ReviewEventFilter) (int64, error) { return 0, nil }
 func (m *mockEventRepo) GetStats(_ string) (*domain.ReviewStats, error)        { return nil, nil }
+func (m *mockEventRepo) GetDailyCosts(_ string, _ int) ([]domain.DailyCostPoint, error) {
+	return nil, nil
+}
 
 type mockClient struct {
 	name     string

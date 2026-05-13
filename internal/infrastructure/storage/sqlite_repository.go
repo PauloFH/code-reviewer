@@ -168,12 +168,12 @@ func (r *SQLiteRepository) CreateClient(c domain.Client) (*domain.Client, error)
 	return &c, nil
 }
 
-func (r *SQLiteRepository) UpdateClient(c domain.Client) (*domain.Client, error) {
+func (r *SQLiteRepository) UpdateClient(oldName string, c domain.Client) (*domain.Client, error) {
 	now := time.Now().UTC()
 	_, err := r.db.Exec(`
 		UPDATE clients SET name=?,platform=?,base_url=?,token=?,webhook_secret=?,username=?,updated_at=?
 		WHERE name=?`,
-		c.Name, string(c.Platform), c.BaseURL, c.Token, c.WebhookSecret, c.Username, now, c.Name,
+		c.Name, string(c.Platform), c.BaseURL, c.Token, c.WebhookSecret, c.Username, now, oldName,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("updating client: %w", err)
@@ -293,12 +293,14 @@ func (r *SQLiteRepository) GetStats(clientName string) (*domain.ReviewStats, err
 	byClientQ := `
 		SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
 		FROM review_events WHERE status='success'`
+	byClientArgs := []any{}
 	if clientName != "" {
-		byClientQ += ` AND client_name = '` + strings.ReplaceAll(clientName, "'", "''") + `'`
+		byClientQ += ` AND client_name = ?`
+		byClientArgs = append(byClientArgs, clientName)
 	}
 	byClientQ += ` GROUP BY client_name ORDER BY client_name`
 
-	rows, err := r.db.Query(byClientQ)
+	rows, err := r.db.Query(byClientQ, byClientArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("stats by client: %w", err)
 	}
@@ -309,6 +311,42 @@ func (r *SQLiteRepository) GetStats(clientName string) (*domain.ReviewStats, err
 		stats.ByClient = append(stats.ByClient, cs)
 	}
 	return stats, rows.Err()
+}
+
+func (r *SQLiteRepository) GetDailyCosts(clientName string, days int) ([]domain.DailyCostPoint, error) {
+	if days <= 0 {
+		days = 30
+	}
+	q := `
+		SELECT date(reviewed_at) as day,
+		       COALESCE(SUM(cost_usd),0),
+		       COUNT(*)
+		FROM review_events
+		WHERE status='success'
+		  AND reviewed_at >= datetime('now', ? )
+		  AND reviewed_at <= datetime('now')`
+	args := []any{fmt.Sprintf("-%d days", days)}
+	if clientName != "" {
+		q += ` AND client_name = ?`
+		args = append(args, clientName)
+	}
+	q += ` GROUP BY day ORDER BY day ASC`
+
+	rows, err := r.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("daily costs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.DailyCostPoint
+	for rows.Next() {
+		var p domain.DailyCostPoint
+		if err := rows.Scan(&p.Date, &p.CostUSD, &p.Reviews); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

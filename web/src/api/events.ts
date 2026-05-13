@@ -33,6 +33,12 @@ export interface ReviewStats {
   }>
 }
 
+export interface DailyCostPoint {
+  date: string
+  cost_usd: number
+  reviews: number
+}
+
 export interface EventsResponse {
   items: ReviewEvent[]
   total: number
@@ -53,6 +59,11 @@ export async function listEvents(filter: EventFilter = {}): Promise<EventsRespon
 
 export async function getStats(client?: string): Promise<ReviewStats> {
   const res = await http.get('/events/stats', { params: client ? { client } : {} })
+  return res.data
+}
+
+export async function getDailyCosts(client?: string, days = 30): Promise<DailyCostPoint[]> {
+  const res = await http.get('/events/daily', { params: { days, ...(client ? { client } : {}) } })
   return res.data
 }
 

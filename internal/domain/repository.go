@@ -18,7 +18,7 @@ type ClientRepository interface {
 	ListClients() ([]Client, error)
 	GetClient(name string) (*Client, error)
 	CreateClient(c Client) (*Client, error)
-	UpdateClient(c Client) (*Client, error)
+	UpdateClient(oldName string, c Client) (*Client, error)
 	DeleteClient(name string) error
 	// SeedFromConfigs inserts clients that don't already exist (one-time migration).
 	SeedFromConfigs(clients []Client) error
@@ -32,4 +32,5 @@ type ReviewEventRepository interface {
 	ListEvents(filter ReviewEventFilter) ([]ReviewEvent, error)
 	CountEvents(filter ReviewEventFilter) (int64, error)
 	GetStats(clientName string) (*ReviewStats, error)
+	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
 }

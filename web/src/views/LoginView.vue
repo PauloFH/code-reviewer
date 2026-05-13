@@ -12,6 +12,7 @@
         <input v-model="password" type="password" autocomplete="current-password" required />
       </label>
       <button type="submit" :disabled="loading">
+        <span v-if="loading" class="btn-spinner" />
         {{ loading ? 'Signing in…' : 'Sign in' }}
       </button>
     </form>
@@ -83,6 +84,15 @@ button {
   font-size: 1rem;
   cursor: pointer;
 }
+button { display: flex; align-items: center; justify-content: center; gap: .5rem; }
 button:disabled { opacity: .6; cursor: not-allowed; }
+.btn-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .error { color: #f87171; font-size: .85rem; }
 </style>

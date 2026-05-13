@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 	"github.com/paulofh/code-reviewer/internal/usecase"
 )
+
 
 // APIHandler serves all /api/v1/ routes.
 type APIHandler struct {
@@ -66,6 +66,20 @@ func (h *APIHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+func (h *APIHandler) GetDailyCosts(w http.ResponseWriter, r *http.Request) {
+	clientName := r.URL.Query().Get("client")
+	days := intQuery(r, "days", 30)
+	points, err := h.eventRepo.GetDailyCosts(clientName, days)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if points == nil {
+		points = []domain.DailyCostPoint{}
+	}
+	writeJSON(w, http.StatusOK, points)
+}
+
 // ── Clients ───────────────────────────────────────────────────────────────────
 
 func (h *APIHandler) ListClients(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +92,7 @@ func (h *APIHandler) ListClients(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) GetClient(w http.ResponseWriter, r *http.Request) {
-	name := pathParam(r, "name")
+	name := r.PathValue("name")
 	client, err := h.clientSvc.GetClient(name)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -106,7 +120,7 @@ func (h *APIHandler) CreateClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
-	oldName := pathParam(r, "name")
+	oldName := r.PathValue("name")
 	var c domain.Client
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -121,7 +135,7 @@ func (h *APIHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
-	name := pathParam(r, "name")
+	name := r.PathValue("name")
 	if err := h.clientSvc.DeleteClient(name); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -131,7 +145,6 @@ func (h *APIHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// redactClient masks the token and webhook_secret fields.
 func redactClient(c domain.Client) domain.Client {
 	c.Token = "***"
 	c.WebhookSecret = "***"
@@ -160,15 +173,4 @@ func intQuery(r *http.Request, key string, def int) int {
 		}
 	}
 	return def
-}
-
-// pathParam extracts the last path segment after the final slash.
-// e.g. /api/v1/clients/my-client → "my-client"
-func pathParam(r *http.Request, _ string) string {
-	path := strings.TrimRight(r.URL.Path, "/")
-	idx := strings.LastIndex(path, "/")
-	if idx < 0 {
-		return path
-	}
-	return path[idx+1:]
 }

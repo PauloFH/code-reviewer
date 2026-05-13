@@ -1,11 +1,14 @@
 <template>
-  <div>
+  <div class="page">
     <div class="header">
       <h2>Clients</h2>
       <button @click="openCreate">+ New Client</button>
     </div>
 
-    <div class="table-wrap">
+    <div v-if="loading" class="loading-row">
+      <span class="spinner" /> Loading…
+    </div>
+    <div v-else class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -20,11 +23,11 @@
           <tr v-for="c in clients" :key="c.name">
             <td>{{ c.name }}</td>
             <td><span class="badge">{{ c.platform }}</span></td>
-            <td>{{ c.base_url }}</td>
+            <td class="url">{{ c.base_url }}</td>
             <td>{{ c.username }}</td>
             <td class="actions">
               <button @click="openEdit(c)">Edit</button>
-              <button class="danger" @click="confirmDelete(c.name)">Delete</button>
+              <button class="danger" @click="deleteTarget = c.name">Delete</button>
             </td>
           </tr>
           <tr v-if="clients.length === 0">
@@ -35,41 +38,24 @@
     </div>
 
     <!-- Create / Edit modal -->
-    <div v-if="modal" class="overlay" @click.self="modal = null">
-      <div class="modal">
-        <h3>{{ editingName ? 'Edit Client' : 'New Client' }}</h3>
-        <p v-if="formError" class="error">{{ formError }}</p>
-        <form @submit.prevent="saveClient">
-          <label>Name <input v-model="form.name" required /></label>
-          <label>
-            Platform
-            <select v-model="form.platform" required>
-              <option value="gitlab">GitLab</option>
-              <option value="gitlab-selfhosted">GitLab Self-hosted</option>
-              <option value="github">GitHub</option>
-              <option value="gitea">Gitea</option>
-              <option value="gitea-selfhosted">Gitea Self-hosted</option>
-            </select>
-          </label>
-          <label>Base URL <input v-model="form.base_url" placeholder="https://gitlab.com" required /></label>
-          <label>API Token <input v-model="form.token" type="password" /></label>
-          <label>Webhook Secret <input v-model="form.webhook_secret" type="password" /></label>
-          <label>Watch Username <input v-model="form.username" required /></label>
-          <div class="modal-actions">
-            <button type="button" @click="modal = null">Cancel</button>
-            <button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ClientForm
+      v-if="showForm"
+      :initial="editingClient"
+      ref="formRef"
+      @close="showForm = false"
+      @saved="handleSaved"
+    />
 
-    <!-- Delete confirm modal -->
+    <!-- Delete confirm -->
     <div v-if="deleteTarget" class="overlay" @click.self="deleteTarget = ''">
-      <div class="modal confirm">
+      <div class="confirm-modal">
         <p>Delete client <strong>{{ deleteTarget }}</strong>?</p>
-        <div class="modal-actions">
+        <div class="confirm-actions">
           <button @click="deleteTarget = ''">Cancel</button>
-          <button class="danger" @click="doDelete">Delete</button>
+          <button class="danger" :disabled="deleting" @click="doDelete">
+            <span v-if="deleting" class="spinner" />
+            {{ deleting ? 'Deleting…' : 'Delete' }}
+          </button>
         </div>
       </div>
     </div>
@@ -78,88 +64,99 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import ClientForm from '@/components/ClientForm.vue'
+import { useToastStore } from '@/stores/toast'
 import { listClients, createClient, updateClient, deleteClient, type Client, type ClientInput } from '@/api/clients'
 
-const clients = ref<Client[]>([])
-const modal = ref<'create' | 'edit' | null>(null)
-const editingName = ref('')
-const deleteTarget = ref('')
-const saving = ref(false)
-const formError = ref('')
+const toast = useToastStore()
 
-const emptyForm = (): ClientInput => ({
-  name: '', platform: 'gitlab', base_url: '', token: '', webhook_secret: '', username: '',
-})
-const form = ref<ClientInput>(emptyForm())
+const clients = ref<Client[]>([])
+const loading = ref(false)
+const deleting = ref(false)
+const showForm = ref(false)
+const editingClient = ref<Client | null>(null)
+const deleteTarget = ref('')
+const formRef = ref<InstanceType<typeof ClientForm> | null>(null)
 
 onMounted(load)
 
 async function load() {
-  clients.value = await listClients()
-}
-
-function openCreate() {
-  form.value = emptyForm()
-  editingName.value = ''
-  formError.value = ''
-  modal.value = 'create'
-}
-
-function openEdit(c: Client) {
-  form.value = { name: c.name, platform: c.platform, base_url: c.base_url, token: '', webhook_secret: '', username: c.username }
-  editingName.value = c.name
-  formError.value = ''
-  modal.value = 'edit'
-}
-
-async function saveClient() {
-  formError.value = ''
-  saving.value = true
+  loading.value = true
   try {
-    if (editingName.value) {
-      await updateClient(editingName.value, form.value)
-    } else {
-      await createClient(form.value)
-    }
-    modal.value = null
-    await load()
-  } catch (e: unknown) {
-    formError.value = (e as { response?: { data?: string } })?.response?.data || 'An error occurred'
+    clients.value = await listClients()
+  } catch {
+    toast.push('Failed to load clients', 'error')
   } finally {
-    saving.value = false
+    loading.value = false
   }
 }
 
-function confirmDelete(name: string) {
-  deleteTarget.value = name
+function openCreate() {
+  editingClient.value = null
+  showForm.value = true
+}
+
+function openEdit(c: Client) {
+  editingClient.value = c
+  showForm.value = true
+}
+
+async function handleSaved(data: ClientInput & { _oldName?: string }) {
+  formRef.value?.setSaving(true)
+  try {
+    if (data._oldName) {
+      const { _oldName, ...rest } = data
+      await updateClient(_oldName, rest)
+      toast.push('Client updated', 'success')
+    } else {
+      await createClient(data)
+      toast.push('Client created', 'success')
+    }
+    showForm.value = false
+    await load()
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: string } })?.response?.data || 'An error occurred'
+    formRef.value?.setError(msg)
+    formRef.value?.setSaving(false)
+  }
 }
 
 async function doDelete() {
   if (!deleteTarget.value) return
-  await deleteClient(deleteTarget.value)
-  deleteTarget.value = ''
-  await load()
+  deleting.value = true
+  try {
+    await deleteClient(deleteTarget.value)
+    toast.push(`Client "${deleteTarget.value}" deleted`, 'success')
+    deleteTarget.value = ''
+    await load()
+  } catch {
+    toast.push('Failed to delete client', 'error')
+  } finally {
+    deleting.value = false
+  }
 }
 </script>
 
 <style scoped>
+.page { display: flex; flex-direction: column; gap: 1.25rem; }
 h2 { font-size: 1.5rem; font-weight: 700; color: #f8fafc; }
-.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
-.header button { padding: .5rem 1rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; }
+.header { display: flex; align-items: center; justify-content: space-between; }
+.header button {
+  padding: .5rem 1rem; background: #6366f1; color: white;
+  border: none; border-radius: 6px; cursor: pointer; font-size: .875rem;
+}
+.loading-row { display: flex; align-items: center; gap: .5rem; color: #64748b; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: .875rem; }
-th { text-align: left; padding: .6rem .75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; }
-td { padding: .6rem .75rem; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+th { text-align: left; padding: .6rem .75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; white-space: nowrap; }
+td { padding: .6rem .75rem; border-bottom: 1px solid #0f172a; color: #cbd5e1; }
+.url { font-size: .8rem; color: #94a3b8; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: .7rem; padding: .15rem .5rem; border-radius: 999px; background: #1e3a5f; color: #93c5fd; }
 .actions { display: flex; gap: .5rem; }
 .actions button {
-  padding: .3rem .6rem;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: .8rem;
+  padding: .3rem .6rem; border: 1px solid #334155; background: #1e293b;
+  color: #e2e8f0; border-radius: 4px; cursor: pointer; font-size: .8rem;
+  display: flex; align-items: center; gap: .3rem;
 }
 .actions button.danger { color: #f87171; border-color: #7f1d1d; }
 .empty { text-align: center; color: #475569; padding: 2rem; }
@@ -167,25 +164,25 @@ td { padding: .6rem .75rem; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
-.modal {
+.confirm-modal {
   background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; width: 100%; max-width: 480px;
+  padding: 1.5rem; max-width: 360px; width: 100%; text-align: center;
 }
-.modal h3 { font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 1rem; }
-.modal form { display: flex; flex-direction: column; gap: .75rem; }
-.modal label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; color: #94a3b8; }
-.modal input, .modal select {
-  padding: .5rem .75rem; background: #0f172a; border: 1px solid #475569;
-  border-radius: 6px; color: #e2e8f0; font-size: .875rem;
-}
-.modal-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: .5rem; }
-.modal-actions button {
+.confirm-modal p { color: #e2e8f0; margin-bottom: 1.5rem; }
+.confirm-actions { display: flex; justify-content: center; gap: .75rem; }
+.confirm-actions button {
   padding: .5rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: .875rem;
   border: 1px solid #334155; background: #334155; color: #e2e8f0;
+  display: flex; align-items: center; gap: .4rem;
 }
-.modal-actions button[type="submit"] { background: #6366f1; border-color: #6366f1; color: white; }
-.modal-actions button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
-.confirm { text-align: center; }
-.confirm p { color: #e2e8f0; margin-bottom: 1.5rem; }
-.error { color: #f87171; font-size: .8rem; margin-bottom: .5rem; }
+.confirm-actions button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
+.confirm-actions button:disabled { opacity: .6; cursor: not-allowed; }
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

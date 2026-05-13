@@ -66,6 +66,10 @@ func NewRouter(
 		http.HandlerFunc(api.GetStats),
 		jwtMiddleware,
 	))
+	mux.Handle("GET /api/v1/events/daily", chain(
+		http.HandlerFunc(api.GetDailyCosts),
+		jwtMiddleware,
+	))
 	mux.Handle("GET /api/v1/events/stream", chain(
 		http.HandlerFunc(broadcaster.ServeSSE),
 		jwtMiddleware,
@@ -76,15 +80,15 @@ func NewRouter(
 	))
 
 	// ── Clients ───────────────────────────────────────────────────────────────
-	mux.Handle("GET /api/v1/clients/", chain(
+	mux.Handle("GET /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.GetClient),
 		jwtMiddleware,
 	))
-	mux.Handle("PUT /api/v1/clients/", chain(
+	mux.Handle("PUT /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.UpdateClient),
 		jwtMiddleware,
 	))
-	mux.Handle("DELETE /api/v1/clients/", chain(
+	mux.Handle("DELETE /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.DeleteClient),
 		jwtMiddleware,
 	))

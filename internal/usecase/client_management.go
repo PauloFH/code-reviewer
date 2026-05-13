@@ -68,7 +68,7 @@ func (s *ClientManagementService) CreateClient(c domain.Client) (*domain.Client,
 }
 
 func (s *ClientManagementService) UpdateClient(oldName string, c domain.Client) (*domain.Client, error) {
-	updated, err := s.clientRepo.UpdateClient(c)
+	updated, err := s.clientRepo.UpdateClient(oldName, c)
 	if err != nil {
 		return nil, err
 	}

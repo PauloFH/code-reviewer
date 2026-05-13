@@ -57,3 +57,10 @@ type ClientStat struct {
 	TotalTokens  int64
 	TotalCostUSD float64
 }
+
+// DailyCostPoint is one data point in the 30-day cost chart.
+type DailyCostPoint struct {
+	Date    string  // "YYYY-MM-DD"
+	CostUSD float64
+	Reviews int64
+}
