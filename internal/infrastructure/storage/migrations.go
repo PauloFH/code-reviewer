@@ -51,3 +51,27 @@ CREATE INDEX IF NOT EXISTS idx_review_events_client
 
 CREATE INDEX IF NOT EXISTS idx_review_events_time
     ON review_events(reviewed_at DESC);`
+
+// migration003 adds the prompts library and scope-based assignments.
+const migration003 = `
+CREATE TABLE IF NOT EXISTS prompts (
+    id              INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name            TEXT     NOT NULL UNIQUE,
+    system_prompt   TEXT     NOT NULL DEFAULT '',
+    output_template TEXT     NOT NULL DEFAULT '',
+    created_at      DATETIME NOT NULL,
+    updated_at      DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_assignments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_id    INTEGER NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+    scope        TEXT    NOT NULL CHECK(scope IN ('global','client','project')),
+    client_name  TEXT    NOT NULL DEFAULT '',
+    project_ref  TEXT    NOT NULL DEFAULT '',
+    UNIQUE(scope, client_name, project_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_assignments_lookup
+    ON prompt_assignments(client_name, project_ref);
+`

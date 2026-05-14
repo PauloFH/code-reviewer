@@ -5,6 +5,8 @@ import "time"
 type ReviewInput struct {
 	MergeRequest *MergeRequest
 	Diff         string
+	ClientName   string
+	ProjectRef   string
 }
 
 // TokenUsage holds token consumption data returned by the AI API.

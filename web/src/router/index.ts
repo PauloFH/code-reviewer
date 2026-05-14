@@ -33,6 +33,11 @@ const router = createRouter({
           name: 'clients',
           component: () => import('@/views/ClientsView.vue'),
         },
+        {
+          path: 'prompts',
+          name: 'prompts',
+          component: () => import('@/views/PromptsView.vue'),
+        },
       ],
     },
   ],

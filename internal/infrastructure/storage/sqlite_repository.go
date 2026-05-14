@@ -53,6 +53,7 @@ func runMigrations(db *sql.DB) error {
 	pending := []migration{
 		{1, migration001},
 		{2, migration002},
+		{3, migration003},
 	}
 
 	for _, m := range pending {
@@ -405,4 +406,171 @@ func nullString(s string) any {
 
 func (r *SQLiteRepository) Close() error {
 	return r.db.Close()
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// domain.PromptRepository
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (r *SQLiteRepository) ListPrompts() ([]domain.Prompt, error) {
+	rows, err := r.db.Query(`SELECT id, name, system_prompt, output_template, created_at, updated_at FROM prompts ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("listing prompts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.Prompt
+	for rows.Next() {
+		p, err := scanPrompt(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (r *SQLiteRepository) GetPrompt(id int64) (*domain.Prompt, error) {
+	row := r.db.QueryRow(`SELECT id, name, system_prompt, output_template, created_at, updated_at FROM prompts WHERE id=?`, id)
+	p, err := scanPrompt(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *SQLiteRepository) CreatePrompt(p domain.Prompt) (*domain.Prompt, error) {
+	now := time.Now().UTC()
+	res, err := r.db.Exec(`INSERT INTO prompts(name, system_prompt, output_template, created_at, updated_at) VALUES(?,?,?,?,?)`,
+		p.Name, p.SystemPrompt, p.OutputTemplate, now, now)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return nil, fmt.Errorf("prompt %q already exists", p.Name)
+		}
+		return nil, fmt.Errorf("creating prompt: %w", err)
+	}
+	id, _ := res.LastInsertId()
+	p.ID = id
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	return &p, nil
+}
+
+func (r *SQLiteRepository) UpdatePrompt(id int64, p domain.Prompt) (*domain.Prompt, error) {
+	now := time.Now().UTC()
+	_, err := r.db.Exec(`UPDATE prompts SET name=?, system_prompt=?, output_template=?, updated_at=? WHERE id=?`,
+		p.Name, p.SystemPrompt, p.OutputTemplate, now, id)
+	if err != nil {
+		return nil, fmt.Errorf("updating prompt: %w", err)
+	}
+	p.ID = id
+	p.UpdatedAt = now
+	return &p, nil
+}
+
+func (r *SQLiteRepository) DeletePrompt(id int64) error {
+	_, err := r.db.Exec(`DELETE FROM prompts WHERE id=?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting prompt: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) SetAssignment(a domain.PromptAssignment) error {
+	_, err := r.db.Exec(`INSERT OR REPLACE INTO prompt_assignments(prompt_id, scope, client_name, project_ref) VALUES(?,?,?,?)`,
+		a.PromptID, a.Scope, a.ClientName, a.ProjectRef)
+	if err != nil {
+		return fmt.Errorf("setting prompt assignment: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) RemoveAssignment(scope, clientName, projectRef string) error {
+	_, err := r.db.Exec(`DELETE FROM prompt_assignments WHERE scope=? AND client_name=? AND project_ref=?`,
+		scope, clientName, projectRef)
+	if err != nil {
+		return fmt.Errorf("removing prompt assignment: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) ListAssignments() ([]domain.PromptAssignment, error) {
+	rows, err := r.db.Query(`
+		SELECT a.id, a.prompt_id, p.name, a.scope, a.client_name, a.project_ref
+		FROM prompt_assignments a
+		JOIN prompts p ON p.id = a.prompt_id
+		ORDER BY a.scope, a.client_name, a.project_ref`)
+	if err != nil {
+		return nil, fmt.Errorf("listing assignments: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.PromptAssignment
+	for rows.Next() {
+		var a domain.PromptAssignment
+		if err := rows.Scan(&a.ID, &a.PromptID, &a.PromptName, &a.Scope, &a.ClientName, &a.ProjectRef); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (r *SQLiteRepository) ResolvePrompt(clientName, projectRef string) (*domain.Prompt, error) {
+	// project-level
+	row := r.db.QueryRow(`
+		SELECT p.id, p.name, p.system_prompt, p.output_template, p.created_at, p.updated_at
+		FROM prompts p JOIN prompt_assignments a ON a.prompt_id = p.id
+		WHERE a.scope='project' AND a.client_name=? AND a.project_ref=?`,
+		clientName, projectRef)
+	p, err := scanPrompt(row)
+	if err == nil {
+		return &p, nil
+	}
+
+	// client-level
+	row = r.db.QueryRow(`
+		SELECT p.id, p.name, p.system_prompt, p.output_template, p.created_at, p.updated_at
+		FROM prompts p JOIN prompt_assignments a ON a.prompt_id = p.id
+		WHERE a.scope='client' AND a.client_name=? AND a.project_ref=''`,
+		clientName)
+	p, err = scanPrompt(row)
+	if err == nil {
+		return &p, nil
+	}
+
+	// global
+	row = r.db.QueryRow(`
+		SELECT p.id, p.name, p.system_prompt, p.output_template, p.created_at, p.updated_at
+		FROM prompts p JOIN prompt_assignments a ON a.prompt_id = p.id
+		WHERE a.scope='global'`)
+	p, err = scanPrompt(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func scanPrompt(s scanner) (domain.Prompt, error) {
+	var p domain.Prompt
+	var createdAt, updatedAt string
+	err := s.Scan(&p.ID, &p.Name, &p.SystemPrompt, &p.OutputTemplate, &createdAt, &updatedAt)
+	if err != nil {
+		return p, err
+	}
+	p.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	}
+	p.UpdatedAt, _ = time.Parse("2006-01-02T15:04:05Z", updatedAt)
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	}
+	return p, nil
 }

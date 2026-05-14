@@ -18,6 +18,9 @@
         <router-link to="/clients">
           <span class="icon">⚙</span> Clients
         </router-link>
+        <router-link to="/prompts">
+          <span class="icon">✎</span> Prompts
+        </router-link>
       </nav>
       <button class="logout" @click="handleLogout">Logout</button>
     </aside>
