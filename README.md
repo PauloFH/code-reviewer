@@ -126,6 +126,7 @@ O dashboard inclui:
 - **Dashboard** — stats globais, custo diário (gráfico 30 dias), breakdown por cliente, live feed SSE
 - **Events** — tabela paginada com filtros por cliente e período; tokens + custo por review
 - **Clients** — CRUD completo de plataformas monitoradas sem precisar editar arquivos
+- **Prompts** — biblioteca de prompts reutilizáveis com editor rich text (Tiptap) para system prompt e template de saída; atribuição hierárquica (global → client → projeto)
 
 ### Usando a API REST
 
@@ -162,6 +163,14 @@ curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
 | `GET` | `/api/v1/clients/{name}` | Detalhe de um client |
 | `PUT` | `/api/v1/clients/{name}` | Atualiza client (suporta rename) |
 | `DELETE` | `/api/v1/clients/{name}` | Remove client |
+| `GET` | `/api/v1/prompts` | Lista prompts |
+| `POST` | `/api/v1/prompts` | Cria prompt |
+| `GET` | `/api/v1/prompts/{id}` | Busca prompt por ID |
+| `PUT` | `/api/v1/prompts/{id}` | Atualiza prompt |
+| `DELETE` | `/api/v1/prompts/{id}` | Remove prompt |
+| `GET` | `/api/v1/prompts/assignments` | Lista atribuições |
+| `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição (upsert) |
+| `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
 
 ---
 
@@ -294,10 +303,10 @@ go tool cover -html=coverage.out -o coverage.html
 │   └── usecase/                               # Pipeline de review + CRUD de clients + custo
 ├── web/                                       # Frontend Vue 3 + TypeScript + Vite
 │   └── src/
-│       ├── views/                             # Login, Dashboard, Events, Clients
-│       ├── components/                        # StatsCards, CostChart, LiveFeed, etc.
+│       ├── views/                             # Login, Dashboard, Events, Clients, Prompts
+│       ├── components/                        # StatsCards, CostChart, LiveFeed, RichTextEditor, etc.
 │       ├── stores/                            # Pinia: auth, toast
-│       └── api/                               # Axios: events, clients, auth
+│       └── api/                               # Axios: events, clients, auth, prompts
 ├── clients.example.json                       # Modelo de clients.json
 ├── .env.example                               # Modelo de .env
 ├── Dockerfile                                 # Multi-stage: Node (Vite) + Go (CGo)
@@ -316,6 +325,29 @@ go tool cover -html=coverage.out -o coverage.html
 6. Atualize a validação em `config/clients.go`.
 
 Nenhuma outra parte do código precisa ser alterada.
+
+---
+
+## Sistema de Prompts
+
+O system prompt e o template de saída do review são configuráveis via dashboard, com hierarquia de prioridade:
+
+```
+Projeto específico  >  Client (provedor Git)  >  Global
+```
+
+### Como funciona
+
+1. Acesse a aba **Prompts** no dashboard.
+2. Crie um prompt com nome, system prompt e template de saída usando o editor rich text.
+3. Atribua o prompt a um escopo:
+   - **Global** — usado como padrão quando nenhum prompt mais específico está configurado
+   - **Client** — vale para todos os repositórios de um provedor Git (ex: "gitlab-cloud")
+   - **Projeto** — vale para um repositório específico (ex: "gitlab-cloud" + "org/meu-repo")
+
+Quando um webhook chega, o sistema resolve o prompt mais específico disponível. Se nenhum prompt estiver configurado, usa o prompt padrão hardcoded.
+
+Um mesmo prompt pode ser reutilizado em múltiplas atribuições — funciona como uma biblioteca.
 
 ---
 

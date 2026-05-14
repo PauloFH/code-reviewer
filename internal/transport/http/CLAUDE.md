@@ -23,6 +23,14 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 | GET | `/api/v1/clients/{name}` | JWT | APIHandler.GetClient |
 | PUT | `/api/v1/clients/{name}` | JWT | APIHandler.UpdateClient |
 | DELETE | `/api/v1/clients/{name}` | JWT | APIHandler.DeleteClient |
+| GET | `/api/v1/prompts` | JWT | PromptHandler.ListPrompts |
+| POST | `/api/v1/prompts` | JWT | PromptHandler.CreatePrompt |
+| GET | `/api/v1/prompts/{id}` | JWT | PromptHandler.GetPrompt |
+| PUT | `/api/v1/prompts/{id}` | JWT | PromptHandler.UpdatePrompt |
+| DELETE | `/api/v1/prompts/{id}` | JWT | PromptHandler.DeletePrompt |
+| GET | `/api/v1/prompts/assignments` | JWT | PromptHandler.ListAssignments |
+| PUT | `/api/v1/prompts/assignments` | JWT | PromptHandler.SetAssignment |
+| DELETE | `/api/v1/prompts/assignments` | JWT | PromptHandler.RemoveAssignment |
 | `/*` | SPA catch-all | — | frontendHandler |
 
 `{name}` usa Go 1.22 `r.PathValue("name")`.
@@ -37,6 +45,12 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 - `APIHandler` — endpoints `/api/v1/events/*` e `/api/v1/clients/*`
 - Token e webhook_secret retornados como `"***"` (redact)
 - Paginação via `?limit=` e `?offset=`; filtros via `?client=`, `?since=`, `?until=`
+
+### `prompt_handler.go`
+- `PromptHandler` — endpoints `/api/v1/prompts/*` e `/api/v1/prompts/assignments`
+- CRUD de prompts (nome, system_prompt HTML, output_template HTML)
+- Atribuições: upsert por (scope, client_name, project_ref); remoção via query params
+- Validação: scope deve ser `global`, `client` ou `project`; `prompt_id` obrigatório
 
 ### `sse.go`
 - `EventBroadcaster` — fan-out não-bloqueante de `domain.ReviewEvent` para N clientes SSE

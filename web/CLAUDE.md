@@ -2,7 +2,7 @@
 
 ## Stack
 
-Vue 3 + TypeScript + Vite. Pinia for state, axios for HTTP, Chart.js / vue-chartjs for the cost graph. No UI library — all styling is hand-written scoped CSS with a dark (`#0f172a` / Slate) palette.
+Vue 3 + TypeScript + Vite. Pinia for state, axios for HTTP, Chart.js / vue-chartjs for the cost graph, Tiptap for rich text editing. No UI library — all styling is hand-written scoped CSS with a dark (`#0f172a` / Slate) palette.
 
 ## Comandos
 
@@ -55,6 +55,7 @@ web/
 | `/dashboard` | dashboard | não | DashboardView.vue |
 | `/events` | events | não | EventsView.vue |
 | `/clients` | clients | não | ClientsView.vue |
+| `/prompts` | prompts | não | PromptsView.vue |
 | `/` | — | — | redirect → /dashboard |
 
 `/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).

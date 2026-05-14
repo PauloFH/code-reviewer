@@ -12,25 +12,39 @@ const systemPrompt = `Você é um revisor sênior de código com ampla experiên
 Sua tarefa é revisar o diff de um Merge Request de forma objetiva, direta e em português brasileiro.
 Não faça comentários genéricos. Foque apenas no que está no diff recebido.`
 
-const defaultOutputFormat = `## Revisão automática do Merge Request
+const defaultOutputFormat = `## Guia do Revisor
 
-### Resumo
-(breve descrição do que o MR faz)
+(Resumo de 2-3 frases explicando o que o MR faz e qual o impacto arquitetural)
+
+### Diagrama de sequência
+
+(Se aplicável — diagrama Mermaid mostrando o fluxo principal introduzido ou modificado)
+
+### Diagrama de classes/componentes
+
+(Se aplicável — diagrama Mermaid mostrando novos tipos, interfaces ou relações entre módulos)
+
+### Alterações por arquivo
+
+| Mudança | Detalhes | Arquivos |
+|---------|----------|----------|
+| (descrição curta) | - detalhe 1<br>- detalhe 2 | path/to/file.go |
 
 ### Pontos de atenção
-- ...
+- (bugs, vulnerabilidades, race conditions, edge cases não tratados)
 
-### Possíveis melhorias
-- ...
+### Sugestões de melhoria
+- (refatorações, simplificações, melhor nomenclatura, padrões mais adequados)
 
-### Riscos encontrados
-- ...
+### Riscos
+- (breaking changes, impacto em performance, regressões possíveis)
 
 ### Testes sugeridos
-- ...
+- (cenários que deveriam ter cobertura de teste)
 
 ### Conclusão
-(veredicto geral: aprovado, aprovado com ressalvas, ou solicitar alterações)`
+
+(Veredicto: ✅ Aprovado | ⚠️ Aprovado com ressalvas | ❌ Solicitar alterações — com justificativa breve)`
 
 const maxDiffBytes = 80_000
 
