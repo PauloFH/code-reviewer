@@ -68,14 +68,14 @@ defineExpose({
 .overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,.6);
-  display: flex; align-items: flex-start; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   z-index: 100;
-  padding-top: 5vh;
-  overflow-y: auto;
+  padding: 2vh 1rem;
 }
 .modal {
   background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; width: 100%; max-width: 700px; margin-bottom: 5vh;
+  padding: 1.5rem; width: 100%; max-width: 700px;
+  max-height: 90vh; overflow-y: auto;
 }
 h3 { font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 1rem; }
 form { display: flex; flex-direction: column; gap: 1rem; }
