@@ -18,10 +18,14 @@ Cliente HTTP para APIs de IA compatíveis com `chat/completions`.
 - Retorna erro descritivo em status >= 300 ou response vazia
 
 **`prompt.go`** — monta o prompt e filtra o diff:
-- `buildPrompt(input)` — formata título, URL, descrição e diff em português
+- `buildPrompt(input, outputTemplate)` — formata título, URL, descrição e diff em português; usa `outputTemplate` se fornecido, senão `defaultOutputFormat`
 - `filterDiff(raw)` — remove hunks de arquivos irrelevantes (lockfiles, dist/, vendor/, *.min.js, etc.)
 - `isIrrelevant(path)` — classifica um arquivo como relevante ou não
 - `maxDiffBytes = 80_000` — limite de truncagem do diff
+- `defaultOutputFormat` — formato padrão de saída (Resumo, Pontos de atenção, etc.)
+
+**`html_to_text.go`** — converte HTML do editor Tiptap para texto plano:
+- `htmlToPlainText(html)` — substitui tags de bloco por newlines, lista items por `- `, strip demais tags, decode entidades HTML
 
 Para mudar a lista de arquivos ignorados, edite `irrelevantPatterns` em `prompt.go`.
 

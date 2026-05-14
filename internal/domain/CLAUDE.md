@@ -29,6 +29,10 @@ Este pacote **não pode importar nenhum pacote externo**. Apenas stdlib Go. Qual
 ### `client.go`
 - `Client` — entidade de um client de plataforma gerenciado (espelho de `config.ClientConfig` no domínio para evitar ciclo de imports). Todos os campos têm json tags snake_case.
 
+### `prompt.go`
+- `Prompt` — entidade de um prompt reutilizável com `SystemPrompt` e `OutputTemplate` (armazenados como HTML do editor Tiptap). Todos os campos têm json tags snake_case.
+- `PromptAssignment` — vincula um `Prompt` a um escopo: `"global"`, `"client"` ou `"project"`. Campos `ClientName` e `ProjectRef` definem a especificidade.
+
 ### `review_event.go`
 - `ReviewEvent` — registro completo de um processamento de webhook (tokens, custo, duração, status)
 - `ReviewEventFilter` — filtros para consulta de eventos
@@ -43,6 +47,7 @@ Interfaces de persistência:
 - `AIReviewer` — contrato do cliente de IA
 - `ClientRepository` — CRUD de clients + `SeedFromConfigs` + `CountClients`
 - `ReviewEventRepository` — `SaveEvent`, `ListEvents`, `CountEvents`, `GetStats`, `GetDailyCosts`
+- `PromptRepository` — CRUD de prompts + atribuições + `ResolvePrompt(clientName, projectRef)` (hierarquia projeto > client > global)
 
 ## Onde mexer
 

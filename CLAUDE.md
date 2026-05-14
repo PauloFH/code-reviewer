@@ -67,10 +67,14 @@ Implemente `domain.AIReviewer` em um novo pacote e substitua a injeção em `mai
 | Arquivo | Papel |
 |---|---|
 | `internal/domain/platform.go` | Interface Strategy `PlatformClient` |
-| `internal/domain/repository.go` | Interfaces `ReviewRepository` e `AIReviewer` |
+| `internal/domain/repository.go` | Interfaces `ReviewRepository`, `AIReviewer`, `PromptRepository` |
+| `internal/domain/prompt.go` | Entidades `Prompt` e `PromptAssignment` |
 | `internal/infrastructure/platform/factory.go` | Ponto de extensão para novas plataformas |
+| `internal/infrastructure/ai/prompt.go` | Construção do prompt + filtro de diff |
+| `internal/infrastructure/ai/html_to_text.go` | Conversão HTML (Tiptap) → texto plano |
 | `internal/usecase/process_merge_request.go` | Toda a regra de negócio |
 | `internal/transport/http/router.go` | Rotas HTTP e wiring de middlewares |
+| `internal/transport/http/prompt_handler.go` | CRUD de prompts e atribuições |
 | `cmd/server/main.go` | Wiring de dependências e boot |
 | `clients.json` | Configuração dos clientes monitorados (não commitado) |
 
@@ -90,6 +94,14 @@ go run ./cmd/server
 |---|---|---|
 | `POST` | `/webhook/{clientName}` | Recebe webhook de qualquer plataforma |
 | `GET` | `/healthz` | Liveness probe |
+| `GET` | `/api/v1/prompts` | Lista prompts |
+| `POST` | `/api/v1/prompts` | Cria prompt |
+| `GET` | `/api/v1/prompts/{id}` | Busca prompt por ID |
+| `PUT` | `/api/v1/prompts/{id}` | Atualiza prompt |
+| `DELETE` | `/api/v1/prompts/{id}` | Remove prompt |
+| `GET` | `/api/v1/prompts/assignments` | Lista atribuições de prompts |
+| `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição |
+| `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
 
 ## Variáveis de ambiente obrigatórias
 
