@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { createEventSource, type ReviewEvent } from '@/api/events'
+import { createEventSource, listEvents, type ReviewEvent } from '@/api/events'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -44,8 +44,18 @@ const feedEl = ref<HTMLElement | null>(null)
 
 let es: EventSource | null = null
 
-onMounted(startSSE)
+onMounted(async () => {
+  await loadRecent()
+  startSSE()
+})
 onUnmounted(() => es?.close())
+
+async function loadRecent() {
+  try {
+    const res = await listEvents({ limit: 20 })
+    feed.value = (res.items || []).filter(e => e.status === 'success')
+  } catch { /* ignore */ }
+}
 
 function startSSE() {
   if (!auth.token) return
@@ -55,8 +65,9 @@ function startSSE() {
   es.onmessage = (ev) => {
     try {
       const e: ReviewEvent = JSON.parse(ev.data)
+      if (e.status !== 'success') return
       feed.value.unshift(e)
-      if (feed.value.length > 100) feed.value.pop()
+      if (feed.value.length > 50) feed.value.pop()
     } catch { /* ignore */ }
   }
 }
