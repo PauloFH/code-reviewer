@@ -34,3 +34,16 @@ type ReviewEventRepository interface {
 	GetStats(clientName string) (*ReviewStats, error)
 	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
 }
+
+// PromptRepository manages the prompt library and scope-based assignments.
+type PromptRepository interface {
+	ListPrompts() ([]Prompt, error)
+	GetPrompt(id int64) (*Prompt, error)
+	CreatePrompt(p Prompt) (*Prompt, error)
+	UpdatePrompt(id int64, p Prompt) (*Prompt, error)
+	DeletePrompt(id int64) error
+	SetAssignment(a PromptAssignment) error
+	RemoveAssignment(scope, clientName, projectRef string) error
+	ListAssignments() ([]PromptAssignment, error)
+	ResolvePrompt(clientName, projectRef string) (*Prompt, error)
+}

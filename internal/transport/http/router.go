@@ -37,6 +37,7 @@ func NewRouter(
 	registry domain.ClientRegistry,
 	auth *AuthHandler,
 	api *APIHandler,
+	prompts *PromptHandler,
 	broadcaster *EventBroadcaster,
 	log *slog.Logger,
 ) http.Handler {
@@ -98,6 +99,40 @@ func NewRouter(
 	))
 	mux.Handle("POST /api/v1/clients", chain(
 		http.HandlerFunc(api.CreateClient),
+		jwtMiddleware,
+	))
+
+	// ── Prompts ───────────────────────────────────────────────────────────────
+	mux.Handle("GET /api/v1/prompts/assignments", chain(
+		http.HandlerFunc(prompts.ListAssignments),
+		jwtMiddleware,
+	))
+	mux.Handle("PUT /api/v1/prompts/assignments", chain(
+		http.HandlerFunc(prompts.SetAssignment),
+		jwtMiddleware,
+	))
+	mux.Handle("DELETE /api/v1/prompts/assignments", chain(
+		http.HandlerFunc(prompts.RemoveAssignment),
+		jwtMiddleware,
+	))
+	mux.Handle("GET /api/v1/prompts/{id}", chain(
+		http.HandlerFunc(prompts.GetPrompt),
+		jwtMiddleware,
+	))
+	mux.Handle("PUT /api/v1/prompts/{id}", chain(
+		http.HandlerFunc(prompts.UpdatePrompt),
+		jwtMiddleware,
+	))
+	mux.Handle("DELETE /api/v1/prompts/{id}", chain(
+		http.HandlerFunc(prompts.DeletePrompt),
+		jwtMiddleware,
+	))
+	mux.Handle("GET /api/v1/prompts", chain(
+		http.HandlerFunc(prompts.ListPrompts),
+		jwtMiddleware,
+	))
+	mux.Handle("POST /api/v1/prompts", chain(
+		http.HandlerFunc(prompts.CreatePrompt),
 		jwtMiddleware,
 	))
 

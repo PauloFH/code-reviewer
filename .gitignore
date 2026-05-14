@@ -19,3 +19,5 @@ coverage.html
 internal/transport/http/frontend/dist/assets/
 web/node_modules/
 web/dist/
+.omc
+**/.omc/

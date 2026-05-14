@@ -121,6 +121,8 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	result, err := uc.reviewer.ReviewDiff(domain.ReviewInput{
 		MergeRequest: mr,
 		Diff:         diff,
+		ClientName:   event.ClientName,
+		ProjectRef:   event.ProjectRef,
 	})
 	if err != nil {
 		log.Error("AI reviewer returned error", slog.String("error", err.Error()))

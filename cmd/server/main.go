@@ -88,7 +88,7 @@ func main() {
 	}
 
 	// ── AI reviewer ───────────────────────────────────────────────────────────
-	aiClient := ai.New(cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout)
+	aiClient := ai.New(cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
 
 	// ── SSE broadcaster ───────────────────────────────────────────────────────
 	broadcaster := transport.NewEventBroadcaster()
@@ -111,8 +111,9 @@ func main() {
 		cfg.Dashboard.JWTSecret,
 	)
 	apiHandler := transport.NewAPIHandler(repo, clientMgmtSvc)
+	promptHandler := transport.NewPromptHandler(repo)
 
-	router := transport.NewRouter(uc, registry, authHandler, apiHandler, broadcaster, log)
+	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, broadcaster, log)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

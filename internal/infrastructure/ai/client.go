@@ -14,18 +14,20 @@ import (
 
 // Client implements domain.AIReviewer using a chat/completions-compatible HTTP API.
 type Client struct {
-	baseURL string
-	token   string
-	model   string
-	http    *http.Client
+	baseURL    string
+	token      string
+	model      string
+	http       *http.Client
+	promptRepo domain.PromptRepository
 }
 
-func New(baseURL, token, model string, timeout time.Duration) *Client {
+func New(baseURL, token, model string, timeout time.Duration, promptRepo domain.PromptRepository) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
-		model:   model,
-		http:    &http.Client{Timeout: timeout},
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		token:      token,
+		model:      model,
+		http:       &http.Client{Timeout: timeout},
+		promptRepo: promptRepo,
 	}
 }
 
@@ -54,12 +56,27 @@ type chatResponse struct {
 }
 
 func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, error) {
-	prompt := buildPrompt(input)
+	sysPrompt := systemPrompt
+	outputTpl := ""
+
+	if c.promptRepo != nil {
+		resolved, err := c.promptRepo.ResolvePrompt(input.ClientName, input.ProjectRef)
+		if err == nil && resolved != nil {
+			if resolved.SystemPrompt != "" {
+				sysPrompt = htmlToPlainText(resolved.SystemPrompt)
+			}
+			if resolved.OutputTemplate != "" {
+				outputTpl = htmlToPlainText(resolved.OutputTemplate)
+			}
+		}
+	}
+
+	prompt := buildPrompt(input, outputTpl)
 
 	body, err := json.Marshal(chatRequest{
 		Model: c.model,
 		Messages: []message{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.2,

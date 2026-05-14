@@ -12,6 +12,26 @@ const systemPrompt = `Você é um revisor sênior de código com ampla experiên
 Sua tarefa é revisar o diff de um Merge Request de forma objetiva, direta e em português brasileiro.
 Não faça comentários genéricos. Foque apenas no que está no diff recebido.`
 
+const defaultOutputFormat = `## Revisão automática do Merge Request
+
+### Resumo
+(breve descrição do que o MR faz)
+
+### Pontos de atenção
+- ...
+
+### Possíveis melhorias
+- ...
+
+### Riscos encontrados
+- ...
+
+### Testes sugeridos
+- ...
+
+### Conclusão
+(veredicto geral: aprovado, aprovado com ressalvas, ou solicitar alterações)`
+
 const maxDiffBytes = 80_000
 
 // irrelevantPatterns lists file paths/extensions to skip during diff filtering.
@@ -34,11 +54,16 @@ var irrelevantPatterns = []string{
 	"_generated",
 }
 
-func buildPrompt(input domain.ReviewInput) string {
+func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 	mr := input.MergeRequest
 	diff := filterDiff(input.Diff)
 	if len(diff) > maxDiffBytes {
 		diff = diff[:maxDiffBytes] + "\n\n[diff truncado por exceder o limite de tamanho]"
+	}
+
+	outputFmt := defaultOutputFormat
+	if outputTemplate != "" {
+		outputFmt = outputTemplate
 	}
 
 	return fmt.Sprintf(`## Merge Request
@@ -57,30 +82,13 @@ func buildPrompt(input domain.ReviewInput) string {
 
 Por favor, revise o diff acima e retorne sua análise no seguinte formato:
 
-## Revisão automática do Merge Request
-
-### Resumo
-(breve descrição do que o MR faz)
-
-### Pontos de atenção
-- ...
-
-### Possíveis melhorias
-- ...
-
-### Riscos encontrados
-- ...
-
-### Testes sugeridos
-- ...
-
-### Conclusão
-(veredicto geral: aprovado, aprovado com ressalvas, ou solicitar alterações)`,
+%s`,
 		mr.Title,
 		mr.ProjectRef,
 		mr.WebURL,
 		mr.Description,
 		diff,
+		outputFmt,
 	)
 }
 
