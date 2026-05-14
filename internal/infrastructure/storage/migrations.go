@@ -87,3 +87,15 @@ VALUES(
 INSERT INTO prompt_assignments(prompt_id, scope, client_name, project_ref)
 VALUES((SELECT id FROM prompts WHERE name='Prompt Padrão'), 'global', '', '');
 `
+
+// migration004 adds the users table for multi-user authentication.
+const migration004 = `
+CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+    username   TEXT     NOT NULL UNIQUE,
+    password   TEXT     NOT NULL,
+    role       TEXT     NOT NULL CHECK(role IN ('super','gestor','padrao')),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+`

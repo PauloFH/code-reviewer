@@ -1,0 +1,67 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Go lint
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      # Go vulnerability check
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # Go tests
+      - name: Go tests
+        run: go test ./...
+
+      # Frontend
+      - name: Frontend install
+        run: cd web && npm ci
+
+      - name: Frontend lint
+        run: cd web && npm run lint
+
+      - name: Frontend type-check
+        run: cd web && npm run type-check
+
+      # Build verification
+      - name: Go build
+        run: CGO_ENABLED=1 go build -o /dev/null ./cmd/server
+
+      - name: Frontend build
+        run: cd web && npm run build
+
+  deploy:
+    needs: lint-and-test
+    runs-on: deploy
+    steps:
+      - name: Deploy
+        run: |
+          cd /opt/code-reviewer
+          git pull
+          cd web
+          npm ci
+          npm run build
+          cd /opt/code-reviewer
+          CGO_ENABLED=1 go build -ldflags="-s -w" -o code-reviewer ./cmd/server
+          sudo systemctl restart code-reviewer

@@ -54,6 +54,7 @@ func runMigrations(db *sql.DB) error {
 		{1, migration001},
 		{2, migration002},
 		{3, migration003},
+		{4, migration004},
 	}
 
 	for _, m := range pending {
@@ -409,6 +410,139 @@ func (r *SQLiteRepository) Close() error {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// domain.ReviewRepository — ClearReview
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (r *SQLiteRepository) ClearReview(clientName, projectRef string, mrIID int64) error {
+	_, err := r.db.Exec(
+		`DELETE FROM reviewed_merge_requests WHERE client_name=? AND project_ref=? AND mr_iid=?`,
+		clientName, projectRef, mrIID,
+	)
+	if err != nil {
+		return fmt.Errorf("clearing review: %w", err)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// domain.UserRepository
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (r *SQLiteRepository) GetByUsername(username string) (*domain.User, error) {
+	row := r.db.QueryRow(
+		`SELECT id, username, password, role, created_at, updated_at FROM users WHERE username=?`,
+		username,
+	)
+	u, err := scanUser(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (r *SQLiteRepository) GetByID(id int64) (*domain.User, error) {
+	row := r.db.QueryRow(
+		`SELECT id, username, password, role, created_at, updated_at FROM users WHERE id=?`,
+		id,
+	)
+	u, err := scanUser(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (r *SQLiteRepository) ListUsers() ([]domain.User, error) {
+	rows, err := r.db.Query(`SELECT id, username, password, role, created_at, updated_at FROM users ORDER BY username`)
+	if err != nil {
+		return nil, fmt.Errorf("listing users: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (r *SQLiteRepository) CreateUser(u domain.User) (*domain.User, error) {
+	now := time.Now().UTC()
+	res, err := r.db.Exec(
+		`INSERT INTO users(username, password, role, created_at, updated_at) VALUES(?,?,?,?,?)`,
+		u.Username, u.Password, string(u.Role), now, now,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return nil, fmt.Errorf("user %q already exists", u.Username)
+		}
+		return nil, fmt.Errorf("creating user: %w", err)
+	}
+	id, _ := res.LastInsertId()
+	u.ID = id
+	u.CreatedAt = now
+	u.UpdatedAt = now
+	return &u, nil
+}
+
+func (r *SQLiteRepository) UpdateUser(id int64, u domain.User) (*domain.User, error) {
+	now := time.Now().UTC()
+	if u.Password != "" {
+		_, err := r.db.Exec(
+			`UPDATE users SET username=?, password=?, role=?, updated_at=? WHERE id=?`,
+			u.Username, u.Password, string(u.Role), now, id,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("updating user: %w", err)
+		}
+	} else {
+		_, err := r.db.Exec(
+			`UPDATE users SET username=?, role=?, updated_at=? WHERE id=?`,
+			u.Username, string(u.Role), now, id,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("updating user: %w", err)
+		}
+	}
+	u.ID = id
+	u.UpdatedAt = now
+	return &u, nil
+}
+
+func (r *SQLiteRepository) DeleteUser(id int64) error {
+	_, err := r.db.Exec(`DELETE FROM users WHERE id=?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting user: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) CountUsers() (int, error) {
+	var n int
+	err := r.db.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (r *SQLiteRepository) UserExists(username string) (bool, error) {
+	var count int
+	err := r.db.QueryRow(`SELECT COUNT(1) FROM users WHERE username=?`, username).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // domain.PromptRepository
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -573,4 +707,23 @@ func scanPrompt(s scanner) (domain.Prompt, error) {
 		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 	}
 	return p, nil
+}
+
+func scanUser(s scanner) (domain.User, error) {
+	var u domain.User
+	var role, createdAt, updatedAt string
+	err := s.Scan(&u.ID, &u.Username, &u.Password, &role, &createdAt, &updatedAt)
+	if err != nil {
+		return u, err
+	}
+	u.Role = domain.Role(role)
+	u.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	}
+	u.UpdatedAt, _ = time.Parse("2006-01-02T15:04:05Z", updatedAt)
+	if u.UpdatedAt.IsZero() {
+		u.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	}
+	return u, nil
 }

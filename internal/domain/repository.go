@@ -5,6 +5,19 @@ package domain
 type ReviewRepository interface {
 	AlreadyReviewed(clientName, projectRef string, mrIID int64, username string) (bool, error)
 	MarkAsReviewed(clientName, projectRef string, mrIID, mrID int64, username string) error
+	ClearReview(clientName, projectRef string, mrIID int64) error
+}
+
+// UserRepository manages user accounts and authentication.
+type UserRepository interface {
+	GetByUsername(username string) (*User, error)
+	GetByID(id int64) (*User, error)
+	ListUsers() ([]User, error)
+	CreateUser(u User) (*User, error)
+	UpdateUser(id int64, u User) (*User, error)
+	DeleteUser(id int64) error
+	CountUsers() (int, error)
+	UserExists(username string) (bool, error)
 }
 
 // AIReviewer sends a diff to an AI API and returns the review text.

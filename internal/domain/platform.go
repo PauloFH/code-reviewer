@@ -20,11 +20,13 @@ type RawWebhook struct {
 
 // WebhookEvent is the normalised representation of an incoming platform event.
 type WebhookEvent struct {
-	ClientName string
-	ProjectRef string // numeric string (GitLab) or "owner/repo" (GitHub/Gitea)
-	MRIID      int64
-	MRID       int64
-	Action     string
+	ClientName    string
+	ProjectRef    string // numeric string (GitLab) or "owner/repo" (GitHub/Gitea)
+	MRIID         int64
+	MRID          int64
+	Action        string
+	IsReanalyze   bool
+	CommentAuthor string
 }
 
 // PlatformClient is the Strategy interface. Every Git hosting platform
