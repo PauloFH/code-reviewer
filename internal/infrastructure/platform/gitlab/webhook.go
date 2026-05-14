@@ -17,7 +17,8 @@ func (c *Client) ParseWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error)
 	var payload struct {
 		ObjectKind string `json:"object_kind"`
 		Project    struct {
-			ID int64 `json:"id"`
+			ID                int64  `json:"id"`
+			PathWithNamespace string `json:"path_with_namespace"`
 		} `json:"project"`
 		ObjectAttributes struct {
 			ID     int64  `json:"id"`
@@ -34,9 +35,16 @@ func (c *Client) ParseWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error)
 		return nil, fmt.Errorf("gitlab: unsupported object_kind %q", payload.ObjectKind)
 	}
 
+	// Use path_with_namespace for human-readable project ref.
+	// Falls back to numeric ID if path is empty (shouldn't happen).
+	projectRef := payload.Project.PathWithNamespace
+	if projectRef == "" {
+		projectRef = fmt.Sprintf("%d", payload.Project.ID)
+	}
+
 	return &domain.WebhookEvent{
 		ClientName: c.name,
-		ProjectRef: fmt.Sprintf("%d", payload.Project.ID),
+		ProjectRef: projectRef,
 		MRIID:      payload.ObjectAttributes.IID,
 		MRID:       payload.ObjectAttributes.ID,
 		Action:     payload.ObjectAttributes.Action,

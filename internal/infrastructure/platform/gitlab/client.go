@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func (c *Client) WatchedUsername() string        { return c.username }
 // ---------- API methods ----------
 
 func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeRequest, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d", c.baseURL, projectRef, mrIID)
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d", c.baseURL, encodeProjectRef(projectRef), mrIID)
 
 	var raw struct {
 		ID          int64  `json:"id"`
@@ -98,7 +99,7 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 }
 
 func (c *Client) GetMergeRequestDiff(projectRef string, mrIID int64) (string, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/changes", c.baseURL, projectRef, mrIID)
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/changes", c.baseURL, encodeProjectRef(projectRef), mrIID)
 
 	var raw struct {
 		Changes []struct {
@@ -120,7 +121,7 @@ func (c *Client) GetMergeRequestDiff(projectRef string, mrIID int64) (string, er
 }
 
 func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body string) error {
-	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/notes", c.baseURL, projectRef, mrIID)
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/notes", c.baseURL, encodeProjectRef(projectRef), mrIID)
 	payload := map[string]string{"body": body}
 
 	b, _ := json.Marshal(payload)
@@ -165,4 +166,13 @@ func (c *Client) get(url string, out any) error {
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// encodeProjectRef URL-encodes a project path (e.g. "group/subgroup/repo" → "group%2Fsubgroup%2Frepo").
+// Numeric IDs pass through unchanged.
+func encodeProjectRef(ref string) string {
+	if strings.Contains(ref, "/") {
+		return url.PathEscape(ref)
+	}
+	return ref
 }
