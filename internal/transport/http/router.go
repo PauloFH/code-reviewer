@@ -88,79 +88,79 @@ func NewRouter(
 	// ── Clients (super + gestor) ──────────────────────────────────────────────
 	mux.Handle("GET /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.GetClient),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("PUT /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.UpdateClient),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("DELETE /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.DeleteClient),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("GET /api/v1/clients", chain(
 		http.HandlerFunc(api.ListClients),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("POST /api/v1/clients", chain(
 		http.HandlerFunc(api.CreateClient),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 
 	// ── Prompts (super + gestor) ──────────────────────────────────────────────
 	mux.Handle("GET /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.ListAssignments),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("PUT /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.SetAssignment),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("DELETE /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.RemoveAssignment),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("GET /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.GetPrompt),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("PUT /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.UpdatePrompt),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("DELETE /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.DeletePrompt),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("GET /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.ListPrompts),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 	mux.Handle("POST /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.CreatePrompt),
-		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 
 	// ── Users (super only) ────────────────────────────────────────────────────
 	mux.Handle("GET /api/v1/users", chain(
 		http.HandlerFunc(users.ListUsers),
-		requireRole(domain.RoleSuper), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper),
 	))
 	mux.Handle("POST /api/v1/users", chain(
 		http.HandlerFunc(users.CreateUser),
-		requireRole(domain.RoleSuper), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper),
 	))
 	mux.Handle("GET /api/v1/users/{id}", chain(
 		http.HandlerFunc(users.GetUser),
-		requireRole(domain.RoleSuper), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper),
 	))
 	mux.Handle("PUT /api/v1/users/{id}", chain(
 		http.HandlerFunc(users.UpdateUser),
-		requireRole(domain.RoleSuper), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper),
 	))
 	mux.Handle("DELETE /api/v1/users/{id}", chain(
 		http.HandlerFunc(users.DeleteUser),
-		requireRole(domain.RoleSuper), jwtMiddleware,
+		jwtMiddleware, requireRole(domain.RoleSuper),
 	))
 
 	// ── Re-analyze (any authenticated user) ───────────────────────────────────
