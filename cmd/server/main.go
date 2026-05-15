@@ -44,13 +44,21 @@ func main() {
 		os.Exit(1)
 	}
 	if userCount == 0 {
-		hash, err := transport.HashPassword(cfg.Dashboard.Password)
+		seedUser := cfg.Dashboard.User
+		seedPass := cfg.Dashboard.Password
+		if seedUser == "" {
+			seedUser = "admin"
+		}
+		if seedPass == "" {
+			seedPass = "admin123"
+		}
+		hash, err := transport.HashPassword(seedPass)
 		if err != nil {
 			log.Error("hashing super user password", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
 		_, err = repo.CreateUser(domain.User{
-			Username: cfg.Dashboard.User,
+			Username: seedUser,
 			Password: hash,
 			Role:     domain.RoleSuper,
 		})
@@ -58,7 +66,7 @@ func main() {
 			log.Error("seeding super user", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		log.Info("seeded super user", slog.String("username", cfg.Dashboard.User))
+		log.Info("seeded super user", slog.String("username", seedUser))
 	}
 
 	// ── Platform clients ──────────────────────────────────────────────────────

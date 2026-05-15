@@ -17,9 +17,13 @@ http.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.response?.status === 401) {
-      const auth = useAuthStore()
-      auth.logout()
-      window.location.href = '/login'
+      // Don't auto-logout on /auth/me — it's expected to fail with stale tokens
+      const url = err.config?.url || ''
+      if (!url.includes('/auth/me')) {
+        const auth = useAuthStore()
+        auth.logout()
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   },

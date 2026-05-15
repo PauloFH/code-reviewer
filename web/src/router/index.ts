@@ -51,14 +51,17 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!to.meta.public && !auth.isAuthenticated) {
     return { name: 'login' }
   }
   const roles = to.meta.roles as string[] | undefined
-  if (roles && auth.user && !roles.includes(auth.user.role)) {
-    return { name: 'dashboard' }
+  if (roles) {
+    await auth.initPromise
+    if (auth.user && !roles.includes(auth.user.role)) {
+      return { name: 'dashboard' }
+    }
   }
 })
 
