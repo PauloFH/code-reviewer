@@ -12,15 +12,19 @@ import (
 
 // APIHandler serves all /api/v1/ routes.
 type APIHandler struct {
-	eventRepo domain.ReviewEventRepository
-	clientSvc *usecase.ClientManagementService
+	eventRepo  domain.ReviewEventRepository
+	reviewRepo domain.ReviewRepository
+	clientSvc  *usecase.ClientManagementService
+	uc         mrUsecase
 }
 
 func NewAPIHandler(
 	eventRepo domain.ReviewEventRepository,
+	reviewRepo domain.ReviewRepository,
 	clientSvc *usecase.ClientManagementService,
+	uc mrUsecase,
 ) *APIHandler {
-	return &APIHandler{eventRepo: eventRepo, clientSvc: clientSvc}
+	return &APIHandler{eventRepo: eventRepo, reviewRepo: reviewRepo, clientSvc: clientSvc, uc: uc}
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -175,4 +179,42 @@ func intQuery(r *http.Request, key string, def int) int {
 		}
 	}
 	return def
+}
+
+// ── Re-analyze ───────────────────────────────────────────────────────────────
+
+type reanalyzeRequest struct {
+	ClientName string `json:"client_name"`
+	ProjectRef string `json:"project_ref"`
+	MRIID      int64  `json:"mr_iid"`
+}
+
+func (h *APIHandler) Reanalyze(w http.ResponseWriter, r *http.Request) {
+	var req reanalyzeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ClientName == "" || req.ProjectRef == "" || req.MRIID == 0 {
+		http.Error(w, "client_name, project_ref, and mr_iid are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.reviewRepo.ClearReview(req.ClientName, req.ProjectRef, req.MRIID); err != nil {
+		http.Error(w, "failed to clear review record", http.StatusInternalServerError)
+		return
+	}
+
+	event := &domain.WebhookEvent{
+		ClientName:  req.ClientName,
+		ProjectRef:  req.ProjectRef,
+		MRIID:       req.MRIID,
+		Action:      "reanalyze",
+		IsReanalyze: true,
+	}
+
+	go h.uc.Execute(event)
+
+	w.WriteHeader(http.StatusAccepted)
 }

@@ -37,6 +37,30 @@ func main() {
 	}
 	defer repo.Close()
 
+	// ── Seed super user on first boot ─────────────────────────────────────────
+	userCount, err := repo.CountUsers()
+	if err != nil {
+		log.Error("counting users", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	if userCount == 0 {
+		hash, err := transport.HashPassword(cfg.Dashboard.Password)
+		if err != nil {
+			log.Error("hashing super user password", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		_, err = repo.CreateUser(domain.User{
+			Username: cfg.Dashboard.User,
+			Password: hash,
+			Role:     domain.RoleSuper,
+		})
+		if err != nil {
+			log.Error("seeding super user", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		log.Info("seeded super user", slog.String("username", cfg.Dashboard.User))
+	}
+
 	// ── Platform clients ──────────────────────────────────────────────────────
 	// On first boot: if the clients table is empty, seed from clients.json.
 	count, err := repo.CountClients()
@@ -95,7 +119,7 @@ func main() {
 
 	// ── Usecases ──────────────────────────────────────────────────────────────
 	uc := usecase.NewProcessMergeRequest(
-		registry, repo, repo, aiClient, broadcaster,
+		registry, repo, repo, repo, aiClient, broadcaster,
 		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
 		log,
 	)
@@ -106,14 +130,14 @@ func main() {
 
 	// ── HTTP handlers ─────────────────────────────────────────────────────────
 	authHandler := transport.NewAuthHandler(
-		cfg.Dashboard.User,
-		cfg.Dashboard.Password,
+		repo,
 		cfg.Dashboard.JWTSecret,
 	)
-	apiHandler := transport.NewAPIHandler(repo, clientMgmtSvc)
+	apiHandler := transport.NewAPIHandler(repo, repo, clientMgmtSvc, uc)
 	promptHandler := transport.NewPromptHandler(repo)
+	userHandler := transport.NewUserHandler(repo)
 
-	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, broadcaster, log)
+	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, userHandler, broadcaster, log)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

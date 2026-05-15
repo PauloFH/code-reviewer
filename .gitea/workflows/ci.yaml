@@ -53,7 +53,7 @@ jobs:
 
   deploy:
     needs: lint-and-test
-    runs-on: deploy
+    runs-on: deploy-code-reviewer
     steps:
       - name: Deploy
         run: |

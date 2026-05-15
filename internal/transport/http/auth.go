@@ -10,6 +10,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
 // jwtHeader is the fixed base64url-encoded header for HS256 JWTs.
@@ -18,22 +22,19 @@ var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ
 // tokenTTL is the JWT validity window.
 const tokenTTL = 24 * time.Hour
 
-// AuthHandler handles /api/v1/auth/login.
+// AuthHandler handles /api/v1/auth/login and /api/v1/auth/me.
 type AuthHandler struct {
-	user      string
-	password  string
+	userRepo  domain.UserRepository
 	jwtSecret []byte
 }
 
-func NewAuthHandler(user, password, jwtSecret string) *AuthHandler {
+func NewAuthHandler(userRepo domain.UserRepository, jwtSecret string) *AuthHandler {
 	secret := []byte(jwtSecret)
 	if len(secret) == 0 {
-		// Generate a random secret at runtime so the server works without config,
-		// but tokens won't survive a restart.
 		secret = make([]byte, 32)
 		_, _ = rand.Read(secret)
 	}
-	return &AuthHandler{user: user, password: password, jwtSecret: secret}
+	return &AuthHandler{userRepo: userRepo, jwtSecret: secret}
 }
 
 type loginRequest struct {
@@ -52,12 +53,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username != h.user || req.Password != h.password {
+	user, err := h.userRepo.GetByUsername(req.Username)
+	if err != nil || user == nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	token, err := h.issueToken(req.Username)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := h.issueToken(user)
 	if err != nil {
 		http.Error(w, "failed to issue token", http.StatusInternalServerError)
 		return
@@ -66,10 +73,29 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
 }
 
-// issueToken creates a signed HS256 JWT with an exp claim.
-func (h *AuthHandler) issueToken(username string) (string, error) {
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	claims, ok := userClaimsFromCtx(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.userRepo.GetByID(claims.ID)
+	if err != nil || user == nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// issueToken creates a signed HS256 JWT with id, sub, role, and exp claims.
+func (h *AuthHandler) issueToken(user *domain.User) (string, error) {
 	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{"sub":%q,"iat":%d,"exp":%d}`, username, now.Unix(), now.Add(tokenTTL).Unix())
+	payload := fmt.Sprintf(
+		`{"id":%d,"sub":%q,"role":%q,"iat":%d,"exp":%d}`,
+		user.ID, user.Username, user.Role, now.Unix(), now.Add(tokenTTL).Unix(),
+	)
 	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
 
 	signingInput := jwtHeader + "." + encodedPayload
@@ -80,31 +106,32 @@ func (h *AuthHandler) issueToken(username string) (string, error) {
 	return signingInput + "." + sig, nil
 }
 
-// jwtAuth returns a middleware that validates Bearer tokens signed with secret.
+// jwtAuth returns a middleware that validates Bearer tokens and injects UserClaims into context.
 func jwtAuth(secret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Allow token via query param for SSE clients that can't set headers.
 			token := r.URL.Query().Get("token")
 			if token == "" {
 				token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			}
 
-			if err := validateToken(token, secret); err != nil {
+			claims, err := validateToken(token, secret)
+			if err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
+			r = withUserClaims(r, *claims)
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// validateToken checks the JWT signature and expiry.
-func validateToken(token string, secret []byte) error {
+// validateToken checks the JWT signature, expiry, and extracts claims.
+func validateToken(token string, secret []byte) (*UserClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return fmt.Errorf("malformed token")
+		return nil, fmt.Errorf("malformed token")
 	}
 
 	signingInput := parts[0] + "." + parts[1]
@@ -113,24 +140,40 @@ func validateToken(token string, secret []byte) error {
 	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(parts[2]), []byte(expected)) {
-		return fmt.Errorf("invalid signature")
+		return nil, fmt.Errorf("invalid signature")
 	}
 
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return fmt.Errorf("invalid payload encoding")
+		return nil, fmt.Errorf("invalid payload encoding")
 	}
 
-	var claims struct {
-		Exp int64 `json:"exp"`
+	var raw struct {
+		ID   int64  `json:"id"`
+		Sub  string `json:"sub"`
+		Role string `json:"role"`
+		Exp  int64  `json:"exp"`
 	}
-	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return fmt.Errorf("invalid claims")
+	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+		return nil, fmt.Errorf("invalid claims")
 	}
 
-	if claims.Exp < time.Now().UTC().Unix() {
-		return fmt.Errorf("token expired")
+	if raw.Exp < time.Now().UTC().Unix() {
+		return nil, fmt.Errorf("token expired")
 	}
 
-	return nil
+	return &UserClaims{
+		ID:       raw.ID,
+		Username: raw.Sub,
+		Role:     domain.Role(raw.Role),
+	}, nil
+}
+
+// HashPassword generates a bcrypt hash for the given password.
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }

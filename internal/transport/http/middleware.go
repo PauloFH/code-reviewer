@@ -100,3 +100,23 @@ func clientNameFromPath(path string) string {
 	}
 	return ""
 }
+
+// requireRole returns a middleware that checks the authenticated user's role.
+func requireRole(allowed ...domain.Role) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := userClaimsFromCtx(r)
+			if !ok {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			for _, role := range allowed {
+				if claims.Role == role {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			http.Error(w, "forbidden", http.StatusForbidden)
+		})
+	}
+}

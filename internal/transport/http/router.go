@@ -38,6 +38,7 @@ func NewRouter(
 	auth *AuthHandler,
 	api *APIHandler,
 	prompts *PromptHandler,
+	users *UserHandler,
 	broadcaster *EventBroadcaster,
 	log *slog.Logger,
 ) http.Handler {
@@ -61,6 +62,10 @@ func NewRouter(
 
 	// ── Auth ─────────────────────────────────────────────────────────────────
 	mux.HandleFunc("POST /api/v1/auth/login", auth.Login)
+	mux.Handle("GET /api/v1/auth/me", chain(
+		http.HandlerFunc(auth.Me),
+		jwtMiddleware,
+	))
 
 	// ── Events ───────────────────────────────────────────────────────────────
 	mux.Handle("GET /api/v1/events/stats", chain(
@@ -80,59 +85,87 @@ func NewRouter(
 		jwtMiddleware,
 	))
 
-	// ── Clients ───────────────────────────────────────────────────────────────
+	// ── Clients (super + gestor) ──────────────────────────────────────────────
 	mux.Handle("GET /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.GetClient),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("PUT /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.UpdateClient),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("DELETE /api/v1/clients/{name}", chain(
 		http.HandlerFunc(api.DeleteClient),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("GET /api/v1/clients", chain(
 		http.HandlerFunc(api.ListClients),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("POST /api/v1/clients", chain(
 		http.HandlerFunc(api.CreateClient),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 
-	// ── Prompts ───────────────────────────────────────────────────────────────
+	// ── Prompts (super + gestor) ──────────────────────────────────────────────
 	mux.Handle("GET /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.ListAssignments),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("PUT /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.SetAssignment),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("DELETE /api/v1/prompts/assignments", chain(
 		http.HandlerFunc(prompts.RemoveAssignment),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("GET /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.GetPrompt),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("PUT /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.UpdatePrompt),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("DELETE /api/v1/prompts/{id}", chain(
 		http.HandlerFunc(prompts.DeletePrompt),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("GET /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.ListPrompts),
-		jwtMiddleware,
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
 	))
 	mux.Handle("POST /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.CreatePrompt),
+		requireRole(domain.RoleSuper, domain.RoleGestor), jwtMiddleware,
+	))
+
+	// ── Users (super only) ────────────────────────────────────────────────────
+	mux.Handle("GET /api/v1/users", chain(
+		http.HandlerFunc(users.ListUsers),
+		requireRole(domain.RoleSuper), jwtMiddleware,
+	))
+	mux.Handle("POST /api/v1/users", chain(
+		http.HandlerFunc(users.CreateUser),
+		requireRole(domain.RoleSuper), jwtMiddleware,
+	))
+	mux.Handle("GET /api/v1/users/{id}", chain(
+		http.HandlerFunc(users.GetUser),
+		requireRole(domain.RoleSuper), jwtMiddleware,
+	))
+	mux.Handle("PUT /api/v1/users/{id}", chain(
+		http.HandlerFunc(users.UpdateUser),
+		requireRole(domain.RoleSuper), jwtMiddleware,
+	))
+	mux.Handle("DELETE /api/v1/users/{id}", chain(
+		http.HandlerFunc(users.DeleteUser),
+		requireRole(domain.RoleSuper), jwtMiddleware,
+	))
+
+	// ── Re-analyze (any authenticated user) ───────────────────────────────────
+	mux.Handle("POST /api/v1/reanalyze", chain(
+		http.HandlerFunc(api.Reanalyze),
 		jwtMiddleware,
 	))
 

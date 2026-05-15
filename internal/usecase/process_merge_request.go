@@ -30,6 +30,7 @@ type ProcessMergeRequest struct {
 	registry       domain.ClientRegistry
 	repository     domain.ReviewRepository
 	eventRepo      domain.ReviewEventRepository
+	userRepo       domain.UserRepository
 	reviewer       domain.AIReviewer
 	publisher      EventPublisher
 	pricePerMInput float64
@@ -41,6 +42,7 @@ func NewProcessMergeRequest(
 	registry domain.ClientRegistry,
 	repository domain.ReviewRepository,
 	eventRepo domain.ReviewEventRepository,
+	userRepo domain.UserRepository,
 	reviewer domain.AIReviewer,
 	publisher EventPublisher,
 	pricePerMInput, pricePerMOut float64,
@@ -50,6 +52,7 @@ func NewProcessMergeRequest(
 		registry:       registry,
 		repository:     repository,
 		eventRepo:      eventRepo,
+		userRepo:       userRepo,
 		reviewer:       reviewer,
 		publisher:      publisher,
 		pricePerMInput: pricePerMInput,
@@ -95,6 +98,24 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	}
 
 	log.Info("watched user is assigned", slog.String("username", username))
+
+	// Validate re-analyze permission from MR comment
+	if event.IsReanalyze && event.CommentAuthor != "" {
+		isAuthor := event.CommentAuthor == mr.AuthorUsername
+		isRegistered, _ := uc.userRepo.UserExists(event.CommentAuthor)
+		if !isAuthor && !isRegistered {
+			log.Info("unauthorized /review command", slog.String("comment_author", event.CommentAuthor))
+			uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "unauthorized /review command", domain.TokenUsage{}, start)
+			return nil
+		}
+	}
+
+	// Re-analyze: clear idempotency record
+	if event.IsReanalyze {
+		if err := uc.repository.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
+			log.Error("failed to clear review record", slog.String("error", err.Error()))
+		}
+	}
 
 	already, err := uc.repository.AlreadyReviewed(event.ClientName, event.ProjectRef, event.MRIID, username)
 	if err != nil {
