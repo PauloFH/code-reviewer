@@ -11,15 +11,56 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
+type mockUserRepo struct {
+	user *domain.User
+}
+
+func (m *mockUserRepo) GetByUsername(username string) (*domain.User, error) {
+	if m.user != nil && m.user.Username == username {
+		return m.user, nil
+	}
+	return nil, nil
+}
+func (m *mockUserRepo) GetByID(id int64) (*domain.User, error) {
+	if m.user != nil && m.user.ID == id {
+		return m.user, nil
+	}
+	return nil, nil
+}
+func (m *mockUserRepo) ListUsers() ([]domain.User, error)              { return nil, nil }
+func (m *mockUserRepo) CreateUser(u domain.User) (*domain.User, error) { return &u, nil }
+func (m *mockUserRepo) UpdateUser(id int64, u domain.User) (*domain.User, error) {
+	return &u, nil
+}
+func (m *mockUserRepo) DeleteUser(id int64) error            { return nil }
+func (m *mockUserRepo) CountUsers() (int, error)             { return 1, nil }
+func (m *mockUserRepo) UserExists(username string) (bool, error) {
+	return m.user != nil && m.user.Username == username, nil
+}
+
+func testUser() *domain.User {
+	hash, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	return &domain.User{
+		ID:       1,
+		Username: "admin",
+		Password: string(hash),
+		Role:     domain.RoleSuper,
+	}
+}
+
 func newTestAuth() *AuthHandler {
-	return NewAuthHandler("admin", "secret", "test-jwt-key-32-bytes-long-enough!!")
+	return NewAuthHandler(&mockUserRepo{user: testUser()}, "test-jwt-key-32-bytes-long-enough!!")
 }
 
 // signedToken builds a minimal HS256 JWT with the given claims and secret.
-func signedToken(secret []byte, sub string, exp int64) string {
-	payload := fmt.Sprintf(`{"sub":%q,"iat":%d,"exp":%d}`, sub, time.Now().Unix(), exp)
+func signedToken(secret []byte, id int64, sub string, role domain.Role, exp int64) string {
+	payload := fmt.Sprintf(`{"id":%d,"sub":%q,"role":%q,"iat":%d,"exp":%d}`, id, sub, role, time.Now().Unix(), exp)
 	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	signingInput := jwtHeader + "." + encodedPayload
 	mac := hmac.New(sha256.New, secret)
@@ -32,19 +73,23 @@ func signedToken(secret []byte, sub string, exp int64) string {
 
 func TestIssueAndValidateToken_Valid(t *testing.T) {
 	h := newTestAuth()
-	token, err := h.issueToken("admin")
+	token, err := h.issueToken(testUser())
 	if err != nil {
 		t.Fatalf("issueToken: %v", err)
 	}
-	if err := validateToken(token, h.jwtSecret); err != nil {
+	claims, err := validateToken(token, h.jwtSecret)
+	if err != nil {
 		t.Errorf("validateToken: %v", err)
+	}
+	if claims.Username != "admin" || claims.Role != domain.RoleSuper {
+		t.Errorf("unexpected claims: %+v", claims)
 	}
 }
 
 func TestValidateToken_WrongSecret(t *testing.T) {
 	h := newTestAuth()
-	token, _ := h.issueToken("admin")
-	if err := validateToken(token, []byte("wrong-secret")); err == nil {
+	token, _ := h.issueToken(testUser())
+	if _, err := validateToken(token, []byte("wrong-secret")); err == nil {
 		t.Error("expected error for wrong secret, got nil")
 	}
 }
@@ -53,9 +98,9 @@ func TestValidateToken_Malformed(t *testing.T) {
 	cases := []string{"not.a.jwt", "", "only.two", "a.b.c.d"}
 	for _, tc := range cases {
 		if tc == "a.b.c.d" {
-			continue // 4 parts — different error path, skip
+			continue
 		}
-		if err := validateToken(tc, []byte("key")); err == nil {
+		if _, err := validateToken(tc, []byte("key")); err == nil {
 			t.Errorf("expected error for %q", tc)
 		}
 	}
@@ -63,8 +108,8 @@ func TestValidateToken_Malformed(t *testing.T) {
 
 func TestValidateToken_Expired(t *testing.T) {
 	h := newTestAuth()
-	expired := signedToken(h.jwtSecret, "admin", time.Now().Add(-2*time.Second).Unix())
-	if err := validateToken(expired, h.jwtSecret); err == nil {
+	expired := signedToken(h.jwtSecret, 1, "admin", domain.RoleSuper, time.Now().Add(-2*time.Second).Unix())
+	if _, err := validateToken(expired, h.jwtSecret); err == nil {
 		t.Error("expected error for expired token")
 	}
 }
@@ -88,8 +133,7 @@ func TestLogin_Success(t *testing.T) {
 	if resp["token"] == "" {
 		t.Error("expected non-empty token in response")
 	}
-	// Returned token must be self-validating.
-	if err := validateToken(resp["token"], h.jwtSecret); err != nil {
+	if _, err := validateToken(resp["token"], h.jwtSecret); err != nil {
 		t.Errorf("returned token invalid: %v", err)
 	}
 }
@@ -130,7 +174,7 @@ func TestLogin_BadBody(t *testing.T) {
 
 func TestJwtAuth_ValidBearer(t *testing.T) {
 	h := newTestAuth()
-	token, _ := h.issueToken("admin")
+	token, _ := h.issueToken(testUser())
 
 	called := false
 	handler := jwtAuth(h.jwtSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +192,7 @@ func TestJwtAuth_ValidBearer(t *testing.T) {
 
 func TestJwtAuth_ValidQueryParam(t *testing.T) {
 	h := newTestAuth()
-	token, _ := h.issueToken("admin")
+	token, _ := h.issueToken(testUser())
 
 	called := false
 	handler := jwtAuth(h.jwtSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -180,7 +224,7 @@ func TestJwtAuth_MissingToken_Returns401(t *testing.T) {
 
 func TestJwtAuth_ExpiredToken_Returns401(t *testing.T) {
 	h := newTestAuth()
-	expired := signedToken(h.jwtSecret, "admin", time.Now().Add(-1*time.Second).Unix())
+	expired := signedToken(h.jwtSecret, 1, "admin", domain.RoleSuper, time.Now().Add(-1*time.Second).Unix())
 
 	handler := jwtAuth(h.jwtSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("next should not be called with expired token")

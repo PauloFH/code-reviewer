@@ -32,11 +32,19 @@ const router = createRouter({
           path: 'clients',
           name: 'clients',
           component: () => import('@/views/ClientsView.vue'),
+          meta: { roles: ['super', 'gestor'] },
         },
         {
           path: 'prompts',
           name: 'prompts',
           component: () => import('@/views/PromptsView.vue'),
+          meta: { roles: ['super', 'gestor'] },
+        },
+        {
+          path: 'users',
+          name: 'users',
+          component: () => import('@/views/UsersView.vue'),
+          meta: { roles: ['super'] },
         },
       ],
     },
@@ -47,6 +55,10 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   if (!to.meta.public && !auth.isAuthenticated) {
     return { name: 'login' }
+  }
+  const roles = to.meta.roles as string[] | undefined
+  if (roles && auth.user && !roles.includes(auth.user.role)) {
+    return { name: 'dashboard' }
   }
 })
 

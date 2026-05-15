@@ -24,7 +24,7 @@ func (statsRepo) GetDailyCosts(string, int) ([]domain.DailyCostPoint, error) {
 }
 
 func TestGetStatsReturnsEmptyByClientArray(t *testing.T) {
-	handler := NewAPIHandler(statsRepo{}, nil)
+	handler := NewAPIHandler(statsRepo{}, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/stats", nil)
 	rec := httptest.NewRecorder()
 

@@ -85,6 +85,20 @@ func (m *mockRepository) MarkAsReviewed(_, _ string, _, _ int64, _ string) error
 	m.marked = true
 	return m.markErr
 }
+func (m *mockRepository) ClearReview(_, _ string, _ int64) error {
+	return nil
+}
+
+type mockUserRepoUC struct{}
+
+func (m *mockUserRepoUC) GetByUsername(_ string) (*domain.User, error) { return nil, nil }
+func (m *mockUserRepoUC) GetByID(_ int64) (*domain.User, error)       { return nil, nil }
+func (m *mockUserRepoUC) ListUsers() ([]domain.User, error)           { return nil, nil }
+func (m *mockUserRepoUC) CreateUser(u domain.User) (*domain.User, error) { return &u, nil }
+func (m *mockUserRepoUC) UpdateUser(_ int64, u domain.User) (*domain.User, error) { return &u, nil }
+func (m *mockUserRepoUC) DeleteUser(_ int64) error                     { return nil }
+func (m *mockUserRepoUC) CountUsers() (int, error)                     { return 0, nil }
+func (m *mockUserRepoUC) UserExists(_ string) (bool, error)            { return false, nil }
 
 type mockAI struct {
 	result *domain.ReviewResult
@@ -127,7 +141,7 @@ func newUsecase(client *mockClient, repo *mockRepository, ai *mockAI) *ProcessMe
 	if client != nil {
 		reg.client = client
 	}
-	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, ai, nil, 3.0, 15.0, discardLogger())
+	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, ai, nil, 3.0, 15.0, discardLogger())
 }
 
 // ---------- tests ----------
@@ -290,7 +304,7 @@ func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
 func TestExecute_UnknownClient_ReturnsError(t *testing.T) {
 	// Registry is empty — client lookup will fail.
 	reg := &mockRegistry{}
-	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockAI{}, nil, 3.0, 15.0, discardLogger())
+	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockAI{}, nil, 3.0, 15.0, discardLogger())
 
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error for unknown client name")

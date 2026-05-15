@@ -14,6 +14,7 @@
             <th>Tokens</th>
             <th>Cost</th>
             <th>Duration</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -31,9 +32,18 @@
             <td class="num">{{ e.total_tokens }}</td>
             <td class="num">${{ e.cost_usd.toFixed(5) }}</td>
             <td class="num">{{ e.duration_ms }}ms</td>
+            <td>
+              <button
+                class="btn-reanalyze"
+                :disabled="reanalyzing === e.id"
+                @click="handleReanalyze(e)"
+              >
+                {{ reanalyzing === e.id ? '...' : '↻' }}
+              </button>
+            </td>
           </tr>
           <tr v-if="events.length === 0">
-            <td colspan="7" class="empty">No events found</td>
+            <td colspan="8" class="empty">No events found</td>
           </tr>
         </tbody>
       </table>
@@ -42,12 +52,34 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { ReviewEvent } from '@/api/events'
+import { reanalyze } from '@/api/reanalyze'
+import { useToastStore } from '@/stores/toast'
 
 defineProps<{ events: ReviewEvent[]; loading: boolean }>()
 
+const toast = useToastStore()
+const reanalyzing = ref<number | null>(null)
+
 function fmtDate(ts: string) {
   return new Date(ts).toLocaleString()
+}
+
+async function handleReanalyze(e: ReviewEvent) {
+  reanalyzing.value = e.id
+  try {
+    await reanalyze({
+      client_name: e.client_name,
+      project_ref: e.project_ref,
+      mr_iid: e.mr_iid,
+    })
+    toast.push('Re-análise iniciada', 'success')
+  } catch {
+    toast.push('Erro ao re-analisar', 'error')
+  } finally {
+    reanalyzing.value = null
+  }
 }
 </script>
 
@@ -78,4 +110,10 @@ a { color: #818cf8; text-decoration: none; }
 a:hover { text-decoration: underline; }
 .err-msg { font-size: .72rem; color: #f87171; margin-top: .2rem; }
 .empty { text-align: center; color: #475569; padding: 2rem; }
+.btn-reanalyze {
+  background: none; border: 1px solid #475569; color: #94a3b8;
+  padding: .2rem .5rem; border-radius: 4px; cursor: pointer; font-size: .85rem;
+}
+.btn-reanalyze:hover { background: #334155; color: #e2e8f0; }
+.btn-reanalyze:disabled { opacity: .4; cursor: not-allowed; }
 </style>

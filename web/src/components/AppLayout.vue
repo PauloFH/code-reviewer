@@ -15,11 +15,14 @@
         <router-link to="/events">
           <span class="icon">⚡</span> Events
         </router-link>
-        <router-link to="/clients">
+        <router-link v-if="auth.canManageResources" to="/clients">
           <span class="icon">⚙</span> Clients
         </router-link>
-        <router-link to="/prompts">
+        <router-link v-if="auth.canManageResources" to="/prompts">
           <span class="icon">✎</span> Prompts
+        </router-link>
+        <router-link v-if="auth.canManageUsers" to="/users">
+          <span class="icon">👤</span> Users
         </router-link>
       </nav>
       <button class="logout" @click="handleLogout">Logout</button>
