@@ -41,9 +41,13 @@ cp .env.example .env
 |---|---|---|
 | `APP_PORT` | `8080` | Porta HTTP |
 | `APP_ENV` | `development` | `development` ou `production` |
-| `AI_BASE_URL` | — | URL base da API de IA (chat/completions) |
-| `AI_TOKEN` | — | Token de autenticação da API de IA |
-| `AI_MODEL` | `claude-sonnet-4` | Modelo a ser usado |
+| `AI_PROVIDER` | inferido | `gemini` ou `chat_completions` |
+| `GEMINI_API_KEY` | — | Chave da API Gemini |
+| `GEMINI_MODEL` | `gemini-flash-latest` | Modelo Gemini a ser usado |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | URL base da API Gemini |
+| `AI_BASE_URL` | — | URL base para provider `chat_completions` |
+| `AI_TOKEN` | — | Token para provider `chat_completions` |
+| `AI_MODEL` | `claude-sonnet-4` | Modelo para provider `chat_completions` |
 | `AI_TIMEOUT_SECONDS` | `120` | Timeout para chamadas à IA |
 | `AI_PRICE_PER_M_INPUT_TOKENS` | `3.0` | Preço por milhão de tokens de entrada (USD) |
 | `AI_PRICE_PER_M_OUTPUT_TOKENS` | `15.0` | Preço por milhão de tokens de saída (USD) |
@@ -290,7 +294,7 @@ go tool cover -html=coverage.out -o coverage.html
 │   ├── config/                                # Leitura de env vars e clients.json
 │   ├── domain/                                # Entidades e interfaces (Strategy)
 │   ├── infrastructure/
-│   │   ├── ai/                                # Cliente chat/completions + prompt builder
+│   │   ├── ai/                                # Cliente de IA configurável + prompt builder
 │   │   ├── logger/                            # slog estruturado em JSON
 │   │   ├── platform/
 │   │   │   ├── factory.go                     # Cria PlatformClient pelo tipo

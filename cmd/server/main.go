@@ -120,7 +120,7 @@ func main() {
 	}
 
 	// ── AI reviewer ───────────────────────────────────────────────────────────
-	aiClient := ai.New(cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
+	aiClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
 
 	// ── SSE broadcaster ───────────────────────────────────────────────────────
 	broadcaster := transport.NewEventBroadcaster()

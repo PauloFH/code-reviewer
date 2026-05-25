@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Criar um serviço em Go que monitora Merge Requests do GitLab onde o usuário foi marcado como reviewer/assignee ou mencionado, lê o diff do MR, envia o conteúdo para uma API de IA compatível com Claude/custom LLM e publica automaticamente um comentário de code review inicial no próprio Merge Request.
+Criar um serviço em Go que monitora Merge Requests do GitLab onde o usuário foi marcado como reviewer/assignee ou mencionado, lê o diff do MR, envia o conteúdo para um provider de IA configurável (Gemini ou API compatível com chat/completions) e publica automaticamente um comentário de code review inicial no próprio Merge Request.
 
 O serviço deve ser bem estruturado, seguindo Clean Architecture, boas práticas de engenharia de software, código limpo, baixo acoplamento, alta testabilidade e configuração por variáveis de ambiente.
 
@@ -98,9 +98,10 @@ GITLAB_TOKEN=seu_token_gitlab
 GITLAB_WEBHOOK_SECRET=segredo_webhook
 GITLAB_USERNAME=paulorfholanda
 
-AI_BASE_URL=https://sua-api-customizada.com
-AI_TOKEN=seu_token
-AI_MODEL=claude-sonnet-4
+AI_PROVIDER=gemini
+GEMINI_API_KEY=sua_chave_gemini
+GEMINI_MODEL=gemini-flash-latest
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 AI_TIMEOUT_SECONDS=120
 
 DATABASE_PATH=./data/reviewer.db
@@ -243,38 +244,52 @@ type AIReviewer interface {
 A implementação deve usar:
 
 ```env
+AI_PROVIDER
+GEMINI_API_KEY
+GEMINI_MODEL
+GEMINI_BASE_URL
 AI_BASE_URL
 AI_TOKEN
 AI_MODEL
 ```
 
-Assumir API HTTP JSON compatível com chat/completions.
+Assumir API HTTP JSON compatível com Gemini `generateContent` quando `AI_PROVIDER=gemini`, ou `chat/completions` quando `AI_PROVIDER=chat_completions`.
 
-Payload sugerido:
+Payload sugerido para Gemini:
 
 ```json
 {
-  "model": "claude-sonnet-4",
-  "messages": [
-    {
-      "role": "system",
-      "content": "Você é um revisor sênior de código..."
-    },
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "Você é um revisor sênior de código..."
+      }
+    ]
+  },
+  "contents": [
     {
       "role": "user",
-      "content": "Revise o seguinte diff..."
+      "parts": [
+        {
+          "text": "Revise o seguinte diff..."
+        }
+      ]
     }
   ],
-  "temperature": 0.2
+  "generationConfig": {
+    "temperature": 0.2
+  }
 }
 ```
 
 Headers:
 
 ```txt
-Authorization: Bearer <AI_TOKEN>
+X-goog-api-key: <GEMINI_API_KEY>
 Content-Type: application/json
 ```
+
+Para `chat_completions`, usar payload `{ "model": "...", "messages": [...] }` e header `Authorization: Bearer <AI_TOKEN>`.
 
 ---
 

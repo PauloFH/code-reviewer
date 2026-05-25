@@ -10,12 +10,12 @@ Implementações concretas dos contratos definidos em `domain`. Esta camada conh
 Implementações de `domain.PlatformClient` por plataforma Git. Veja `platform/CLAUDE.md` para detalhes.
 
 ### `ai/`
-Cliente HTTP para APIs de IA compatíveis com `chat/completions`.
+Cliente HTTP configurável para `gemini` ou `chat_completions`.
 
 **`client.go`** — implementa `domain.AIReviewer`:
-- Envia `POST /chat/completions` com `model`, `messages` e `temperature: 0.2`
-- Headers: `Authorization: Bearer <token>`, `Content-Type: application/json`
-- Retorna erro descritivo em status >= 300 ou response vazia
+- Provider `gemini`: envia `POST /models/{model}:generateContent` com `systemInstruction`, `contents` e `generationConfig.temperature: 0.2`; usa header `X-goog-api-key`.
+- Provider `chat_completions`: envia `POST /chat/completions` com `model`, `messages` e `temperature: 0.2`; usa header `Authorization: Bearer`.
+- Retorna erro descritivo em status >= 300, prompt bloqueado ou response vazia.
 
 **`prompt.go`** — monta o prompt e filtra o diff:
 - `buildPrompt(input, outputTemplate)` — formata título, URL, descrição e diff em português; usa `outputTemplate` se fornecido, senão `defaultOutputFormat`

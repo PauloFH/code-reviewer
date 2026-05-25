@@ -134,10 +134,18 @@ Preencha os campos obrigatórios:
 APP_PORT=8080
 APP_ENV=production
 
-# API de IA compatível com chat/completions (Claude, OpenAI, etc.)
-AI_BASE_URL=https://sua-api-de-ia.com
-AI_TOKEN=seu-token-aqui
-AI_MODEL=claude-sonnet-4
+# Provider de IA: gemini ou chat_completions
+AI_PROVIDER=gemini
+
+# API Gemini generateContent
+GEMINI_API_KEY=cole-sua-chave-gemini-aqui
+GEMINI_MODEL=gemini-flash-latest
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
+# Para AI_PROVIDER=chat_completions (Claude/OpenAI-compatible proxy):
+# AI_BASE_URL=https://sua-api-de-ia.com
+# AI_TOKEN=seu-token-aqui
+# AI_MODEL=claude-sonnet-4
 AI_TIMEOUT_SECONDS=120
 
 # Preço por milhão de tokens (USD)

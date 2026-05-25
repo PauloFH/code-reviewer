@@ -6,14 +6,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// Client implements domain.AIReviewer using a chat/completions-compatible HTTP API.
+const (
+	providerGemini          = "gemini"
+	providerChatCompletions = "chat_completions"
+)
+
+// Client implements domain.AIReviewer using configurable AI providers.
 type Client struct {
+	provider   string
 	baseURL    string
 	token      string
 	model      string
@@ -21,14 +28,49 @@ type Client struct {
 	promptRepo domain.PromptRepository
 }
 
-func New(baseURL, token, model string, timeout time.Duration, promptRepo domain.PromptRepository) *Client {
+func New(provider, baseURL, token, model string, timeout time.Duration, promptRepo domain.PromptRepository) *Client {
 	return &Client{
+		provider:   normalizeProvider(provider),
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		token:      token,
 		model:      model,
 		http:       &http.Client{Timeout: timeout},
 		promptRepo: promptRepo,
 	}
+}
+
+type geminiRequest struct {
+	SystemInstruction *geminiContent         `json:"systemInstruction,omitempty"`
+	Contents          []geminiContent        `json:"contents"`
+	GenerationConfig  geminiGenerationConfig `json:"generationConfig"`
+}
+
+type geminiGenerationConfig struct {
+	Temperature float64 `json:"temperature"`
+}
+
+type geminiContent struct {
+	Role  string       `json:"role,omitempty"`
+	Parts []geminiPart `json:"parts"`
+}
+
+type geminiPart struct {
+	Text string `json:"text,omitempty"`
+}
+
+type geminiResponse struct {
+	Candidates []struct {
+		Content      geminiContent `json:"content"`
+		FinishReason string        `json:"finishReason"`
+	} `json:"candidates"`
+	PromptFeedback struct {
+		BlockReason string `json:"blockReason"`
+	} `json:"promptFeedback"`
+	UsageMetadata struct {
+		PromptTokenCount     int `json:"promptTokenCount"`
+		CandidatesTokenCount int `json:"candidatesTokenCount"`
+		TotalTokenCount      int `json:"totalTokenCount"`
+	} `json:"usageMetadata"`
 }
 
 type chatRequest struct {
@@ -73,6 +115,78 @@ func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, err
 
 	prompt := buildPrompt(input, outputTpl)
 
+	switch c.provider {
+	case providerGemini:
+		return c.reviewDiffGemini(sysPrompt, prompt)
+	case providerChatCompletions:
+		return c.reviewDiffChatCompletions(sysPrompt, prompt)
+	default:
+		return nil, fmt.Errorf("ai: unsupported provider %q", c.provider)
+	}
+}
+
+func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResult, error) {
+	body, err := json.Marshal(geminiRequest{
+		SystemInstruction: &geminiContent{
+			Parts: []geminiPart{{Text: sysPrompt}},
+		},
+		Contents: []geminiContent{
+			{Role: "user", Parts: []geminiPart{{Text: prompt}}},
+		},
+		GenerationConfig: geminiGenerationConfig{Temperature: 0.2},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ai: marshalling request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, c.generateContentURL(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("ai: building request: %w", err)
+	}
+	req.Header.Set("X-goog-api-key", c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ai: calling API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		rb, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
+	}
+
+	var out geminiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("ai: decoding response: %w", err)
+	}
+
+	if len(out.Candidates) == 0 {
+		if out.PromptFeedback.BlockReason != "" {
+			return nil, fmt.Errorf("ai: Gemini returned no candidates: prompt blocked: %s", out.PromptFeedback.BlockReason)
+		}
+		return nil, fmt.Errorf("ai: empty response from API")
+	}
+	content := collectText(out.Candidates[0].Content.Parts)
+	if content == "" {
+		if out.Candidates[0].FinishReason != "" {
+			return nil, fmt.Errorf("ai: empty response from API (finish reason: %s)", out.Candidates[0].FinishReason)
+		}
+		return nil, fmt.Errorf("ai: empty response from API")
+	}
+
+	return &domain.ReviewResult{
+		Body: content,
+		Usage: domain.TokenUsage{
+			PromptTokens:     out.UsageMetadata.PromptTokenCount,
+			CompletionTokens: out.UsageMetadata.CandidatesTokenCount,
+			TotalTokens:      out.UsageMetadata.TotalTokenCount,
+		},
+	}, nil
+}
+
+func (c *Client) reviewDiffChatCompletions(sysPrompt, prompt string) (*domain.ReviewResult, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: c.model,
 		Messages: []message{
@@ -120,4 +234,28 @@ func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, err
 			TotalTokens:      out.Usage.TotalTokens,
 		},
 	}, nil
+}
+
+func (c *Client) generateContentURL() string {
+	model := strings.TrimPrefix(c.model, "models/")
+	return c.baseURL + "/models/" + url.PathEscape(model) + ":generateContent"
+}
+
+func normalizeProvider(provider string) string {
+	switch strings.ToLower(provider) {
+	case "", providerChatCompletions, "chat-completions", "openai", "claude":
+		return providerChatCompletions
+	case providerGemini:
+		return providerGemini
+	default:
+		return provider
+	}
+}
+
+func collectText(parts []geminiPart) string {
+	var out strings.Builder
+	for _, part := range parts {
+		out.WriteString(part.Text)
+	}
+	return strings.TrimSpace(out.String())
 }

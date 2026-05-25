@@ -1,0 +1,173 @@
+package ai
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
+)
+
+func TestClientReviewDiff_CallsGeminiGenerateContent(t *testing.T) {
+	var gotPath string
+	var gotAPIKey string
+	var gotReq geminiRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIKey = r.Header.Get("X-goog-api-key")
+
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Fatalf("decoding request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"candidates": [
+				{
+					"content": {
+						"parts": [
+							{"text": "Revisao "},
+							{"text": "ok"}
+						],
+						"role": "model"
+					},
+					"finishReason": "STOP",
+					"index": 0
+				}
+			],
+			"usageMetadata": {
+				"promptTokenCount": 8,
+				"candidatesTokenCount": 11,
+				"totalTokenCount": 373
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := New("gemini", server.URL, "test-key", "gemini-flash-latest", time.Second, nil)
+
+	result, err := client.ReviewDiff(domain.ReviewInput{
+		MergeRequest: &domain.MergeRequest{
+			Title:       "MR",
+			ProjectRef:  "owner/repo",
+			Description: "desc",
+			WebURL:      "https://example.com/mr/1",
+		},
+		Diff: "+func main() {}",
+	})
+	if err != nil {
+		t.Fatalf("ReviewDiff returned error: %v", err)
+	}
+
+	if gotPath != "/models/gemini-flash-latest:generateContent" {
+		t.Fatalf("path = %q, want Gemini generateContent path", gotPath)
+	}
+	if gotAPIKey != "test-key" {
+		t.Fatalf("X-goog-api-key = %q, want test-key", gotAPIKey)
+	}
+	if gotReq.SystemInstruction == nil || len(gotReq.SystemInstruction.Parts) != 1 {
+		t.Fatalf("expected systemInstruction with one text part")
+	}
+	if gotReq.GenerationConfig.Temperature != 0.2 {
+		t.Fatalf("temperature = %v, want 0.2", gotReq.GenerationConfig.Temperature)
+	}
+	if len(gotReq.Contents) != 1 || gotReq.Contents[0].Role != "user" || len(gotReq.Contents[0].Parts) != 1 {
+		t.Fatalf("expected one user content with one text part")
+	}
+	if !strings.Contains(gotReq.Contents[0].Parts[0].Text, "## Diff") {
+		t.Fatalf("user prompt did not include diff section")
+	}
+
+	if result.Body != "Revisao ok" {
+		t.Fatalf("Body = %q, want concatenated text", result.Body)
+	}
+	if result.Usage.PromptTokens != 8 || result.Usage.CompletionTokens != 11 || result.Usage.TotalTokens != 373 {
+		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+}
+
+func TestClientReviewDiff_EmptyGeminiCandidate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"candidates": [
+				{
+					"content": {"parts": [], "role": "model"},
+					"finishReason": "MAX_TOKENS"
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	client := New("gemini", server.URL, "test-key", "gemini-flash-latest", time.Second, nil)
+
+	_, err := client.ReviewDiff(domain.ReviewInput{
+		MergeRequest: &domain.MergeRequest{Title: "MR"},
+		Diff:         "+change",
+	})
+	if err == nil || !strings.Contains(err.Error(), "MAX_TOKENS") {
+		t.Fatalf("expected empty response error with finish reason, got %v", err)
+	}
+}
+
+func TestClientReviewDiff_CallsChatCompletionsProvider(t *testing.T) {
+	var gotPath string
+	var gotAuth string
+	var gotReq chatRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Fatalf("decoding request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"choices": [
+				{"message": {"content": "review via chat completions"}}
+			],
+			"usage": {
+				"prompt_tokens": 10,
+				"completion_tokens": 20,
+				"total_tokens": 30
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := New("chat_completions", server.URL, "test-token", "claude-sonnet-4", time.Second, nil)
+
+	result, err := client.ReviewDiff(domain.ReviewInput{
+		MergeRequest: &domain.MergeRequest{Title: "MR"},
+		Diff:         "+change",
+	})
+	if err != nil {
+		t.Fatalf("ReviewDiff returned error: %v", err)
+	}
+
+	if gotPath != "/chat/completions" {
+		t.Fatalf("path = %q, want /chat/completions", gotPath)
+	}
+	if gotAuth != "Bearer test-token" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+	if gotReq.Model != "claude-sonnet-4" {
+		t.Fatalf("Model = %q, want claude-sonnet-4", gotReq.Model)
+	}
+	if len(gotReq.Messages) != 2 || gotReq.Messages[0].Role != "system" || gotReq.Messages[1].Role != "user" {
+		t.Fatalf("unexpected chat messages: %+v", gotReq.Messages)
+	}
+	if result.Body != "review via chat completions" {
+		t.Fatalf("Body = %q, want chat response", result.Body)
+	}
+	if result.Usage.PromptTokens != 10 || result.Usage.CompletionTokens != 20 || result.Usage.TotalTokens != 30 {
+		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+}

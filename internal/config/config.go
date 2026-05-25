@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -21,10 +22,11 @@ type AppConfig struct {
 }
 
 type AIConfig struct {
-	BaseURL              string
-	Token                string
-	Model                string
-	TimeoutSeconds       int
+	Provider              string
+	BaseURL               string
+	Token                 string
+	Model                 string
+	TimeoutSeconds        int
 	PricePerMInputTokens  float64
 	PricePerMOutputTokens float64
 }
@@ -59,15 +61,30 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("AI_PRICE_PER_M_OUTPUT_TOKENS must be a number: %w", err)
 	}
 
+	aiProvider := strings.ToLower(getEnv("AI_PROVIDER", ""))
+	if aiProvider == "" {
+		if os.Getenv("GEMINI_API_KEY") != "" {
+			aiProvider = "gemini"
+		} else {
+			aiProvider = "chat_completions"
+		}
+	}
+
+	aiBaseURL, aiToken, aiModel, err := loadAIProviderConfig(aiProvider)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		App: AppConfig{
 			Port: getEnv("APP_PORT", "8080"),
 			Env:  getEnv("APP_ENV", "development"),
 		},
 		AI: AIConfig{
-			BaseURL:               requireEnv("AI_BASE_URL"),
-			Token:                 requireEnv("AI_TOKEN"),
-			Model:                 getEnv("AI_MODEL", "claude-sonnet-4"),
+			Provider:              aiProvider,
+			BaseURL:               aiBaseURL,
+			Token:                 aiToken,
+			Model:                 aiModel,
 			TimeoutSeconds:        aiTimeout,
 			PricePerMInputTokens:  priceInput,
 			PricePerMOutputTokens: priceOutput,
@@ -89,11 +106,35 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+func loadAIProviderConfig(provider string) (baseURL, token, model string, err error) {
+	switch provider {
+	case "gemini":
+		return firstEnv("GEMINI_BASE_URL", "AI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
+			requireAnyEnv("GEMINI_API_KEY", "AI_TOKEN"),
+			firstEnv("GEMINI_MODEL", "AI_MODEL", "gemini-flash-latest"),
+			nil
+	case "chat_completions", "chat-completions", "openai", "claude":
+		return requireEnv("AI_BASE_URL"),
+			requireEnv("AI_TOKEN"),
+			getEnv("AI_MODEL", "claude-sonnet-4"),
+			nil
+	default:
+		return "", "", "", fmt.Errorf("AI_PROVIDER must be gemini or chat_completions, got %q", provider)
+	}
+}
+
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return fallback
+}
+
+func firstEnv(primary, fallbackKey, fallbackValue string) string {
+	if v := os.Getenv(primary); v != "" {
+		return v
+	}
+	return getEnv(fallbackKey, fallbackValue)
 }
 
 func requireEnv(key string) string {
@@ -102,4 +143,13 @@ func requireEnv(key string) string {
 		panic(fmt.Sprintf("required environment variable %q is not set", key))
 	}
 	return v
+}
+
+func requireAnyEnv(keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+	}
+	panic(fmt.Sprintf("required environment variable %q is not set", strings.Join(keys, " or ")))
 }

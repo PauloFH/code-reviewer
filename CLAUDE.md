@@ -2,7 +2,7 @@
 
 ## O que é este projeto
 
-Serviço HTTP em Go que recebe webhooks de plataformas Git (GitLab, GitHub, Gitea), detecta quando um usuário configurado foi marcado como reviewer/assignee em um MR/PR, busca o diff via API, envia para uma API de IA compatível com `chat/completions` e posta o review como comentário no MR — uma única vez por MR (idempotente).
+Serviço HTTP em Go que recebe webhooks de plataformas Git (GitLab, GitHub, Gitea), detecta quando um usuário configurado foi marcado como reviewer/assignee em um MR/PR, busca o diff via API, envia para uma API de IA configurável (`gemini` ou `chat_completions`) e posta o review como comentário no MR — uma única vez por MR (idempotente).
 
 ## Comandos essenciais
 
@@ -105,7 +105,7 @@ go run ./cmd/server
 
 ## Variáveis de ambiente obrigatórias
 
-`AI_BASE_URL`, `AI_TOKEN` — sem estas o serviço não inicia (panic com mensagem clara).
+`AI_PROVIDER` define o provider (`gemini` ou `chat_completions`). Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
 
 ## Testes
 
