@@ -15,6 +15,7 @@ Cliente HTTP configurável para `gemini` ou `chat_completions`.
 **`client.go`** — implementa `domain.AIReviewer`:
 - Provider `gemini`: envia `POST /models/{model}:generateContent` com `systemInstruction`, `contents` e `generationConfig.temperature: 0.2`; usa header `X-goog-api-key`.
 - Provider `chat_completions`: envia `POST /chat/completions` com `model`, `messages` e `temperature: 0.2`; usa header `Authorization: Bearer`.
+- Faz parse de resposta JSON com `review_markdown` e `inline_comments`; se a IA não devolver JSON válido, usa a resposta inteira como review sem inline comments.
 - Retorna erro descritivo em status >= 300, prompt bloqueado ou response vazia.
 
 **`prompt.go`** — monta o prompt e filtra o diff:

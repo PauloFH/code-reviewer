@@ -18,11 +18,12 @@ Pipeline de `Execute(event *domain.WebhookEvent)`:
 5. GetMergeRequestDiff(projectRef, mrIID)   → retorna erro em falha de API
 6. reviewer.ReviewDiff(input)               → retorna erro se IA falhar
 7. CreateMergeRequestNote(projectRef, ...)  → retorna erro se post falhar
-8. repository.MarkAsReviewed(...)           → best-effort: loga erro, não retorna
-9. saveEvent(...)                           → best-effort: salva ReviewEvent + publica SSE
+8. postInlineComments(...)                   → best-effort: filtra e posta comentários inline quando suportado
+9. repository.MarkAsReviewed(...)           → best-effort: loga erro, não retorna
+10. saveEvent(...)                           → best-effort: salva ReviewEvent + publica SSE
 ```
 
-Steps 8 e 9 são best-effort. `saveEvent` chama `publisher.Publish(e)` para o live feed SSE.
+Steps 8, 9 e 10 são best-effort. `saveEvent` chama `publisher.Publish(e)` para o live feed SSE.
 
 Dependências injetadas:
 - `registry domain.ClientRegistry`
@@ -37,6 +38,14 @@ Dependências injetadas:
 `CalculateCost(usage domain.TokenUsage, pricePerMInput, pricePerMOutput float64) float64`
 
 Calcula custo USD: `(promptTokens/1M * priceInput) + (completionTokens/1M * priceOutput)`.
+
+### `inline_comments.go`
+
+Filtra os comentários inline sugeridos pela IA:
+- mantém apenas comentários com `path`, `line` e `body`
+- aceita somente linhas adicionadas do lado novo do diff
+- remove duplicados
+- limita a `maxInlineCommentsPerReview`
 
 ### `client_management.go`
 

@@ -13,6 +13,10 @@ type MergeRequest struct {
 	Assignees      []string
 	State          string
 	WebURL         string
+	HeadSHA        string
+	DiffBaseSHA    string
+	DiffStartSHA   string
+	DiffHeadSHA    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

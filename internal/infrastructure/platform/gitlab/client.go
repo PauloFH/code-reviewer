@@ -45,8 +45,8 @@ func newClient(pt domain.PlatformType, name, baseURL, token, secret, username st
 }
 
 func (c *Client) Platform() domain.PlatformType { return c.platformType }
-func (c *Client) ClientName() string             { return c.name }
-func (c *Client) WatchedUsername() string        { return c.username }
+func (c *Client) ClientName() string            { return c.name }
+func (c *Client) WatchedUsername() string       { return c.username }
 
 // ---------- API methods ----------
 
@@ -65,6 +65,11 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 		Author      struct {
 			Username string `json:"username"`
 		} `json:"author"`
+		DiffRefs struct {
+			BaseSHA  string `json:"base_sha"`
+			StartSHA string `json:"start_sha"`
+			HeadSHA  string `json:"head_sha"`
+		} `json:"diff_refs"`
 		Reviewers []struct {
 			Username string `json:"username"`
 		} `json:"reviewers"`
@@ -86,6 +91,10 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 		AuthorUsername: raw.Author.Username,
 		State:          raw.State,
 		WebURL:         raw.WebURL,
+		HeadSHA:        raw.DiffRefs.HeadSHA,
+		DiffBaseSHA:    raw.DiffRefs.BaseSHA,
+		DiffStartSHA:   raw.DiffRefs.StartSHA,
+		DiffHeadSHA:    raw.DiffRefs.HeadSHA,
 	}
 	for _, r := range raw.Reviewers {
 		mr.Reviewers = append(mr.Reviewers, r.Username)
@@ -142,6 +151,44 @@ func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body str
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("gitlab CreateNote: status %d: %s", resp.StatusCode, body)
 	}
+	return nil
+}
+
+func (c *Client) CreateMergeRequestInlineComment(projectRef string, mr *domain.MergeRequest, comment domain.InlineComment) error {
+	if mr.DiffBaseSHA == "" || mr.DiffStartSHA == "" || mr.DiffHeadSHA == "" {
+		return fmt.Errorf("gitlab CreateInlineComment: missing diff refs")
+	}
+
+	endpoint := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/discussions", c.baseURL, encodeProjectRef(projectRef), mr.IID)
+
+	form := url.Values{}
+	form.Set("body", comment.Body)
+	form.Set("position[position_type]", "text")
+	form.Set("position[base_sha]", mr.DiffBaseSHA)
+	form.Set("position[start_sha]", mr.DiffStartSHA)
+	form.Set("position[head_sha]", mr.DiffHeadSHA)
+	form.Set("position[old_path]", comment.Path)
+	form.Set("position[new_path]", comment.Path)
+	form.Set("position[new_line]", fmt.Sprintf("%d", comment.Line))
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("gitlab CreateInlineComment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("gitlab CreateInlineComment: status %d: %s", resp.StatusCode, body)
+	}
+
 	return nil
 }
 

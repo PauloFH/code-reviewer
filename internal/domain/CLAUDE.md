@@ -15,6 +15,7 @@ Este pacote **não pode importar nenhum pacote externo**. Apenas stdlib Go. Qual
 - `RawWebhook` — abstração do request HTTP sem importar `net/http`
 - `WebhookEvent` — evento normalizado produzido por qualquer plataforma
 - `PlatformClient` — interface Strategy; cada plataforma implementa este contrato
+- `ErrInlineCommentsUnsupported` — erro sentinela para plataforma sem suporte a comentários inline no diff
 - `ClientRegistry` — interface do registro de clients; implementada em `infrastructure/platform/registry.go`
 
 ### `merge_request.go`
@@ -25,6 +26,7 @@ Este pacote **não pode importar nenhum pacote externo**. Apenas stdlib Go. Qual
 - `ReviewInput` — entrada para o revisor de IA
 - `ReviewResult` — saída do revisor de IA com `Usage TokenUsage`
 - `TokenUsage` — prompt/completion/total tokens retornados pela API de IA
+- `InlineComment` — comentário estruturado para postagem inline no diff (`Path`, `Line`, `Body`)
 
 ### `client.go`
 - `Client` — entidade de um client de plataforma gerenciado (espelho de `config.ClientConfig` no domínio para evitar ciclo de imports). Todos os campos têm json tags snake_case.

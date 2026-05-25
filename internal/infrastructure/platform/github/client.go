@@ -35,8 +35,8 @@ func New(name, baseURL, token, secret, username string, timeout time.Duration) *
 }
 
 func (c *Client) Platform() domain.PlatformType { return domain.PlatformGitHub }
-func (c *Client) ClientName() string             { return c.name }
-func (c *Client) WatchedUsername() string        { return c.username }
+func (c *Client) ClientName() string            { return c.name }
+func (c *Client) WatchedUsername() string       { return c.username }
 
 // ---------- API methods ----------
 
@@ -48,17 +48,20 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", c.baseURL, owner, repo, mrIID)
 
 	var raw struct {
-		ID     int64  `json:"id"`
-		Number int64  `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		State  string `json:"state"`
-		HTMLURL string `json:"html_url"`
+		ID        int64  `json:"id"`
+		Number    int64  `json:"number"`
+		Title     string `json:"title"`
+		Body      string `json:"body"`
+		State     string `json:"state"`
+		HTMLURL   string `json:"html_url"`
 		CreatedAt string `json:"created_at"`
 		UpdatedAt string `json:"updated_at"`
-		User struct {
+		User      struct {
 			Login string `json:"login"`
 		} `json:"user"`
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
 		RequestedReviewers []struct {
 			Login string `json:"login"`
 		} `json:"requested_reviewers"`
@@ -80,6 +83,8 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 		AuthorUsername: raw.User.Login,
 		State:          raw.State,
 		WebURL:         raw.HTMLURL,
+		HeadSHA:        raw.Head.SHA,
+		DiffHeadSHA:    raw.Head.SHA,
 	}
 	for _, r := range raw.RequestedReviewers {
 		mr.Reviewers = append(mr.Reviewers, r.Login)
@@ -145,6 +150,47 @@ func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body str
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("github CreateNote: status %d: %s", resp.StatusCode, body)
 	}
+	return nil
+}
+
+func (c *Client) CreateMergeRequestInlineComment(projectRef string, mr *domain.MergeRequest, comment domain.InlineComment) error {
+	if mr.HeadSHA == "" {
+		return fmt.Errorf("github CreateInlineComment: missing head SHA")
+	}
+
+	owner, repo, err := splitRef(projectRef)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments", c.baseURL, owner, repo, mr.IID)
+	payload := map[string]any{
+		"body":      comment.Body,
+		"commit_id": mr.HeadSHA,
+		"path":      comment.Path,
+		"line":      comment.Line,
+		"side":      "RIGHT",
+	}
+
+	b, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("github CreateInlineComment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github CreateInlineComment: status %d: %s", resp.StatusCode, body)
+	}
+
 	return nil
 }
 

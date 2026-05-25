@@ -17,9 +17,18 @@ type TokenUsage struct {
 	TotalTokens      int
 }
 
+// InlineComment is a review finding that can be posted on a changed line.
+// Line refers to the new/right side line number in the MR/PR diff.
+type InlineComment struct {
+	Path string
+	Line int
+	Body string
+}
+
 type ReviewResult struct {
-	Body  string
-	Usage TokenUsage
+	Body           string
+	InlineComments []InlineComment
+	Usage          TokenUsage
 }
 
 type ReviewedMergeRequest struct {

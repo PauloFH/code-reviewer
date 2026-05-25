@@ -15,8 +15,8 @@ type mockRegistry struct {
 	client domain.PlatformClient
 }
 
-func (m *mockRegistry) Register(c domain.PlatformClient)          { m.client = c }
-func (m *mockRegistry) Unregister(_ string)                       {}
+func (m *mockRegistry) Register(c domain.PlatformClient) { m.client = c }
+func (m *mockRegistry) Unregister(_ string)              {}
 func (m *mockRegistry) Get(name string) (domain.PlatformClient, bool) {
 	if m.client != nil && m.client.ClientName() == name {
 		return m.client, true
@@ -32,7 +32,7 @@ func (m *mockRegistry) All() []domain.PlatformClient {
 
 type mockEventRepo struct{}
 
-func (m *mockEventRepo) SaveEvent(_ domain.ReviewEvent) error                         { return nil }
+func (m *mockEventRepo) SaveEvent(_ domain.ReviewEvent) error { return nil }
 func (m *mockEventRepo) ListEvents(_ domain.ReviewEventFilter) ([]domain.ReviewEvent, error) {
 	return nil, nil
 }
@@ -43,19 +43,21 @@ func (m *mockEventRepo) GetDailyCosts(_ string, _ int) ([]domain.DailyCostPoint,
 }
 
 type mockClient struct {
-	name     string
-	username string
-	mr       *domain.MergeRequest
-	mrErr    error
-	diff     string
-	diffErr  error
-	noteErr  error
-	noteCalled bool
+	name           string
+	username       string
+	mr             *domain.MergeRequest
+	mrErr          error
+	diff           string
+	diffErr        error
+	noteErr        error
+	noteCalled     bool
+	inlineErr      error
+	inlineComments []domain.InlineComment
 }
 
-func (m *mockClient) Platform() domain.PlatformType        { return domain.PlatformGitLab }
-func (m *mockClient) ClientName() string                   { return m.name }
-func (m *mockClient) WatchedUsername() string              { return m.username }
+func (m *mockClient) Platform() domain.PlatformType          { return domain.PlatformGitLab }
+func (m *mockClient) ClientName() string                     { return m.name }
+func (m *mockClient) WatchedUsername() string                { return m.username }
 func (m *mockClient) ValidateWebhook(domain.RawWebhook) bool { return true }
 func (m *mockClient) ParseWebhook(domain.RawWebhook) (*domain.WebhookEvent, error) {
 	return nil, nil
@@ -69,6 +71,10 @@ func (m *mockClient) GetMergeRequestDiff(_ string, _ int64) (string, error) {
 func (m *mockClient) CreateMergeRequestNote(_ string, _ int64, _ string) error {
 	m.noteCalled = true
 	return m.noteErr
+}
+func (m *mockClient) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRequest, c domain.InlineComment) error {
+	m.inlineComments = append(m.inlineComments, c)
+	return m.inlineErr
 }
 
 type mockRepository struct {
@@ -91,14 +97,14 @@ func (m *mockRepository) ClearReview(_, _ string, _ int64) error {
 
 type mockUserRepoUC struct{}
 
-func (m *mockUserRepoUC) GetByUsername(_ string) (*domain.User, error) { return nil, nil }
-func (m *mockUserRepoUC) GetByID(_ int64) (*domain.User, error)       { return nil, nil }
-func (m *mockUserRepoUC) ListUsers() ([]domain.User, error)           { return nil, nil }
-func (m *mockUserRepoUC) CreateUser(u domain.User) (*domain.User, error) { return &u, nil }
+func (m *mockUserRepoUC) GetByUsername(_ string) (*domain.User, error)            { return nil, nil }
+func (m *mockUserRepoUC) GetByID(_ int64) (*domain.User, error)                   { return nil, nil }
+func (m *mockUserRepoUC) ListUsers() ([]domain.User, error)                       { return nil, nil }
+func (m *mockUserRepoUC) CreateUser(u domain.User) (*domain.User, error)          { return &u, nil }
 func (m *mockUserRepoUC) UpdateUser(_ int64, u domain.User) (*domain.User, error) { return &u, nil }
-func (m *mockUserRepoUC) DeleteUser(_ int64) error                     { return nil }
-func (m *mockUserRepoUC) CountUsers() (int, error)                     { return 0, nil }
-func (m *mockUserRepoUC) UserExists(_ string) (bool, error)            { return false, nil }
+func (m *mockUserRepoUC) DeleteUser(_ int64) error                                { return nil }
+func (m *mockUserRepoUC) CountUsers() (int, error)                                { return 0, nil }
+func (m *mockUserRepoUC) UserExists(_ string) (bool, error)                       { return false, nil }
 
 type mockAI struct {
 	result *domain.ReviewResult
@@ -200,6 +206,62 @@ func TestExecute_Idempotency_MarksAfterPosting(t *testing.T) {
 	}
 	if !repo.marked {
 		t.Error("expected MarkAsReviewed to be called after successful review")
+	}
+}
+
+func TestExecute_PostsInlineCommentsAfterMainReview(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       happyMR("alice"),
+		diff:     "--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,2 @@\n package main\n+func run() {}\n",
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{result: &domain.ReviewResult{
+		Body: "review body",
+		InlineComments: []domain.InlineComment{
+			{Path: "main.go", Line: 2, Body: "Adicionar teste para run."},
+			{Path: "main.go", Line: 99, Body: "Linha fora do diff."},
+		},
+	}}
+	uc := newUsecase(client, repo, ai)
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(client.inlineComments) != 1 {
+		t.Fatalf("expected 1 inline comment, got %d", len(client.inlineComments))
+	}
+	if client.inlineComments[0].Path != "main.go" || client.inlineComments[0].Line != 2 {
+		t.Fatalf("unexpected inline comment: %+v", client.inlineComments[0])
+	}
+	if !repo.marked {
+		t.Error("expected MarkAsReviewed to be called")
+	}
+}
+
+func TestExecute_InlineCommentError_StillReturnsNil(t *testing.T) {
+	client := &mockClient{
+		name:      "test-client",
+		username:  "alice",
+		mr:        happyMR("alice"),
+		diff:      "--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,2 @@\n package main\n+func run() {}\n",
+		inlineErr: errors.New("inline API failed"),
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{result: &domain.ReviewResult{
+		Body: "review body",
+		InlineComments: []domain.InlineComment{
+			{Path: "main.go", Line: 2, Body: "Adicionar teste para run."},
+		},
+	}}
+	uc := newUsecase(client, repo, ai)
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("expected nil when inline comments fail best-effort, got %v", err)
+	}
+	if !repo.marked {
+		t.Error("expected MarkAsReviewed to be called")
 	}
 }
 

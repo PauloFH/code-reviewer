@@ -17,6 +17,8 @@ Plataforma Git → POST /webhook/{clientName} → validação de secret
 
 O review é gerado **uma única vez por MR**, quando o usuário configurado (`username`) é marcado como reviewer ou assignee pela primeira vez. Reenvios de webhook, novos commits, alterações de título ou reinicializações do serviço não disparam um segundo review.
 
+Além do comentário completo, o serviço tenta publicar comentários inline no diff para pontos acionáveis apontados pela IA. O suporte inline é best-effort: GitLab e GitHub usam comentários nativos no diff; Gitea continua recebendo apenas o comentário completo.
+
 ---
 
 ## Pré-requisitos

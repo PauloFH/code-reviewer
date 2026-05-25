@@ -35,8 +35,14 @@ type PlatformClient interface {
     GetMergeRequest(projectRef string, mrIID int64) (*MergeRequest, error)
     GetMergeRequestDiff(projectRef string, mrIID int64) (string, error)
     CreateMergeRequestNote(projectRef string, mrIID int64, body string) error
+    CreateMergeRequestInlineComment(projectRef string, mr *MergeRequest, comment InlineComment) error
 }
 ```
+
+Comentários inline:
+- GitLab usa `POST /merge_requests/:iid/discussions` com `position` e `diff_refs`.
+- GitHub usa `POST /pulls/:pull_number/comments` com `commit_id`, `path`, `line`, `side=RIGHT`.
+- Gitea atualmente retorna `domain.ErrInlineCommentsUnsupported`.
 
 ## `projectRef` por plataforma
 

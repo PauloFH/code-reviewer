@@ -171,3 +171,35 @@ func TestClientReviewDiff_CallsChatCompletionsProvider(t *testing.T) {
 		t.Fatalf("unexpected usage: %+v", result.Usage)
 	}
 }
+
+func TestParseReviewPayload_JSONWithInlineComments(t *testing.T) {
+	body, comments := parseReviewPayload(`{
+		"review_markdown": "## Revisao\n\nTexto",
+		"inline_comments": [
+			{"path": "main.go", "line": 10, "body": "Adicionar teste."},
+			{"path": "", "line": 20, "body": "ignorado"},
+			{"path": "x.go", "line": 0, "body": "ignorado"}
+		]
+	}`)
+
+	if body != "## Revisao\n\nTexto" {
+		t.Fatalf("unexpected body: %q", body)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 inline comment, got %d", len(comments))
+	}
+	if comments[0].Path != "main.go" || comments[0].Line != 10 || comments[0].Body != "Adicionar teste." {
+		t.Fatalf("unexpected inline comment: %+v", comments[0])
+	}
+}
+
+func TestParseReviewPayload_FallbackToPlainText(t *testing.T) {
+	body, comments := parseReviewPayload("review plain text")
+
+	if body != "review plain text" {
+		t.Fatalf("body = %q, want plain text", body)
+	}
+	if len(comments) != 0 {
+		t.Fatalf("expected no inline comments, got %d", len(comments))
+	}
+}

@@ -49,8 +49,8 @@ func newClient(pt domain.PlatformType, name, baseURL, token, secret, username st
 }
 
 func (c *Client) Platform() domain.PlatformType { return c.platformType }
-func (c *Client) ClientName() string             { return c.name }
-func (c *Client) WatchedUsername() string        { return c.username }
+func (c *Client) ClientName() string            { return c.name }
+func (c *Client) WatchedUsername() string       { return c.username }
 
 // ---------- API methods ----------
 
@@ -62,15 +62,15 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d", c.baseURL, owner, repo, mrIID)
 
 	var raw struct {
-		ID     int64  `json:"id"`
-		Number int64  `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		State  string `json:"state"`
-		HTMLURL string `json:"html_url"`
+		ID        int64  `json:"id"`
+		Number    int64  `json:"number"`
+		Title     string `json:"title"`
+		Body      string `json:"body"`
+		State     string `json:"state"`
+		HTMLURL   string `json:"html_url"`
 		CreatedAt string `json:"created_at"`
 		UpdatedAt string `json:"updated_at"`
-		User struct {
+		User      struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		RequestedReviewers []struct {
@@ -165,6 +165,10 @@ func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body str
 		return fmt.Errorf("gitea CreateNote: status %d: %s", resp.StatusCode, body)
 	}
 	return nil
+}
+
+func (c *Client) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRequest, _ domain.InlineComment) error {
+	return domain.ErrInlineCommentsUnsupported
 }
 
 // ---------- helpers ----------

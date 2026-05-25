@@ -97,6 +97,11 @@ type chatResponse struct {
 	} `json:"usage"`
 }
 
+type reviewPayload struct {
+	ReviewMarkdown string                 `json:"review_markdown"`
+	InlineComments []domain.InlineComment `json:"inline_comments"`
+}
+
 func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, error) {
 	sysPrompt := systemPrompt
 	outputTpl := ""
@@ -126,7 +131,7 @@ func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, err
 }
 
 func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResult, error) {
-	body, err := json.Marshal(geminiRequest{
+	reqBody, err := json.Marshal(geminiRequest{
 		SystemInstruction: &geminiContent{
 			Parts: []geminiPart{{Text: sysPrompt}},
 		},
@@ -139,7 +144,7 @@ func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResul
 		return nil, fmt.Errorf("ai: marshalling request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.generateContentURL(), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.generateContentURL(), bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("ai: building request: %w", err)
 	}
@@ -176,8 +181,11 @@ func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResul
 		return nil, fmt.Errorf("ai: empty response from API")
 	}
 
+	body, comments := parseReviewPayload(content)
+
 	return &domain.ReviewResult{
-		Body: content,
+		Body:           body,
+		InlineComments: comments,
 		Usage: domain.TokenUsage{
 			PromptTokens:     out.UsageMetadata.PromptTokenCount,
 			CompletionTokens: out.UsageMetadata.CandidatesTokenCount,
@@ -187,7 +195,7 @@ func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResul
 }
 
 func (c *Client) reviewDiffChatCompletions(sysPrompt, prompt string) (*domain.ReviewResult, error) {
-	body, err := json.Marshal(chatRequest{
+	reqBody, err := json.Marshal(chatRequest{
 		Model: c.model,
 		Messages: []message{
 			{Role: "system", Content: sysPrompt},
@@ -199,7 +207,7 @@ func (c *Client) reviewDiffChatCompletions(sysPrompt, prompt string) (*domain.Re
 		return nil, fmt.Errorf("ai: marshalling request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("ai: building request: %w", err)
 	}
@@ -226,8 +234,11 @@ func (c *Client) reviewDiffChatCompletions(sysPrompt, prompt string) (*domain.Re
 		return nil, fmt.Errorf("ai: empty response from API")
 	}
 
+	body, comments := parseReviewPayload(out.Choices[0].Message.Content)
+
 	return &domain.ReviewResult{
-		Body: out.Choices[0].Message.Content,
+		Body:           body,
+		InlineComments: comments,
 		Usage: domain.TokenUsage{
 			PromptTokens:     out.Usage.PromptTokens,
 			CompletionTokens: out.Usage.CompletionTokens,
@@ -258,4 +269,35 @@ func collectText(parts []geminiPart) string {
 		out.WriteString(part.Text)
 	}
 	return strings.TrimSpace(out.String())
+}
+
+func parseReviewPayload(content string) (string, []domain.InlineComment) {
+	trimmed := strings.TrimSpace(content)
+	jsonText := strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(trimmed, "```"), "```json"))
+	jsonText = strings.TrimSpace(strings.TrimPrefix(jsonText, "```"))
+
+	var payload reviewPayload
+	if err := json.Unmarshal([]byte(jsonText), &payload); err != nil {
+		return trimmed, nil
+	}
+
+	body := strings.TrimSpace(payload.ReviewMarkdown)
+	if body == "" {
+		body = trimmed
+	}
+
+	comments := make([]domain.InlineComment, 0, len(payload.InlineComments))
+	for _, comment := range payload.InlineComments {
+		comment.Path = strings.TrimSpace(comment.Path)
+		comment.Body = strings.TrimSpace(comment.Body)
+		if comment.Path == "" || comment.Body == "" || comment.Line <= 0 {
+			continue
+		}
+		comments = append(comments, comment)
+		if len(comments) >= maxInlineComments {
+			break
+		}
+	}
+
+	return body, comments
 }

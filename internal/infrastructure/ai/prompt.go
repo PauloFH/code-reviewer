@@ -3,6 +3,8 @@ package ai
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
@@ -47,6 +49,7 @@ const defaultOutputFormat = `## Guia do Revisor
 (Veredicto: ✅ Aprovado | ⚠️ Aprovado com ressalvas | ❌ Solicitar alterações — com justificativa breve)`
 
 const maxDiffBytes = 80_000
+const maxInlineComments = 20
 
 // irrelevantPatterns lists file paths/extensions to skip during diff filtering.
 var irrelevantPatterns = []string{
@@ -64,7 +67,7 @@ var irrelevantPatterns = []string{
 	".min.js",
 	".min.css",
 	".map",
-	".pb.go",    // generated protobuf
+	".pb.go", // generated protobuf
 	"_generated",
 }
 
@@ -74,6 +77,7 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 	if len(diff) > maxDiffBytes {
 		diff = diff[:maxDiffBytes] + "\n\n[diff truncado por exceder o limite de tamanho]"
 	}
+	diff = annotateDiffLineNumbers(diff)
 
 	outputFmt := defaultOutputFormat
 	if outputTemplate != "" {
@@ -94,7 +98,31 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 
 ---
 
-Por favor, revise o diff acima e retorne sua análise no seguinte formato:
+Por favor, revise o diff acima.
+
+Retorne exclusivamente um objeto JSON válido, sem markdown fences e sem texto antes ou depois, neste formato:
+
+{
+  "review_markdown": "review completo em Markdown, seguindo o template informado",
+  "inline_comments": [
+    {
+      "path": "caminho/do/arquivo.ext",
+      "line": 123,
+      "body": "comentário curto e objetivo em português brasileiro"
+    }
+  ]
+}
+
+Regras para "inline_comments":
+- Inclua no máximo %d comentários.
+- Inclua apenas pontos acionáveis que recomendem mudança ou revisão.
+- Use somente linhas adicionadas/modificadas do lado novo do diff, identificadas por marcadores [new:<linha>].
+- Em "line", use o número exato do marcador [new:<linha>].
+- Em "path", use o caminho do arquivo conforme aparece no cabeçalho "+++ b/path".
+- Se não houver um caminho e linha exatos, omita o comentário inline.
+- Não duplique no inline todos os pontos do review; priorize os mais importantes.
+
+Template do campo "review_markdown":
 
 %s`,
 		mr.Title,
@@ -102,6 +130,7 @@ Por favor, revise o diff acima e retorne sua análise no seguinte formato:
 		mr.WebURL,
 		mr.Description,
 		diff,
+		maxInlineComments,
 		outputFmt,
 	)
 }
@@ -155,4 +184,57 @@ func isIrrelevant(path string) bool {
 		}
 	}
 	return false
+}
+
+var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+
+func annotateDiffLineNumbers(diff string) string {
+	if diff == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	var oldLine, newLine int
+	inHunk := false
+
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "@@ ") {
+			oldLine, newLine = parseHunkStart(line)
+			inHunk = oldLine > 0 || newLine > 0
+			result.WriteString(line)
+			result.WriteByte('\n')
+			continue
+		}
+
+		if !inHunk || strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") {
+			result.WriteString(line)
+			result.WriteByte('\n')
+			continue
+		}
+
+		switch {
+		case strings.HasPrefix(line, "+"):
+			fmt.Fprintf(&result, "+[new:%d] %s\n", newLine, strings.TrimPrefix(line, "+"))
+			newLine++
+		case strings.HasPrefix(line, "-"):
+			fmt.Fprintf(&result, "-[old:%d] %s\n", oldLine, strings.TrimPrefix(line, "-"))
+			oldLine++
+		default:
+			fmt.Fprintf(&result, " [old:%d new:%d]%s\n", oldLine, newLine, strings.TrimPrefix(line, " "))
+			oldLine++
+			newLine++
+		}
+	}
+
+	return strings.TrimSpace(result.String())
+}
+
+func parseHunkStart(header string) (oldStart, newStart int) {
+	matches := hunkHeaderPattern.FindStringSubmatch(header)
+	if len(matches) != 3 {
+		return 0, 0
+	}
+	oldStart, _ = strconv.Atoi(matches[1])
+	newStart, _ = strconv.Atoi(matches[2])
+	return oldStart, newStart
 }

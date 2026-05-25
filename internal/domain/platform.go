@@ -1,5 +1,7 @@
 package domain
 
+import "errors"
+
 // PlatformType identifies the Git hosting platform.
 type PlatformType string
 
@@ -10,6 +12,8 @@ const (
 	PlatformGitea            PlatformType = "gitea"
 	PlatformGiteaSelfHosted  PlatformType = "gitea-selfhosted"
 )
+
+var ErrInlineCommentsUnsupported = errors.New("inline comments unsupported by platform")
 
 // RawWebhook carries the raw HTTP data from a webhook request,
 // decoupling the domain from net/http.
@@ -45,6 +49,7 @@ type PlatformClient interface {
 	GetMergeRequest(projectRef string, mrIID int64) (*MergeRequest, error)
 	GetMergeRequestDiff(projectRef string, mrIID int64) (string, error)
 	CreateMergeRequestNote(projectRef string, mrIID int64, body string) error
+	CreateMergeRequestInlineComment(projectRef string, mr *MergeRequest, comment InlineComment) error
 }
 
 // ClientRegistry holds all registered platform clients.

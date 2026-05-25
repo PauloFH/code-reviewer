@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -162,6 +163,8 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		slog.Int("total_tokens", result.Usage.TotalTokens),
 	)
 
+	uc.postInlineComments(log, client, event.ProjectRef, mr, diff, result.InlineComments)
+
 	// Best-effort idempotency record.
 	if err := uc.repository.MarkAsReviewed(event.ClientName, event.ProjectRef, event.MRIID, mr.ID, username); err != nil {
 		log.Error("error persisting review record — duplicate comments possible on retry",
@@ -171,6 +174,42 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result.Usage, start)
 
 	return nil
+}
+
+func (uc *ProcessMergeRequest) postInlineComments(
+	log *slog.Logger,
+	client domain.PlatformClient,
+	projectRef string,
+	mr *domain.MergeRequest,
+	diff string,
+	comments []domain.InlineComment,
+) {
+	comments = filterInlineComments(comments, diff)
+	if len(comments) == 0 {
+		return
+	}
+
+	for _, comment := range comments {
+		err := client.CreateMergeRequestInlineComment(projectRef, mr, comment)
+		if err == nil {
+			log.Info("inline review comment posted",
+				slog.String("path", comment.Path),
+				slog.Int("line", comment.Line),
+			)
+			continue
+		}
+		if errors.Is(err, domain.ErrInlineCommentsUnsupported) {
+			log.Warn("inline review comments are not supported by this platform",
+				slog.String("platform", string(client.Platform())),
+			)
+			return
+		}
+		log.Error("error posting inline review comment",
+			slog.String("path", comment.Path),
+			slog.Int("line", comment.Line),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 // saveEvent persists a ReviewEvent and publishes it to the SSE broadcaster.
