@@ -41,6 +41,12 @@ const router = createRouter({
           meta: { roles: ['super', 'gestor'] },
         },
         {
+          path: 'ai-configs',
+          name: 'ai-configs',
+          component: () => import('@/views/AiConfigView.vue'),
+          meta: { roles: ['super', 'gestor'] },
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('@/views/UsersView.vue'),

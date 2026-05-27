@@ -21,6 +21,9 @@
         <router-link v-if="auth.canManageResources" to="/prompts">
           <span class="icon">✎</span> Prompts
         </router-link>
+        <router-link v-if="auth.canManageResources" to="/ai-configs">
+          <span class="icon">✦</span> IA
+        </router-link>
         <router-link v-if="auth.canManageUsers" to="/users">
           <span class="icon">👤</span> Users
         </router-link>
