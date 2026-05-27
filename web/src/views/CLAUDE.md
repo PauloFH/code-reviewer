@@ -77,3 +77,15 @@ CRUD de clients de plataforma (`/clients`).
 3. Cancelar ou clicar fora → `deleteTarget = ''`
 
 Toasts usam `useToastStore` — sucesso e erro aparecem no canto via `ToastContainer`.
+
+---
+
+## AiConfigView.vue
+
+Gerência de configs de IA (`/ai-configs`), espelhando a estrutura de `PromptsView`: lista de configs + lista de atribuições, com modais `AiConfigForm` e `AiConfigAssignmentForm`.
+
+**Particularidades:**
+- Coluna **Credencial** mostra "Conectado"/"Chave definida" conforme `mode`.
+- Ao criar uma config em modo **account**, a view recarrega e reabre em modo edição (a conexão OAuth precisa do `id`).
+- Botão **Testar** chama `testConfig(id)` e abre um modal com o `review_markdown` + contagem de tokens; erro de upstream aparece no modal.
+- `onConnected` (emitido pelo form após o exchange OAuth) recarrega a lista.

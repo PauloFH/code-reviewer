@@ -56,6 +56,7 @@ web/
 | `/events` | events | não | EventsView.vue |
 | `/clients` | clients | não | ClientsView.vue |
 | `/prompts` | prompts | não | PromptsView.vue |
+| `/ai-configs` | ai-configs | não (super/gestor) | AiConfigView.vue |
 | `/` | — | — | redirect → /dashboard |
 
 `/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).

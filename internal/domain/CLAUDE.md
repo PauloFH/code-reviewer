@@ -24,9 +24,14 @@ Este pacote **não pode importar nenhum pacote externo**. Apenas stdlib Go. Qual
 
 ### `review.go`
 - `ReviewInput` — entrada para o revisor de IA
-- `ReviewResult` — saída do revisor de IA com `Usage TokenUsage`
+- `ReviewResult` — saída do revisor de IA com `Usage TokenUsage` e os preços por milhão de tokens (`PricePerMInputTokens`/`PricePerMOutputTokens`) da config que gerou o review; zero = usar defaults de env
 - `TokenUsage` — prompt/completion/total tokens retornados pela API de IA
 - `InlineComment` — comentário estruturado para postagem inline no diff (`Path`, `Line`, `Body`)
+
+### `ai_config.go`
+- `AIConfig` — provedor de IA gerenciado pelo frontend: `Provider` (openai/claude/gemini/deepseek), `Mode` (api/account), credenciais (chave ou tokens OAuth), `BaseURL`/`Model` opcionais, preços, `MaxTokens` e `TimeoutSeconds`. Credenciais em texto plano em memória, cifradas em repouso pela camada de storage.
+- `AIConfigAssignment` — vincula uma `AIConfig` a um escopo (`global`/`client`/`project`), espelhando `PromptAssignment`.
+- Constantes: `AIModeAPI`/`AIModeAccount` e `ProviderOpenAI`/`ProviderClaude`/`ProviderGemini`/`ProviderDeepSeek`.
 
 ### `client.go`
 - `Client` — entidade de um client de plataforma gerenciado (espelho de `config.ClientConfig` no domínio para evitar ciclo de imports). Todos os campos têm json tags snake_case.
@@ -50,6 +55,7 @@ Interfaces de persistência:
 - `ClientRepository` — CRUD de clients + `SeedFromConfigs` + `CountClients`
 - `ReviewEventRepository` — `SaveEvent`, `ListEvents`, `CountEvents`, `GetStats`, `GetDailyCosts`
 - `PromptRepository` — CRUD de prompts + atribuições + `ResolvePrompt(clientName, projectRef)` (hierarquia projeto > client > global)
+- `AIConfigRepository` — CRUD de configs de IA + atribuições + `ResolveConfig(clientName, projectRef)` (mesma hierarquia) + `UpdateOAuthTokens`
 
 ## Onde mexer
 

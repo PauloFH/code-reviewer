@@ -2,7 +2,13 @@
 
 ## O que é este projeto
 
-Serviço HTTP em Go que recebe webhooks de plataformas Git (GitLab, GitHub, Gitea), detecta quando um usuário configurado foi marcado como reviewer/assignee em um MR/PR, busca o diff via API, envia para uma API de IA configurável (`gemini` ou `chat_completions`) e posta o review como comentário no MR — uma única vez por MR (idempotente).
+Serviço HTTP em Go que recebe webhooks de plataformas Git (GitLab, GitHub, Gitea), detecta quando um usuário configurado foi marcado como reviewer/assignee em um MR/PR, busca o diff via API, envia para uma IA e posta o review como comentário no MR — uma única vez por MR (idempotente).
+
+A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo global → client → projeto, igual aos prompts), em dois modos:
+- **api** — chave de API. Providers: `openai`, `deepseek` (via `/chat/completions`), `gemini` (`generateContent`) e `claude` (API nativa `/v1/messages`).
+- **account** — login OAuth na assinatura Claude (fluxo estilo Claude Code: PKCE + code-paste manual + refresh automático). Só `claude`.
+
+Credenciais são cifradas em repouso (AES-256-GCM). Se nenhuma `AIConfig` for resolvida, o serviço cai no **fallback configurado por env** (`gemini` ou `chat_completions`), preservando o comportamento legado.
 
 ## Comandos essenciais
 
@@ -60,21 +66,40 @@ Implemente `domain.ReviewRepository` no novo pacote de storage e substitua a inj
 
 ### Trocar a API de IA
 
-Implemente `domain.AIReviewer` em um novo pacote e substitua a injeção em `main.go`.
+A injeção em `main.go` é o `ai.ResolvingReviewer` (implementa `domain.AIReviewer`): ele resolve a `AIConfig` por escopo, garante token OAuth válido e despacha para o transporte certo. Para substituir toda a camada de IA, implemente `domain.AIReviewer` em um novo pacote e troque a injeção em `main.go`.
+
+### Adicionar novo provider de IA
+
+1. `internal/infrastructure/ai/<provider>.go` — implementa a interface interna `transport`
+2. `internal/infrastructure/ai/client.go` — adiciona `case` em `transportKindForProvider`, `baseURLForConfig`, `modelForConfig` e no `transport()`
+3. `internal/domain/ai_config.go` — adiciona a constante `AIProvider`
+4. `internal/transport/http/ai_config_handler.go` — adiciona ao switch de `validateConfig`
+
+### Trocar parâmetros do OAuth de conta (Claude)
+
+Os parâmetros públicos do fluxo (client_id, endpoints, escopos, header beta) ficam em `internal/infrastructure/ai/oauth_claude.go` e `anthropic.go`. É área cinzenta (reaproveita o client do Claude Code); se quebrar, suspeite de mudança do lado da Anthropic.
 
 ## Estrutura de arquivos chave
 
 | Arquivo | Papel |
 |---|---|
 | `internal/domain/platform.go` | Interface Strategy `PlatformClient` |
-| `internal/domain/repository.go` | Interfaces `ReviewRepository`, `AIReviewer`, `PromptRepository` |
+| `internal/domain/repository.go` | Interfaces `ReviewRepository`, `AIReviewer`, `PromptRepository`, `AIConfigRepository` |
 | `internal/domain/prompt.go` | Entidades `Prompt` e `PromptAssignment` |
+| `internal/domain/ai_config.go` | Entidades `AIConfig` e `AIConfigAssignment` (modos api/account, providers) |
 | `internal/infrastructure/platform/factory.go` | Ponto de extensão para novas plataformas |
+| `internal/infrastructure/ai/resolver.go` | `ResolvingReviewer`: resolve config por escopo, refresh OAuth, despacho |
+| `internal/infrastructure/ai/client.go` | Constrói o transporte por provider/modo; defaults por provider |
+| `internal/infrastructure/ai/{gemini,chat_completions,anthropic}.go` | Transportes por provider |
+| `internal/infrastructure/ai/oauth_claude.go` | Fluxo OAuth Claude (PKCE, exchange, refresh) |
 | `internal/infrastructure/ai/prompt.go` | Construção do prompt + filtro de diff |
 | `internal/infrastructure/ai/html_to_text.go` | Conversão HTML (Tiptap) → texto plano |
+| `internal/infrastructure/storage/crypto.go` | AES-256-GCM para credenciais em repouso |
+| `internal/infrastructure/storage/ai_config_repository.go` | CRUD + `ResolveConfig` + tokens OAuth |
 | `internal/usecase/process_merge_request.go` | Toda a regra de negócio |
 | `internal/transport/http/router.go` | Rotas HTTP e wiring de middlewares |
 | `internal/transport/http/prompt_handler.go` | CRUD de prompts e atribuições |
+| `internal/transport/http/ai_config_handler.go` | CRUD de configs de IA, atribuições, OAuth e teste |
 | `cmd/server/main.go` | Wiring de dependências e boot |
 | `clients.json` | Configuração dos clientes monitorados (não commitado) |
 
@@ -102,17 +127,27 @@ go run ./cmd/server
 | `GET` | `/api/v1/prompts/assignments` | Lista atribuições de prompts |
 | `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição |
 | `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
+| `GET/POST` | `/api/v1/ai-configs` | Lista / cria config de IA |
+| `GET/PUT/DELETE` | `/api/v1/ai-configs/{id}` | Lê / atualiza / remove config |
+| `POST` | `/api/v1/ai-configs/{id}/test` | Roda um review de diff de exemplo na config |
+| `GET/PUT/DELETE` | `/api/v1/ai-configs/assignments` | Atribuições de config por escopo |
+| `POST` | `/api/v1/ai-configs/oauth/claude/start` | Inicia o OAuth (gera authorize_url + state) |
+| `POST` | `/api/v1/ai-configs/oauth/claude/exchange` | Troca o código por tokens e persiste |
+
+Todas as rotas de `prompts`, `clients` e `ai-configs` exigem JWT + `requireRole(super, gestor)`; `users` exige `super`.
 
 ## Variáveis de ambiente obrigatórias
 
-`AI_PROVIDER` define o provider (`gemini` ou `chat_completions`). Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
+`AI_PROVIDER` define o **fallback** de IA (`gemini` ou `chat_completions`), usado quando nenhuma `AIConfig` for resolvida no banco. Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
+
+`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend. É obrigatória apenas quando existem configs persistidas com segredo — sem ela, o boot falha rápido ao tentar lê-las. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
 
 ## Testes
 
-Todos os testes são unitários, sem dependências externas (mocks via interfaces). O pacote `storage` não tem testes unitários — o SQLite é testado via integração manual.
+Todos os testes são unitários, sem dependências externas (mocks via interfaces e `httptest`). O pacote `storage` tem testes só de `crypto.go`; o resto do SQLite é testado via integração manual.
 
 ```bash
-go test ./... -v   # 49 testes, 0 falhas
+go test ./... -v   # 94 testes, 0 falhas
 ```
 
 ## Dependências externas

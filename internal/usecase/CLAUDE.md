@@ -31,7 +31,10 @@ Dependências injetadas:
 - `eventRepo domain.ReviewEventRepository` — analytics
 - `reviewer domain.AIReviewer`
 - `publisher EventPublisher` — interface local para SSE broadcaster
-- `pricePerMInput`, `pricePerMOut float64` — preços por milhão de tokens
+- `reviewer domain.AIReviewer` — na prática é o `ai.ResolvingReviewer`, que escolhe a config por escopo
+- `pricePerMInput`, `pricePerMOut float64` — preços por milhão de tokens (defaults de env)
+
+`saveEvent` recebe `*domain.ReviewResult`: usa os preços vindos da config no resultado (`PricePerM*`) quando > 0, senão cai nos defaults injetados. Nos caminhos de erro/skip o resultado é `nil` (custo zero).
 
 ### `cost.go`
 

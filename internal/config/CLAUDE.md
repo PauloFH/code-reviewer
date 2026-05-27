@@ -11,9 +11,11 @@ Lê toda a configuração do serviço e a expõe em structs tipadas. Nenhuma out
 - `requireEnv(key)` — faz panic com mensagem clara se var obrigatória estiver ausente; falha rápido no boot
 - `getEnv(key, fallback)` — retorna fallback se a var não estiver setada
 
-Variáveis obrigatórias dependem de `AI_PROVIDER`:
+`AI_PROVIDER` define o **fallback** de IA, usado quando nenhuma `AIConfig` é resolvida no banco. Variáveis obrigatórias dependem dele:
 - `gemini`: `GEMINI_API_KEY` (ou `AI_TOKEN` como fallback legado)
 - `chat_completions`: `AI_BASE_URL`, `AI_TOKEN`
+
+`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) é lida em `Config.AIConfigEncKey` e usada para cifrar as credenciais de IA gravadas pelo frontend. Opcional no boot, mas obrigatória se houver configs persistidas com segredo (senão o boot falha ao lê-las). Deve permanecer estável entre execuções.
 
 ### `clients.go`
 - `ClientConfig` — struct de uma entrada do `clients.json`

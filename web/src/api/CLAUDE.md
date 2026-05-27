@@ -88,3 +88,26 @@ deleteClient(name: string): Promise<void>                  // DELETE /clients/{n
 ```
 
 `updateClient` usa o `name` original (antes de qualquer rename) como path param.
+
+---
+
+## `aiConfigs.ts` — tipos e funções
+
+### Tipos
+
+- `AIConfig` — config de IA (resposta mascarada: `has_api_key`/`account_connected`, sem segredos), com `provider`, `mode`, `base_url`, `model`, preços, `max_tokens`, `timeout_seconds`.
+- `AIConfigInput` — payload de create/update; `api_key` opcional (vazio mantém a atual).
+- `AIConfigAssignment` / `AIAssignmentInput` — atribuição por escopo (espelha prompts).
+- `TestResult` — `{ review_markdown, inline_comments, usage }`.
+
+### Funções
+
+```ts
+listConfigs() / getConfig(id) / createConfig(data) / updateConfig(id, data) / deleteConfig(id)
+listConfigAssignments() / setConfigAssignment(data) / removeConfigAssignment(scope, client, project)
+startClaudeOAuth(): Promise<{ authorize_url, state }>     // POST /ai-configs/oauth/claude/start
+exchangeClaudeOAuth(configId, state, code): Promise<AIConfig>  // .../exchange
+testConfig(id): Promise<TestResult>                       // POST /ai-configs/{id}/test
+```
+
+O servidor nunca devolve chave/token — só as flags de presença. Ao editar, envie `api_key` vazio para manter a credencial atual.

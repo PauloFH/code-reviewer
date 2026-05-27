@@ -96,3 +96,24 @@ Renderiza os toasts do `useToastStore` em `Teleport to="body"`.
 - `TransitionGroup` com animação de slide + fade.
 - Cores: success = verde, error = vermelho, info = azul.
 - Cada toast some após o TTL configurado em `toast.push()` — não há botão de fechar manual.
+
+---
+
+## AiConfigForm.vue
+
+Modal de criação/edição de uma config de IA.
+
+**Props:** `{ initial?: AIConfig | null }` — `null` = criação.
+
+**Emits:** `close`, `saved(data: AIConfigInput & { _id?: number })`, `connected` (após exchange OAuth bem-sucedido).
+
+**Expostos:** `setSaving(v)` / `setError(e)` (mesmo padrão de `ClientForm`/`PromptForm`).
+
+- Seleção de **provider** e **mode**; modo `account` só habilita para `claude`.
+- Modo `api`: campo de chave (placeholder indica "manter atual" na edição).
+- Modo `account` (só em edição, com `id`): botão **Conectar conta Claude** → `startClaudeOAuth` abre o `authorize_url` em nova aba → campo para colar o código → `exchangeClaudeOAuth`. Mostra status conectado/expira.
+- Campos de preço, **máximo de tokens** (0 = padrão) e timeout. Placeholders de base URL/model refletem o provider.
+
+## AiConfigAssignmentForm.vue
+
+Modal de atribuição de uma config a um escopo (global/client/projeto), espelhando `PromptAssignmentForm`. Carrega configs e clients no `onMounted`; emite `saved(data: AIAssignmentInput)`.

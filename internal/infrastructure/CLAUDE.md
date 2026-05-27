@@ -10,13 +10,26 @@ Implementações concretas dos contratos definidos em `domain`. Esta camada conh
 Implementações de `domain.PlatformClient` por plataforma Git. Veja `platform/CLAUDE.md` para detalhes.
 
 ### `ai/`
-Cliente HTTP configurável para `gemini` ou `chat_completions`.
+Resolve a configuração de IA e despacha o review para o transporte do provider.
 
-**`client.go`** — implementa `domain.AIReviewer`:
-- Provider `gemini`: envia `POST /models/{model}:generateContent` com `systemInstruction`, `contents` e `generationConfig.temperature: 0.2`; usa header `X-goog-api-key`.
-- Provider `chat_completions`: envia `POST /chat/completions` com `model`, `messages` e `temperature: 0.2`; usa header `Authorization: Bearer`.
-- Faz parse de resposta JSON com `review_markdown` e `inline_comments`; se a IA não devolver JSON válido, usa a resposta inteira como review sem inline comments.
-- Retorna erro descritivo em status >= 300, prompt bloqueado ou response vazia.
+**`resolver.go`** — `ResolvingReviewer` implementa `domain.AIReviewer`:
+- `ResolveConfig(clientName, projectRef)` pega a `AIConfig` do escopo mais específico; se nenhuma, usa o `envClient` (fallback de env).
+- Modo `account`: `ensureValidToken` faz refresh do token OAuth quando ausente/perto de expirar (margem de 1 min) e persiste via `UpdateOAuthTokens`.
+- Constrói um `Client` por config e anexa os preços da config ao `ReviewResult`.
+- `TestConfig(id)` roda um review de um diff de exemplo embutido contra uma config (usado pelo endpoint de teste).
+
+**`client.go`** — `Client` (executor por config) escolhe o transporte:
+- `transportKindForProvider`: gemini → gemini; claude → anthropic; openai/deepseek → chat_completions.
+- `baseURLForConfig`/`modelForConfig`: defaults por provider, sobrescrevíveis pela config.
+- `New(...)` é o construtor legado usado pelo fallback de env.
+- `parseReviewPayload` extrai `review_markdown` + `inline_comments`; sem JSON válido, usa a resposta inteira.
+
+**Transportes** (interface interna `transport`):
+- **`gemini.go`** — `POST /models/{model}:generateContent`, header `X-goog-api-key`, `generationConfig.maxOutputTokens` opcional.
+- **`chat_completions.go`** — `POST /chat/completions`, `Authorization: Bearer`, `max_tokens` opcional (OpenAI/DeepSeek).
+- **`anthropic.go`** — API nativa `POST /v1/messages`. Modo api: header `x-api-key`. Modo account: `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20` + primeiro bloco system com a identidade "Claude Code" (exigida pelos tokens OAuth). `max_tokens` default 4096 (configurável). **Sem `temperature`** (deprecado no modelo de assinatura).
+
+**`oauth_claude.go`** — `ClaudeOAuth`: fluxo OAuth estilo Claude Code (PKCE S256). `BuildAuthorizeURL`, `Exchange(state, code)` e `Refresh`. Verifiers pendentes ficam em memória, com TTL. Parâmetros públicos (client_id/endpoints) são área cinzenta — ver [[ai-account-oauth-validated]] na memória.
 
 **`prompt.go`** — monta o prompt e filtra o diff:
 - `buildPrompt(input, outputTemplate)` — formata título, URL, descrição e diff em português; usa `outputTemplate` se fornecido, senão `defaultOutputFormat`
@@ -31,13 +44,19 @@ Cliente HTTP configurável para `gemini` ou `chat_completions`.
 Para mudar a lista de arquivos ignorados, edite `irrelevantPatterns` em `prompt.go`.
 
 ### `storage/`
-Implementa `domain.ReviewRepository` usando SQLite.
+Implementa `domain.ReviewRepository`, `ClientRepository`, `ReviewEventRepository`, `PromptRepository` e `AIConfigRepository` usando SQLite.
 
 **`sqlite_repository.go`**:
-- `New(path)` — abre/cria o banco e roda a migration inline
-- `AlreadyReviewed(clientName, projectRef, mrIID, username)` — `SELECT COUNT`
-- `MarkAsReviewed(...)` — `INSERT OR IGNORE` (safe em concorrência)
+- `New(path)` — abre/cria o banco e roda as migrations versionadas (`migration001`..`migration006`)
+- `AlreadyReviewed(...)` / `MarkAsReviewed(...)` — idempotência (`SELECT COUNT` / `INSERT OR IGNORE`)
+- `UseEncryptionKey(base64Key)` — configura o encryptor para as credenciais de IA
 - WAL mode + `MaxOpenConns=1` — SQLite não suporta múltiplos writers simultâneos
+
+**`ai_config_repository.go`** — CRUD de `ai_configs`/`ai_config_assignments`, `ResolveConfig` (cascata projeto → client → global, igual aos prompts) e `UpdateOAuthTokens`. Cifra os campos sensíveis no write e decifra no read via `encryptField`/`decryptField`.
+
+**`crypto.go`** — `encryptor` AES-256-GCM. `newEncryptor(base64Key)` (chave de 32 bytes), `encrypt`/`decrypt` no formato `base64(nonce || ciphertext)`. Sem chave configurada, ler/gravar segredo retorna `errNoEncryptionKey` — daí o boot faz fail-fast em `ListConfigs`. Ver [[ai-config-enc-key-must-be-stable]] na memória.
+
+**`migrations.go`** — `migration005` cria `ai_configs` + `ai_config_assignments`; `migration006` adiciona a coluna `max_tokens`.
 
 ### `logger/`
 **`logger.go`** — retorna `*slog.Logger` configurado com `slog.NewJSONHandler` para stdout. Nível configurável via `LOG_LEVEL`. Sem dependências externas.

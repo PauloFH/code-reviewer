@@ -43,7 +43,8 @@ cp .env.example .env
 |---|---|---|
 | `APP_PORT` | `8080` | Porta HTTP |
 | `APP_ENV` | `development` | `development` ou `production` |
-| `AI_PROVIDER` | inferido | `gemini` ou `chat_completions` |
+| `AI_PROVIDER` | inferido | Fallback de IA: `gemini` ou `chat_completions` (usado quando nenhuma config do banco resolve) |
+| `AI_CONFIG_ENC_KEY` | — | Base64 de 32 bytes; cifra credenciais de IA configuradas pelo frontend. Obrigatória só quando há configs persistidas |
 | `GEMINI_API_KEY` | — | Chave da API Gemini |
 | `GEMINI_MODEL` | `gemini-flash-latest` | Modelo Gemini a ser usado |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | URL base da API Gemini |
@@ -133,6 +134,7 @@ O dashboard inclui:
 - **Events** — tabela paginada com filtros por cliente e período; tokens + custo por review
 - **Clients** — CRUD completo de plataformas monitoradas sem precisar editar arquivos
 - **Prompts** — biblioteca de prompts reutilizáveis com editor rich text (Tiptap) para system prompt e template de saída; atribuição hierárquica (global → client → projeto)
+- **IA** — configuração de provedores de IA (OpenAI, Claude, Gemini, DeepSeek) em dois modos (chave de API ou login de conta Claude via OAuth); atribuição hierárquica e botão "Testar" que roda um diff de exemplo
 
 ### Usando a API REST
 
@@ -177,6 +179,15 @@ curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
 | `GET` | `/api/v1/prompts/assignments` | Lista atribuições |
 | `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição (upsert) |
 | `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
+| `GET` | `/api/v1/ai-configs` | Lista configs de IA (segredos mascarados) |
+| `POST` | `/api/v1/ai-configs` | Cria config de IA |
+| `GET/PUT/DELETE` | `/api/v1/ai-configs/{id}` | Lê / atualiza / remove config |
+| `POST` | `/api/v1/ai-configs/{id}/test` | Roda um review de diff de exemplo na config |
+| `GET/PUT/DELETE` | `/api/v1/ai-configs/assignments` | Atribuições de config (global → client → projeto) |
+| `POST` | `/api/v1/ai-configs/oauth/claude/start` | Inicia OAuth (retorna authorize_url + state) |
+| `POST` | `/api/v1/ai-configs/oauth/claude/exchange` | Troca código por tokens e persiste |
+
+Rotas de `clients`, `prompts` e `ai-configs` exigem JWT + papel `super`/`gestor`; `users` exige `super`.
 
 ---
 
@@ -296,7 +307,7 @@ go tool cover -html=coverage.out -o coverage.html
 │   ├── config/                                # Leitura de env vars e clients.json
 │   ├── domain/                                # Entidades e interfaces (Strategy)
 │   ├── infrastructure/
-│   │   ├── ai/                                # Cliente de IA configurável + prompt builder
+│   │   ├── ai/                                # Resolver + transportes (gemini/chat/anthropic) + OAuth + prompt builder
 │   │   ├── logger/                            # slog estruturado em JSON
 │   │   ├── platform/
 │   │   │   ├── factory.go                     # Cria PlatformClient pelo tipo
@@ -309,10 +320,10 @@ go tool cover -html=coverage.out -o coverage.html
 │   └── usecase/                               # Pipeline de review + CRUD de clients + custo
 ├── web/                                       # Frontend Vue 3 + TypeScript + Vite
 │   └── src/
-│       ├── views/                             # Login, Dashboard, Events, Clients, Prompts
-│       ├── components/                        # StatsCards, CostChart, LiveFeed, RichTextEditor, etc.
+│       ├── views/                             # Login, Dashboard, Events, Clients, Prompts, AiConfig
+│       ├── components/                        # StatsCards, CostChart, LiveFeed, RichTextEditor, AiConfigForm, etc.
 │       ├── stores/                            # Pinia: auth, toast
-│       └── api/                               # Axios: events, clients, auth, prompts
+│       └── api/                               # Axios: events, clients, auth, prompts, aiConfigs
 ├── clients.example.json                       # Modelo de clients.json
 ├── .env.example                               # Modelo de .env
 ├── Dockerfile                                 # Multi-stage: Node (Vite) + Go (CGo)
@@ -354,6 +365,27 @@ Projeto específico  >  Client (provedor Git)  >  Global
 Quando um webhook chega, o sistema resolve o prompt mais específico disponível. Se nenhum prompt estiver configurado, usa o prompt padrão hardcoded.
 
 Um mesmo prompt pode ser reutilizado em múltiplas atribuições — funciona como uma biblioteca.
+
+---
+
+## Configuração de IA
+
+Os provedores de IA são configurados pela aba **IA** do dashboard, com a mesma hierarquia dos prompts (projeto > client > global). Se nenhuma config for resolvida, o serviço usa o **fallback por env** (`AI_PROVIDER`).
+
+Dois modos:
+
+- **API (chave):** `openai` e `deepseek` (via `/chat/completions`), `gemini` (`generateContent`) e `claude` (API nativa `/v1/messages`). Cada provider tem defaults de base URL e modelo, sobrescrevíveis por config.
+- **Conta (OAuth):** login na assinatura **Claude** (fluxo estilo Claude Code — PKCE + colagem manual do código). O access token expira e é **renovado automaticamente** via refresh token antes de cada review; não é preciso reconectar.
+
+Cada config também aceita **preço por milhão de tokens** (para o cálculo de custo) e **máximo de tokens de saída** (0 = padrão do provedor; Claude usa 4096).
+
+### Segurança das credenciais
+
+Chaves de API e tokens OAuth são cifrados em repouso com **AES-256-GCM**, usando a chave-mestra `AI_CONFIG_ENC_KEY` (base64 de 32 bytes). A API nunca devolve os segredos — só flags `has_api_key` / `account_connected`. Mantenha a chave estável: trocá-la torna os segredos gravados ilegíveis e o boot falha rápido ao tentar lê-los.
+
+### Testando uma config
+
+O botão **Testar** (ou `POST /api/v1/ai-configs/{id}/test`) roda um review de um diff de exemplo contra a config — valida credencial, refresh de token e geração, sem precisar de um webhook real.
 
 ---
 

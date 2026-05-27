@@ -31,6 +31,12 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 | GET | `/api/v1/prompts/assignments` | JWT | PromptHandler.ListAssignments |
 | PUT | `/api/v1/prompts/assignments` | JWT | PromptHandler.SetAssignment |
 | DELETE | `/api/v1/prompts/assignments` | JWT | PromptHandler.RemoveAssignment |
+| GET/POST | `/api/v1/ai-configs` | JWT (super/gestor) | AIConfigHandler.List/CreateConfig |
+| GET/PUT/DELETE | `/api/v1/ai-configs/{id}` | JWT (super/gestor) | AIConfigHandler.Get/Update/DeleteConfig |
+| POST | `/api/v1/ai-configs/{id}/test` | JWT (super/gestor) | AIConfigHandler.TestConfig |
+| GET/PUT/DELETE | `/api/v1/ai-configs/assignments` | JWT (super/gestor) | AIConfigHandler.List/Set/RemoveAssignment |
+| POST | `/api/v1/ai-configs/oauth/claude/start` | JWT (super/gestor) | AIConfigHandler.StartClaudeOAuth |
+| POST | `/api/v1/ai-configs/oauth/claude/exchange` | JWT (super/gestor) | AIConfigHandler.ExchangeClaudeOAuth |
 | `/*` | SPA catch-all | — | frontendHandler |
 
 `{name}` usa Go 1.22 `r.PathValue("name")`.
@@ -51,6 +57,14 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 - CRUD de prompts (nome, system_prompt HTML, output_template HTML)
 - Atribuições: upsert por (scope, client_name, project_ref); remoção via query params
 - Validação: scope deve ser `global`, `client` ou `project`; `prompt_id` obrigatório
+
+### `ai_config_handler.go`
+- `AIConfigHandler` — endpoints `/api/v1/ai-configs/*`
+- CRUD de configs + atribuições; respostas usam `aiConfigDTO` que **mascara segredos** (só `has_api_key`/`account_connected`/`oauth_expires_at`)
+- No update, chave vazia mantém a existente; tokens OAuth são sempre preservados (gerenciados pelo connect)
+- OAuth: `StartClaudeOAuth` (gera authorize_url + state) e `ExchangeClaudeOAuth` (troca código → `UpdateOAuthTokens`)
+- `TestConfig` delega para a interface local `ConfigTester` (o `ai.ResolvingReviewer`) e retorna o review + usage; erro de upstream vira `502`
+- Depende das interfaces locais `ClaudeOAuthFlow` e `ConfigTester` (adaptadas no `main.go`) para não importar o pacote `ai`
 
 ### `sse.go`
 - `EventBroadcaster` — fan-out não-bloqueante de `domain.ReviewEvent` para N clientes SSE
