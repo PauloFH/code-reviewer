@@ -14,6 +14,10 @@ type Config struct {
 	Log               LogConfig
 	Dashboard         DashboardConfig
 	ClientsConfigPath string
+	// AIConfigEncKey is the base64-encoded 32-byte master key used to encrypt
+	// frontend-managed AI credentials at rest. Required only when such configs
+	// are persisted (env-based config does not use it).
+	AIConfigEncKey string
 }
 
 type AppConfig struct {
@@ -101,6 +105,7 @@ func Load() (*Config, error) {
 			JWTSecret: getEnv("DASHBOARD_JWT_SECRET", ""),
 		},
 		ClientsConfigPath: getEnv("CLIENTS_CONFIG_PATH", "./clients.json"),
+		AIConfigEncKey:    getEnv("AI_CONFIG_ENC_KEY", ""),
 	}
 
 	return cfg, nil

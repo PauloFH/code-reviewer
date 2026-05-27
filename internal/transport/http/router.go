@@ -38,6 +38,7 @@ func NewRouter(
 	auth *AuthHandler,
 	api *APIHandler,
 	prompts *PromptHandler,
+	aiConfigs *AIConfigHandler,
 	users *UserHandler,
 	broadcaster *EventBroadcaster,
 	log *slog.Logger,
@@ -138,6 +139,52 @@ func NewRouter(
 	))
 	mux.Handle("POST /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.CreatePrompt),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+
+	// ── AI configs (super + gestor) ───────────────────────────────────────────
+	mux.Handle("POST /api/v1/ai-configs/oauth/claude/start", chain(
+		http.HandlerFunc(aiConfigs.StartClaudeOAuth),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("POST /api/v1/ai-configs/oauth/claude/exchange", chain(
+		http.HandlerFunc(aiConfigs.ExchangeClaudeOAuth),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("POST /api/v1/ai-configs/{id}/test", chain(
+		http.HandlerFunc(aiConfigs.TestConfig),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("GET /api/v1/ai-configs/assignments", chain(
+		http.HandlerFunc(aiConfigs.ListAssignments),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("PUT /api/v1/ai-configs/assignments", chain(
+		http.HandlerFunc(aiConfigs.SetAssignment),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("DELETE /api/v1/ai-configs/assignments", chain(
+		http.HandlerFunc(aiConfigs.RemoveAssignment),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("GET /api/v1/ai-configs/{id}", chain(
+		http.HandlerFunc(aiConfigs.GetConfig),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("PUT /api/v1/ai-configs/{id}", chain(
+		http.HandlerFunc(aiConfigs.UpdateConfig),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("DELETE /api/v1/ai-configs/{id}", chain(
+		http.HandlerFunc(aiConfigs.DeleteConfig),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("GET /api/v1/ai-configs", chain(
+		http.HandlerFunc(aiConfigs.ListConfigs),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("POST /api/v1/ai-configs", chain(
+		http.HandlerFunc(aiConfigs.CreateConfig),
 		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 

@@ -29,6 +29,10 @@ type ReviewResult struct {
 	Body           string
 	InlineComments []InlineComment
 	Usage          TokenUsage
+	// Pricing of the AI config that produced this review, per million tokens.
+	// Zero means "unknown" — the caller should fall back to its own defaults.
+	PricePerMInputTokens  float64
+	PricePerMOutputTokens float64
 }
 
 type ReviewedMergeRequest struct {

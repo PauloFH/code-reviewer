@@ -88,13 +88,13 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	mr, err := client.GetMergeRequest(event.ProjectRef, event.MRIID)
 	if err != nil {
 		log.Error("error fetching merge request from platform", slog.String("error", err.Error()))
-		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), domain.TokenUsage{}, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
 		return fmt.Errorf("fetching MR: %w", err)
 	}
 
 	if !mr.IsUserAssigned(username) {
 		log.Info("webhook ignored: watched user is not assigned", slog.String("username", username))
-		uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "", domain.TokenUsage{}, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "", nil, start)
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		isRegistered, _ := uc.userRepo.UserExists(event.CommentAuthor)
 		if !isAuthor && !isRegistered {
 			log.Info("unauthorized /review command", slog.String("comment_author", event.CommentAuthor))
-			uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "unauthorized /review command", domain.TokenUsage{}, start)
+			uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "unauthorized /review command", nil, start)
 			return nil
 		}
 	}
@@ -125,7 +125,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	}
 	if already {
 		log.Info("MR already reviewed, skipping duplicate", slog.String("username", username))
-		uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "already reviewed", domain.TokenUsage{}, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "already reviewed", nil, start)
 		return nil
 	}
 
@@ -134,7 +134,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	diff, err := client.GetMergeRequestDiff(event.ProjectRef, event.MRIID)
 	if err != nil {
 		log.Error("error fetching diff from platform", slog.String("error", err.Error()))
-		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), domain.TokenUsage{}, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
 		return fmt.Errorf("fetching diff: %w", err)
 	}
 
@@ -148,13 +148,13 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	})
 	if err != nil {
 		log.Error("AI reviewer returned error", slog.String("error", err.Error()))
-		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), domain.TokenUsage{}, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
 		return fmt.Errorf("generating review: %w", err)
 	}
 
 	if err := client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, result.Body); err != nil {
 		log.Error("error posting comment to platform", slog.String("error", err.Error()))
-		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), result.Usage, start)
+		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), result, start)
 		return fmt.Errorf("posting comment: %w", err)
 	}
 
@@ -171,7 +171,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 			slog.String("error", err.Error()))
 	}
 
-	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result.Usage, start)
+	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result, start)
 
 	return nil
 }
@@ -219,9 +219,21 @@ func (uc *ProcessMergeRequest) saveEvent(
 	mr *domain.MergeRequest,
 	status domain.ReviewStatus,
 	errMsg string,
-	usage domain.TokenUsage,
+	result *domain.ReviewResult,
 	start time.Time,
 ) {
+	var usage domain.TokenUsage
+	priceIn, priceOut := uc.pricePerMInput, uc.pricePerMOut
+	if result != nil {
+		usage = result.Usage
+		if result.PricePerMInputTokens > 0 {
+			priceIn = result.PricePerMInputTokens
+		}
+		if result.PricePerMOutputTokens > 0 {
+			priceOut = result.PricePerMOutputTokens
+		}
+	}
+
 	e := domain.ReviewEvent{
 		ClientName:       event.ClientName,
 		ProjectRef:       event.ProjectRef,
@@ -231,7 +243,7 @@ func (uc *ProcessMergeRequest) saveEvent(
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
 		TotalTokens:      usage.TotalTokens,
-		CostUSD:          CalculateCost(usage, uc.pricePerMInput, uc.pricePerMOut),
+		CostUSD:          CalculateCost(usage, priceIn, priceOut),
 		DurationMS:       time.Since(start).Milliseconds(),
 		ReviewedAt:       time.Now().UTC(),
 	}

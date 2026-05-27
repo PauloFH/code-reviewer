@@ -11,10 +11,24 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// SQLiteRepository implements domain.ReviewRepository, domain.ClientRepository
-// and domain.ReviewEventRepository using a single SQLite database.
+// SQLiteRepository implements domain.ReviewRepository, domain.ClientRepository,
+// domain.ReviewEventRepository, domain.PromptRepository and
+// domain.AIConfigRepository using a single SQLite database.
 type SQLiteRepository struct {
-	db *sql.DB
+	db  *sql.DB
+	enc *encryptor
+}
+
+// UseEncryptionKey configures AES-256-GCM encryption for AI credentials using a
+// base64-encoded 32-byte key. Must be called before any AIConfig operation that
+// touches secrets.
+func (r *SQLiteRepository) UseEncryptionKey(base64Key string) error {
+	enc, err := newEncryptor(base64Key)
+	if err != nil {
+		return err
+	}
+	r.enc = enc
+	return nil
 }
 
 // New opens (or creates) the SQLite database at path and runs all pending migrations.
@@ -55,6 +69,8 @@ func runMigrations(db *sql.DB) error {
 		{2, migration002},
 		{3, migration003},
 		{4, migration004},
+		{5, migration005},
+		{6, migration006},
 	}
 
 	for _, m := range pending {

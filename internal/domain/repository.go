@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 // ReviewRepository tracks which MRs have already been reviewed per client,
 // guaranteeing idempotency across service restarts.
 type ReviewRepository interface {
@@ -46,6 +48,21 @@ type ReviewEventRepository interface {
 	CountEvents(filter ReviewEventFilter) (int64, error)
 	GetStats(clientName string) (*ReviewStats, error)
 	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
+}
+
+// AIConfigRepository manages the AI provider configuration library and
+// scope-based assignments. Credentials are encrypted at rest by the implementation.
+type AIConfigRepository interface {
+	ListConfigs() ([]AIConfig, error)
+	GetConfig(id int64) (*AIConfig, error)
+	CreateConfig(c AIConfig) (*AIConfig, error)
+	UpdateConfig(id int64, c AIConfig) (*AIConfig, error)
+	DeleteConfig(id int64) error
+	SetConfigAssignment(a AIConfigAssignment) error
+	RemoveConfigAssignment(scope, clientName, projectRef string) error
+	ListConfigAssignments() ([]AIConfigAssignment, error)
+	ResolveConfig(clientName, projectRef string) (*AIConfig, error)
+	UpdateOAuthTokens(id int64, access, refresh string, expiresAt time.Time) error
 }
 
 // PromptRepository manages the prompt library and scope-based assignments.

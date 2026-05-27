@@ -1,255 +1,171 @@
 package ai
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
+// transportKind identifies the wire protocol used to talk to a provider.
 const (
 	providerGemini          = "gemini"
 	providerChatCompletions = "chat_completions"
+	providerAnthropic       = "anthropic"
 )
 
-// Client implements domain.AIReviewer using configurable AI providers.
-type Client struct {
-	provider   string
-	baseURL    string
-	token      string
-	model      string
-	http       *http.Client
-	promptRepo domain.PromptRepository
+// defaultMaxTokens caps the AI response length for providers that require it.
+const defaultMaxTokens = 4096
+
+// transport executes a single review round-trip against one provider.
+type transport interface {
+	review(sysPrompt, userPrompt string) (*domain.ReviewResult, error)
 }
 
+// Client implements domain.AIReviewer for a single, fixed provider configuration.
+// It resolves the prompt, builds the user message and delegates the HTTP call to
+// the provider-specific transport.
+type Client struct {
+	transportKind string
+	mode          domain.AIConfigMode
+	baseURL       string
+	token         string
+	model         string
+	maxTokens     int
+	http          *http.Client
+	promptRepo    domain.PromptRepository
+}
+
+// New builds a Client from the legacy env-based configuration. provider is
+// "gemini" or "chat_completions" (with "openai"/"claude" accepted as aliases).
 func New(provider, baseURL, token, model string, timeout time.Duration, promptRepo domain.PromptRepository) *Client {
 	return &Client{
-		provider:   normalizeProvider(provider),
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		token:      token,
-		model:      model,
-		http:       &http.Client{Timeout: timeout},
-		promptRepo: promptRepo,
+		transportKind: normalizeProvider(provider),
+		mode:          domain.AIModeAPI,
+		baseURL:       strings.TrimRight(baseURL, "/"),
+		token:         token,
+		model:         model,
+		http:          &http.Client{Timeout: timeout},
+		promptRepo:    promptRepo,
 	}
 }
 
-type geminiRequest struct {
-	SystemInstruction *geminiContent         `json:"systemInstruction,omitempty"`
-	Contents          []geminiContent        `json:"contents"`
-	GenerationConfig  geminiGenerationConfig `json:"generationConfig"`
-}
-
-type geminiGenerationConfig struct {
-	Temperature float64 `json:"temperature"`
-}
-
-type geminiContent struct {
-	Role  string       `json:"role,omitempty"`
-	Parts []geminiPart `json:"parts"`
-}
-
-type geminiPart struct {
-	Text string `json:"text,omitempty"`
-}
-
-type geminiResponse struct {
-	Candidates []struct {
-		Content      geminiContent `json:"content"`
-		FinishReason string        `json:"finishReason"`
-	} `json:"candidates"`
-	PromptFeedback struct {
-		BlockReason string `json:"blockReason"`
-	} `json:"promptFeedback"`
-	UsageMetadata struct {
-		PromptTokenCount     int `json:"promptTokenCount"`
-		CandidatesTokenCount int `json:"candidatesTokenCount"`
-		TotalTokenCount      int `json:"totalTokenCount"`
-	} `json:"usageMetadata"`
-}
-
-type chatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-}
-
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type chatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
-}
-
-type reviewPayload struct {
-	ReviewMarkdown string                 `json:"review_markdown"`
-	InlineComments []domain.InlineComment `json:"inline_comments"`
+// newClientFromConfig builds a Client from a frontend-managed AIConfig, applying
+// per-provider defaults for base URL and model when unset.
+func newClientFromConfig(cfg domain.AIConfig, promptRepo domain.PromptRepository) *Client {
+	token := cfg.APIKey
+	if cfg.Mode == domain.AIModeAccount {
+		token = cfg.OAuthAccessToken
+	}
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	return &Client{
+		transportKind: transportKindForProvider(cfg.Provider),
+		mode:          cfg.Mode,
+		baseURL:       strings.TrimRight(baseURLForConfig(cfg), "/"),
+		token:         token,
+		model:         modelForConfig(cfg),
+		maxTokens:     cfg.MaxTokens,
+		http:          &http.Client{Timeout: timeout},
+		promptRepo:    promptRepo,
+	}
 }
 
 func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, error) {
-	sysPrompt := systemPrompt
-	outputTpl := ""
+	sysPrompt, outputTpl := c.resolvePrompt(input)
+	userPrompt := buildPrompt(input, outputTpl)
 
-	if c.promptRepo != nil {
-		resolved, err := c.promptRepo.ResolvePrompt(input.ClientName, input.ProjectRef)
-		if err == nil && resolved != nil {
-			if resolved.SystemPrompt != "" {
-				sysPrompt = htmlToPlainText(resolved.SystemPrompt)
-			}
-			if resolved.OutputTemplate != "" {
-				outputTpl = htmlToPlainText(resolved.OutputTemplate)
-			}
-		}
+	t, err := c.transport()
+	if err != nil {
+		return nil, err
 	}
+	return t.review(sysPrompt, userPrompt)
+}
 
-	prompt := buildPrompt(input, outputTpl)
+// resolvePrompt returns the system prompt and output template for the review,
+// falling back to the built-in defaults when no prompt is assigned.
+func (c *Client) resolvePrompt(input domain.ReviewInput) (sysPrompt, outputTpl string) {
+	sysPrompt = systemPrompt
+	if c.promptRepo == nil {
+		return sysPrompt, ""
+	}
+	resolved, err := c.promptRepo.ResolvePrompt(input.ClientName, input.ProjectRef)
+	if err != nil || resolved == nil {
+		return sysPrompt, ""
+	}
+	if resolved.SystemPrompt != "" {
+		sysPrompt = htmlToPlainText(resolved.SystemPrompt)
+	}
+	if resolved.OutputTemplate != "" {
+		outputTpl = htmlToPlainText(resolved.OutputTemplate)
+	}
+	return sysPrompt, outputTpl
+}
 
-	switch c.provider {
+func (c *Client) transport() (transport, error) {
+	switch c.transportKind {
 	case providerGemini:
-		return c.reviewDiffGemini(sysPrompt, prompt)
+		return &geminiTransport{baseURL: c.baseURL, apiKey: c.token, model: c.model, maxTokens: c.maxTokens, http: c.http}, nil
 	case providerChatCompletions:
-		return c.reviewDiffChatCompletions(sysPrompt, prompt)
+		return &chatCompletionsTransport{baseURL: c.baseURL, token: c.token, model: c.model, maxTokens: c.maxTokens, http: c.http}, nil
+	case providerAnthropic:
+		return &anthropicTransport{baseURL: c.baseURL, model: c.model, token: c.token, mode: c.mode, maxTokens: c.maxTokens, http: c.http}, nil
 	default:
-		return nil, fmt.Errorf("ai: unsupported provider %q", c.provider)
+		return nil, fmt.Errorf("ai: unsupported provider %q", c.transportKind)
 	}
 }
 
-func (c *Client) reviewDiffGemini(sysPrompt, prompt string) (*domain.ReviewResult, error) {
-	reqBody, err := json.Marshal(geminiRequest{
-		SystemInstruction: &geminiContent{
-			Parts: []geminiPart{{Text: sysPrompt}},
-		},
-		Contents: []geminiContent{
-			{Role: "user", Parts: []geminiPart{{Text: prompt}}},
-		},
-		GenerationConfig: geminiGenerationConfig{Temperature: 0.2},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling request: %w", err)
+// transportKindForProvider maps a user-facing provider to its wire protocol.
+func transportKindForProvider(p domain.AIProvider) string {
+	switch p {
+	case domain.ProviderGemini:
+		return providerGemini
+	case domain.ProviderClaude:
+		return providerAnthropic
+	default: // openai, deepseek and any OpenAI-compatible vendor
+		return providerChatCompletions
 	}
-
-	req, err := http.NewRequest(http.MethodPost, c.generateContentURL(), bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building request: %w", err)
-	}
-	req.Header.Set("X-goog-api-key", c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
-	}
-
-	var out geminiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding response: %w", err)
-	}
-
-	if len(out.Candidates) == 0 {
-		if out.PromptFeedback.BlockReason != "" {
-			return nil, fmt.Errorf("ai: Gemini returned no candidates: prompt blocked: %s", out.PromptFeedback.BlockReason)
-		}
-		return nil, fmt.Errorf("ai: empty response from API")
-	}
-	content := collectText(out.Candidates[0].Content.Parts)
-	if content == "" {
-		if out.Candidates[0].FinishReason != "" {
-			return nil, fmt.Errorf("ai: empty response from API (finish reason: %s)", out.Candidates[0].FinishReason)
-		}
-		return nil, fmt.Errorf("ai: empty response from API")
-	}
-
-	body, comments := parseReviewPayload(content)
-
-	return &domain.ReviewResult{
-		Body:           body,
-		InlineComments: comments,
-		Usage: domain.TokenUsage{
-			PromptTokens:     out.UsageMetadata.PromptTokenCount,
-			CompletionTokens: out.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      out.UsageMetadata.TotalTokenCount,
-		},
-	}, nil
 }
 
-func (c *Client) reviewDiffChatCompletions(sysPrompt, prompt string) (*domain.ReviewResult, error) {
-	reqBody, err := json.Marshal(chatRequest{
-		Model: c.model,
-		Messages: []message{
-			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: prompt},
-		},
-		Temperature: 0.2,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling request: %w", err)
+func baseURLForConfig(cfg domain.AIConfig) string {
+	if cfg.BaseURL != "" {
+		return cfg.BaseURL
 	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building request: %w", err)
+	switch cfg.Provider {
+	case domain.ProviderGemini:
+		return "https://generativelanguage.googleapis.com/v1beta"
+	case domain.ProviderClaude:
+		return "https://api.anthropic.com"
+	case domain.ProviderOpenAI:
+		return "https://api.openai.com/v1"
+	case domain.ProviderDeepSeek:
+		return "https://api.deepseek.com/v1"
+	default:
+		return ""
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
-	}
-
-	var out chatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding response: %w", err)
-	}
-
-	if len(out.Choices) == 0 || out.Choices[0].Message.Content == "" {
-		return nil, fmt.Errorf("ai: empty response from API")
-	}
-
-	body, comments := parseReviewPayload(out.Choices[0].Message.Content)
-
-	return &domain.ReviewResult{
-		Body:           body,
-		InlineComments: comments,
-		Usage: domain.TokenUsage{
-			PromptTokens:     out.Usage.PromptTokens,
-			CompletionTokens: out.Usage.CompletionTokens,
-			TotalTokens:      out.Usage.TotalTokens,
-		},
-	}, nil
 }
 
-func (c *Client) generateContentURL() string {
-	model := strings.TrimPrefix(c.model, "models/")
-	return c.baseURL + "/models/" + url.PathEscape(model) + ":generateContent"
+func modelForConfig(cfg domain.AIConfig) string {
+	if cfg.Model != "" {
+		return cfg.Model
+	}
+	switch cfg.Provider {
+	case domain.ProviderGemini:
+		return "gemini-flash-latest"
+	case domain.ProviderClaude:
+		return "claude-sonnet-4-5"
+	case domain.ProviderOpenAI:
+		return "gpt-4o"
+	case domain.ProviderDeepSeek:
+		return "deepseek-chat"
+	default:
+		return ""
+	}
 }
 
 func normalizeProvider(provider string) string {
@@ -263,12 +179,11 @@ func normalizeProvider(provider string) string {
 	}
 }
 
-func collectText(parts []geminiPart) string {
-	var out strings.Builder
-	for _, part := range parts {
-		out.WriteString(part.Text)
-	}
-	return strings.TrimSpace(out.String())
+// reviewPayload is the JSON contract every provider's response is expected to
+// follow: a markdown review plus optional structured inline comments.
+type reviewPayload struct {
+	ReviewMarkdown string                 `json:"review_markdown"`
+	InlineComments []domain.InlineComment `json:"inline_comments"`
 }
 
 func parseReviewPayload(content string) (string, []domain.InlineComment) {

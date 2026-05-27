@@ -119,15 +119,35 @@ func main() {
 		)
 	}
 
+	// ── AI credential encryption ──────────────────────────────────────────────
+	if cfg.AIConfigEncKey != "" {
+		if err := repo.UseEncryptionKey(cfg.AIConfigEncKey); err != nil {
+			log.Error("configuring AI credential encryption", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	}
+	// Fail fast if persisted AI configs cannot be read (e.g. missing/incorrect key).
+	if _, err := repo.ListConfigs(); err != nil {
+		log.Error("reading AI configs — is AI_CONFIG_ENC_KEY set and correct?", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	// ── AI reviewer ───────────────────────────────────────────────────────────
-	aiClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
+	// envClient is the fallback used when no AI config is assigned in the DB.
+	envClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
+	claudeOAuth := ai.NewClaudeOAuth()
+	reviewer := ai.NewResolvingReviewer(
+		repo, repo, claudeOAuth, envClient,
+		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
+		log,
+	)
 
 	// ── SSE broadcaster ───────────────────────────────────────────────────────
 	broadcaster := transport.NewEventBroadcaster()
 
 	// ── Usecases ──────────────────────────────────────────────────────────────
 	uc := usecase.NewProcessMergeRequest(
-		registry, repo, repo, repo, aiClient, broadcaster,
+		registry, repo, repo, repo, reviewer, broadcaster,
 		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
 		log,
 	)
@@ -143,9 +163,10 @@ func main() {
 	)
 	apiHandler := transport.NewAPIHandler(repo, repo, clientMgmtSvc, uc)
 	promptHandler := transport.NewPromptHandler(repo)
+	aiConfigHandler := transport.NewAIConfigHandler(repo, claudeOAuthAdapter{inner: claudeOAuth}, reviewer)
 	userHandler := transport.NewUserHandler(repo)
 
-	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, userHandler, broadcaster, log)
+	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, aiConfigHandler, userHandler, broadcaster, log)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
@@ -175,6 +196,25 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error("forced shutdown", slog.String("error", err.Error()))
 	}
+}
+
+// claudeOAuthAdapter adapts *ai.ClaudeOAuth to the transport.ClaudeOAuthFlow
+// interface, flattening the token struct into primitive return values so the
+// transport layer does not depend on the ai package's types.
+type claudeOAuthAdapter struct {
+	inner *ai.ClaudeOAuth
+}
+
+func (a claudeOAuthAdapter) BuildAuthorizeURL() (string, string, error) {
+	return a.inner.BuildAuthorizeURL()
+}
+
+func (a claudeOAuthAdapter) Exchange(state, code string) (string, string, time.Time, error) {
+	tokens, err := a.inner.Exchange(state, code)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	return tokens.AccessToken, tokens.RefreshToken, tokens.ExpiresAt, nil
 }
 
 // configClientsToDomain converts config.ClientConfig slice to domain.Client slice.

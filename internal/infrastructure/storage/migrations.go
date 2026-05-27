@@ -99,3 +99,43 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME NOT NULL
 );
 `
+
+// migration005 adds the frontend-managed AI provider configs and their
+// scope-based assignments. Credential columns store AES-256-GCM ciphertext.
+const migration005 = `
+CREATE TABLE IF NOT EXISTS ai_configs (
+    id                INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name              TEXT     NOT NULL UNIQUE,
+    provider          TEXT     NOT NULL,
+    mode              TEXT     NOT NULL CHECK(mode IN ('api','account')),
+    base_url          TEXT     NOT NULL DEFAULT '',
+    model             TEXT     NOT NULL DEFAULT '',
+    api_key_enc       TEXT     NOT NULL DEFAULT '',
+    oauth_access_enc  TEXT     NOT NULL DEFAULT '',
+    oauth_refresh_enc TEXT     NOT NULL DEFAULT '',
+    oauth_expires_at  DATETIME,
+    price_in          REAL     NOT NULL DEFAULT 0.0,
+    price_out         REAL     NOT NULL DEFAULT 0.0,
+    timeout_seconds   INTEGER  NOT NULL DEFAULT 120,
+    created_at        DATETIME NOT NULL,
+    updated_at        DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_config_assignments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_id    INTEGER NOT NULL REFERENCES ai_configs(id) ON DELETE CASCADE,
+    scope        TEXT    NOT NULL CHECK(scope IN ('global','client','project')),
+    client_name  TEXT    NOT NULL DEFAULT '',
+    project_ref  TEXT    NOT NULL DEFAULT '',
+    UNIQUE(scope, client_name, project_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_config_assignments_lookup
+    ON ai_config_assignments(client_name, project_ref);
+`
+
+// migration006 adds a configurable max output tokens per AI config.
+// 0 means "use the provider/transport default".
+const migration006 = `
+ALTER TABLE ai_configs ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0;
+`
