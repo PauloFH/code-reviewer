@@ -14,6 +14,8 @@ const (
 	anthropicVersion = "2023-06-01"
 	// anthropicOAuthBeta is required for subscription (OAuth) tokens.
 	anthropicOAuthBeta = "oauth-2025-04-20"
+	// anthropicClaudeCodeBeta is part of the Claude Code OAuth request profile.
+	anthropicClaudeCodeBeta = "claude-code-20250219"
 	// claudeCodeIdentity is the system identity that OAuth subscription tokens
 	// are scoped to. Without it as the first system block, the Messages API
 	// rejects OAuth-authenticated requests.
@@ -93,7 +95,7 @@ func (t *anthropicTransport) review(sysPrompt, userPrompt string) (*domain.Revie
 	req.Header.Set("anthropic-version", anthropicVersion)
 	if t.mode == domain.AIModeAccount {
 		req.Header.Set("Authorization", "Bearer "+t.token)
-		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+		req.Header.Set("anthropic-beta", anthropicBetaHeader())
 	} else {
 		req.Header.Set("x-api-key", t.token)
 	}
@@ -130,6 +132,10 @@ func (t *anthropicTransport) review(sysPrompt, userPrompt string) (*domain.Revie
 			TotalTokens:      out.Usage.InputTokens + out.Usage.OutputTokens,
 		},
 	}, nil
+}
+
+func anthropicBetaHeader() string {
+	return anthropicClaudeCodeBeta + "," + anthropicOAuthBeta
 }
 
 func collectAnthropicText(resp anthropicResponse) string {
