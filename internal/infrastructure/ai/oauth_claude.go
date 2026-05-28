@@ -1,31 +1,17 @@
 package ai
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
+
+	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/oauth"
+	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/pkce"
+	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/storage"
 )
 
-// Claude Code public OAuth client parameters. These replicate the headless
-// (manual code-paste) flow used by the official CLI; Anthropic does not offer a
-// general-purpose third-party "Login with Claude", so we reuse the CLI's public
-// client. Validate these against the current CLI if the flow stops working.
-const (
-	claudeOAuthAuthorizeURL = "https://claude.ai/oauth/authorize"
-	claudeOAuthTokenURL     = "https://console.anthropic.com/v1/oauth/token"
-	claudeOAuthClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeOAuthRedirectURI  = "https://console.anthropic.com/oauth/code/callback"
-	claudeOAuthScopes       = "org:create_api_key user:profile user:inference"
-	pendingAuthTTL          = 15 * time.Minute
-)
+const pendingAuthTTL = 15 * time.Minute
 
 // OAuthTokens is the result of an authorization-code exchange or refresh.
 type OAuthTokens struct {
@@ -34,11 +20,11 @@ type OAuthTokens struct {
 	ExpiresAt    time.Time
 }
 
-// ClaudeOAuth drives the Claude subscription OAuth flow (PKCE S256).
-// Pending verifiers are held in memory keyed by state; they are short-lived and
-// safe to lose on restart since the flow completes within minutes.
+// ClaudeOAuth drives the Claude subscription OAuth flow via the claude-oauth-go
+// SDK. Pending verifiers are held in memory keyed by state; they are short-lived
+// and safe to lose on restart since the flow completes within minutes.
 type ClaudeOAuth struct {
-	http    *http.Client
+	client  *oauth.Client
 	mu      sync.Mutex
 	pending map[string]pendingAuth
 }
@@ -49,8 +35,10 @@ type pendingAuth struct {
 }
 
 func NewClaudeOAuth() *ClaudeOAuth {
+	store := &memoryStore{}
+	client, _ := oauth.New(oauth.Config{Store: store})
 	return &ClaudeOAuth{
-		http:    &http.Client{Timeout: 30 * time.Second},
+		client:  client,
 		pending: make(map[string]pendingAuth),
 	}
 }
@@ -58,112 +46,54 @@ func NewClaudeOAuth() *ClaudeOAuth {
 // BuildAuthorizeURL generates a PKCE challenge, stores the verifier keyed by the
 // returned state, and returns the URL the user must open to authorize.
 func (o *ClaudeOAuth) BuildAuthorizeURL() (authURL, state string, err error) {
-	verifier, err := randomURLSafe(32)
-	if err != nil {
-		return "", "", err
-	}
-	state, err = randomURLSafe(24)
-	if err != nil {
-		return "", "", err
-	}
-
-	sum := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-
-	o.store(state, verifier)
-
-	q := url.Values{}
-	q.Set("code", "true")
-	q.Set("client_id", claudeOAuthClientID)
-	q.Set("response_type", "code")
-	q.Set("redirect_uri", claudeOAuthRedirectURI)
-	q.Set("scope", claudeOAuthScopes)
-	q.Set("state", state)
-	q.Set("code_challenge", challenge)
-	q.Set("code_challenge_method", "S256")
-
-	return claudeOAuthAuthorizeURL + "?" + q.Encode(), state, nil
+	state = pkce.GenerateState()
+	verifier := pkce.GenerateCodeVerifier()
+	o.storePending(state, verifier)
+	authURL = o.client.AuthorizationURL(state, verifier)
+	return authURL, state, nil
 }
 
-// Exchange swaps an authorization code for tokens. The pasted code may carry the
-// state as "code#state"; only the code portion is sent. The verifier is looked
-// up by the state issued in BuildAuthorizeURL.
+// Exchange swaps an authorization code for tokens. The verifier is looked up by
+// the state issued in BuildAuthorizeURL.
 func (o *ClaudeOAuth) Exchange(state, pastedCode string) (*OAuthTokens, error) {
 	verifier, ok := o.take(state)
 	if !ok {
 		return nil, fmt.Errorf("ai: unknown or expired oauth state")
 	}
 
-	code := pastedCode
-	if i := strings.Index(pastedCode, "#"); i >= 0 {
-		code = pastedCode[:i]
+	token, err := o.client.Exchange(context.Background(), pastedCode, verifier, state)
+	if err != nil {
+		return nil, fmt.Errorf("ai: oauth exchange: %w", err)
 	}
 
-	payload := map[string]string{
-		"grant_type":    "authorization_code",
-		"code":          code,
-		"redirect_uri":  claudeOAuthRedirectURI,
-		"client_id":     claudeOAuthClientID,
-		"code_verifier": verifier,
-		"state":         state,
-	}
-	return o.postToken(payload)
+	return &OAuthTokens{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+	}, nil
 }
 
 // Refresh obtains a new access token from a refresh token.
 func (o *ClaudeOAuth) Refresh(refreshToken string) (*OAuthTokens, error) {
-	payload := map[string]string{
-		"grant_type":    "refresh_token",
-		"refresh_token": refreshToken,
-		"client_id":     claudeOAuthClientID,
-	}
-	return o.postToken(payload)
-}
+	store := &memoryStore{token: &storage.Token{
+		RefreshToken: refreshToken,
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	}}
+	client, _ := oauth.New(oauth.Config{Store: store})
 
-func (o *ClaudeOAuth) postToken(payload map[string]string) (*OAuthTokens, error) {
-	body, err := json.Marshal(payload)
+	token, err := client.Refresh(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling token request: %w", err)
+		return nil, fmt.Errorf("ai: oauth refresh: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, claudeOAuthTokenURL, strings.NewReader(string(body)))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := o.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling token endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: token endpoint returned status %d: %s", resp.StatusCode, rb)
-	}
-
-	var out struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding token response: %w", err)
-	}
-	if out.AccessToken == "" {
-		return nil, fmt.Errorf("ai: token endpoint returned no access_token")
-	}
-
-	expiresAt := time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
 	return &OAuthTokens{
-		AccessToken:  out.AccessToken,
-		RefreshToken: out.RefreshToken,
-		ExpiresAt:    expiresAt,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
 	}, nil
 }
 
-func (o *ClaudeOAuth) store(state, verifier string) {
+func (o *ClaudeOAuth) storePending(state, verifier string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.evictExpiredLocked()
@@ -190,10 +120,28 @@ func (o *ClaudeOAuth) evictExpiredLocked() {
 	}
 }
 
-func randomURLSafe(n int) (string, error) {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("ai: generating random bytes: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
+// memoryStore is a minimal in-memory TokenStore for the SDK.
+type memoryStore struct {
+	mu    sync.Mutex
+	token *storage.Token
+}
+
+func (s *memoryStore) Save(_ context.Context, token *storage.Token) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.token = token
+	return nil
+}
+
+func (s *memoryStore) Load(_ context.Context) (*storage.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.token, nil
+}
+
+func (s *memoryStore) Delete(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.token = nil
+	return nil
 }
