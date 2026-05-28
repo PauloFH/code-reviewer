@@ -1,3 +1,5 @@
+git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go v0.1.0 h1:o/oaEFChX8Zvtt74pOm7pA0rIXP/iMzIwuftnIpGL/4=
+git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go v0.1.0/go.mod h1:hJHIPVt7+IwYrVNF8J6SmGvZvohm3SbCCPnpMeCvpuQ=
 github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o4kU=
 github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
 golang.org/x/crypto v0.51.0 h1:IBPXwPfKxY7cWQZ38ZCIRPI50YLeevDLlLnyC5wRGTI=

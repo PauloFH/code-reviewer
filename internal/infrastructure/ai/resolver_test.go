@@ -31,8 +31,8 @@ func (m *mockConfigRepo) UpdateOAuthTokens(id int64, access, _ string, _ time.Ti
 	m.updatedAccess = access
 	return nil
 }
-func (m *mockConfigRepo) ListConfigs() ([]domain.AIConfig, error)         { return nil, nil }
-func (m *mockConfigRepo) GetConfig(int64) (*domain.AIConfig, error)       { return nil, nil }
+func (m *mockConfigRepo) ListConfigs() ([]domain.AIConfig, error)   { return nil, nil }
+func (m *mockConfigRepo) GetConfig(int64) (*domain.AIConfig, error) { return nil, nil }
 func (m *mockConfigRepo) CreateConfig(domain.AIConfig) (*domain.AIConfig, error) {
 	return nil, nil
 }
@@ -169,8 +169,10 @@ func TestResolvingReviewer_RefreshesExpiredAccountToken(t *testing.T) {
 	if gotAuth != "Bearer fresh-token" {
 		t.Fatalf("Authorization = %q, want Bearer fresh-token", gotAuth)
 	}
-	if !strings.Contains(gotBeta, "oauth") {
-		t.Fatalf("anthropic-beta header = %q, want oauth beta", gotBeta)
+	for _, beta := range []string{anthropicClaudeCodeBeta, anthropicOAuthBeta} {
+		if !strings.Contains(gotBeta, beta) {
+			t.Fatalf("anthropic-beta header = %q, want %q", gotBeta, beta)
+		}
 	}
 	if result.Body != "claude review" {
 		t.Fatalf("body = %q", result.Body)
