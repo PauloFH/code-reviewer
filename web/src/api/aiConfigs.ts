@@ -61,6 +61,14 @@ export interface TestResult {
   usage: { PromptTokens: number; CompletionTokens: number; TotalTokens: number }
 }
 
+// The test endpoint always answers 200: ok=false carries the real failure cause
+// in `error` (a 5xx would be swallowed by the CDN). On ok=true the success
+// fields of TestResult are present.
+export interface TestResponse extends Partial<TestResult> {
+  ok: boolean
+  error?: string
+}
+
 export async function listConfigs(): Promise<AIConfig[]> {
   const res = await http.get('/ai-configs')
   return res.data
@@ -108,7 +116,7 @@ export async function exchangeClaudeOAuth(configId: number, state: string, code:
   return res.data
 }
 
-export async function testConfig(id: number): Promise<TestResult> {
+export async function testConfig(id: number): Promise<TestResponse> {
   const res = await http.post(`/ai-configs/${id}/test`)
   return res.data
 }

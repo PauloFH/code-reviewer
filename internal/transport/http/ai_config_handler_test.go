@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,6 +56,55 @@ type fakeTester struct{}
 
 func (fakeTester) TestConfig(int64) (*domain.ReviewResult, error) {
 	return &domain.ReviewResult{Body: "ok"}, nil
+}
+
+type fakeFailingTester struct{ err error }
+
+func (f fakeFailingTester) TestConfig(int64) (*domain.ReviewResult, error) {
+	return nil, f.err
+}
+
+// A test failure must NOT be reported as a 5xx: CDNs (Cloudflare) intercept
+// origin 5xx and replace the body with a branded gateway page, hiding the real
+// cause. The endpoint must answer 200 with {ok:false,error} so the UI sees it.
+func TestTestConfig_FailureReturns200WithErrorBody(t *testing.T) {
+	h := NewAIConfigHandler(&fakeConfigRepo{}, fakeOAuth{}, fakeFailingTester{err: errors.New("invalid x-api-key")})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ai-configs/1/test", nil)
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+	h.TestConfig(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a 5xx gets swallowed by the CDN): %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"ok":false`) {
+		t.Fatalf("expected ok:false in body, got: %s", body)
+	}
+	if !strings.Contains(body, "invalid x-api-key") {
+		t.Fatalf("expected the real upstream error surfaced to the UI, got: %s", body)
+	}
+}
+
+func TestTestConfig_SuccessReturns200WithReview(t *testing.T) {
+	h := NewAIConfigHandler(&fakeConfigRepo{}, fakeOAuth{}, fakeTester{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ai-configs/1/test", nil)
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+	h.TestConfig(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"ok":true`) {
+		t.Fatalf("expected ok:true, got: %s", body)
+	}
+	if !strings.Contains(body, "review_markdown") {
+		t.Fatalf("expected review payload, got: %s", body)
+	}
 }
 
 func TestListConfigs_MasksSecrets(t *testing.T) {

@@ -258,7 +258,16 @@ async function doTest(c: AIConfig) {
   testResult.value = null
   testName.value = c.name
   try {
-    testResult.value = await testConfig(c.id)
+    const res = await testConfig(c.id)
+    if (res.ok && res.usage && res.review_markdown !== undefined) {
+      testResult.value = {
+        review_markdown: res.review_markdown,
+        inline_comments: res.inline_comments ?? null,
+        usage: res.usage,
+      }
+    } else {
+      testError.value = res.error || 'Falha no teste'
+    }
   } catch (e: unknown) {
     testError.value = (e as { response?: { data?: string } })?.response?.data || 'Falha no teste'
   } finally {

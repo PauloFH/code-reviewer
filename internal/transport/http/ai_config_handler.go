@@ -295,12 +295,18 @@ func (h *AIConfigHandler) TestConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.tester.TestConfig(id)
 	if err != nil {
-		// The failure is usually upstream (bad key, expired/invalid token, model
-		// not allowed); surface the real cause to the operator.
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		// A failed test is an expected outcome (bad key, expired/invalid token,
+		// model not allowed), not a gateway failure. Answer 200 with the cause so
+		// the operator sees it: a 5xx here is intercepted by the CDN (Cloudflare),
+		// which discards the body and shows a generic "502 Bad gateway" instead.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":              true,
 		"review_markdown": result.Body,
 		"inline_comments": result.InlineComments,
 		"usage":           result.Usage,
