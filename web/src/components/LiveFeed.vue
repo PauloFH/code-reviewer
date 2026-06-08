@@ -37,6 +37,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { createEventSource, listEvents, type ReviewEvent } from '@/api/events'
 import { useAuthStore } from '@/stores/auth'
 
+const props = defineProps<{ client?: string }>()
 const auth = useAuthStore()
 const feed = ref<ReviewEvent[]>([])
 const feedEl = ref<HTMLElement | null>(null)
@@ -52,7 +53,7 @@ onUnmounted(() => es?.close())
 
 async function loadRecent() {
   try {
-    const res = await listEvents({ limit: 20 })
+    const res = await listEvents({ client: props.client, limit: 20 })
     feed.value = (res.items || []).filter(e => e.status === 'success')
   } catch { /* ignore */ }
 }
@@ -64,6 +65,7 @@ function startSSE() {
     try {
       const e: ReviewEvent = JSON.parse(ev.data)
       if (e.status !== 'success') return
+      if (props.client && e.client_name !== props.client) return
       feed.value.unshift(e)
       if (feed.value.length > 50) feed.value.pop()
     } catch { /* ignore */ }

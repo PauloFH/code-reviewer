@@ -8,13 +8,6 @@
         <div class="page-sub">Operadores com acesso ao painel. Permissões herdadas do papel atribuído.</div>
       </div>
       <div class="page-actions">
-        <button class="btn">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <path d="M15 3h6v6M10 14L21 3"/>
-          </svg>
-          Convites
-        </button>
         <button class="btn primary" @click="openCreate">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>

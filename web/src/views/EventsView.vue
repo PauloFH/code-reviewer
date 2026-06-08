@@ -116,6 +116,7 @@ async function load() {
   try {
     const res = await listEvents({
       client: filterClient.value || undefined,
+      search: filterSearch.value || undefined,
       since: filterSince.value ? filterSince.value + 'T00:00:00Z' : undefined,
       until: filterUntil.value ? filterUntil.value + 'T23:59:59Z' : undefined,
       limit: pageSize,

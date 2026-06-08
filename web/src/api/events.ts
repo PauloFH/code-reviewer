@@ -46,6 +46,7 @@ export interface EventsResponse {
 
 export interface EventFilter {
   client?: string
+  search?: string
   since?: string
   until?: string
   limit?: number
@@ -57,8 +58,8 @@ export async function listEvents(filter: EventFilter = {}): Promise<EventsRespon
   return res.data
 }
 
-export async function getStats(client?: string): Promise<ReviewStats> {
-  const res = await http.get('/events/stats', { params: client ? { client } : {} })
+export async function getStats(client?: string, since?: string, until?: string): Promise<ReviewStats> {
+  const res = await http.get('/events/stats', { params: { client, since, until } })
   return res.data
 }
 

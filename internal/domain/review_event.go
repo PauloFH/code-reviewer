@@ -34,6 +34,7 @@ type ReviewEvent struct {
 // ReviewEventFilter is used by the repository list method.
 type ReviewEventFilter struct {
 	ClientName string
+	Search     string
 	Since      time.Time
 	Until      time.Time
 	Limit      int // 0 → default 50

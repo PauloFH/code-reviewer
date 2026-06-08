@@ -3,9 +3,10 @@
     <div class="kpi">
       <div class="kpi-label">Total Reviews</div>
       <div class="kpi-value mono">{{ fmt(stats.total_reviews) }}</div>
+      <div class="kpi-foot">all time</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Last 30 days</div>
+      <div class="kpi-label">Reviews (30d)</div>
       <div class="kpi-value mono">{{ fmt(stats.reviews_last_30d) }}</div>
     </div>
     <div class="kpi">

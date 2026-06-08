@@ -46,7 +46,7 @@ type ReviewEventRepository interface {
 	SaveEvent(event ReviewEvent) error
 	ListEvents(filter ReviewEventFilter) ([]ReviewEvent, error)
 	CountEvents(filter ReviewEventFilter) (int64, error)
-	GetStats(clientName string) (*ReviewStats, error)
+	GetStats(clientName, since, until string) (*ReviewStats, error)
 	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
 }
 

@@ -299,18 +299,28 @@ func (r *SQLiteRepository) CountEvents(f domain.ReviewEventFilter) (int64, error
 	return n, err
 }
 
-func (r *SQLiteRepository) GetStats(clientName string) (*domain.ReviewStats, error) {
+func (r *SQLiteRepository) GetStats(clientName, sinceStr, untilStr string) (*domain.ReviewStats, error) {
 	stats := &domain.ReviewStats{}
 
-	globalQ := `SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'`
+	sinceClause := ""
+	untilClause := ""
+	if sinceStr != "" {
+		sinceClause = " AND reviewed_at >= '" + sinceStr + "'"
+	}
+	if untilStr != "" {
+		untilClause = " AND reviewed_at <= '" + untilStr + "'"
+	}
+
+	globalQ := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'%s%s`,
+		sinceClause, untilClause)
 	r.db.QueryRow(globalQ).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD)
 
-	last30Q := `SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')`
+	last30Q := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')%s%s`,
+		sinceClause, untilClause)
 	r.db.QueryRow(last30Q).Scan(&stats.ReviewsLast30d, &stats.CostLast30d)
 
-	byClientQ := `
-		SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
-		FROM review_events WHERE status='success'`
+	byClientQ := fmt.Sprintf(`SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
+		FROM review_events WHERE status='success'%s%s`, sinceClause, untilClause)
 	byClientArgs := []any{}
 	if clientName != "" {
 		byClientQ += ` AND client_name = ?`
@@ -399,6 +409,11 @@ func buildEventWhere(f domain.ReviewEventFilter, args *[]any) string {
 	if f.ClientName != "" {
 		clauses = append(clauses, "client_name=?")
 		*args = append(*args, f.ClientName)
+	}
+	if f.Search != "" {
+		clauses = append(clauses, "(mr_title LIKE ? OR author_username LIKE ? OR project_ref LIKE ?)")
+		like := "%" + f.Search + "%"
+		*args = append(*args, like, like, like)
 	}
 	if !f.Since.IsZero() {
 		clauses = append(clauses, "reviewed_at >= ?")

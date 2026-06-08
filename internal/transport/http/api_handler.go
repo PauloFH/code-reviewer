@@ -32,6 +32,7 @@ func NewAPIHandler(
 func (h *APIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	f := domain.ReviewEventFilter{
 		ClientName: r.URL.Query().Get("client"),
+		Search:     r.URL.Query().Get("search"),
 		Limit:      intQuery(r, "limit", 50),
 		Offset:     intQuery(r, "offset", 0),
 	}
@@ -61,7 +62,9 @@ func (h *APIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 func (h *APIHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	clientName := r.URL.Query().Get("client")
-	stats, err := h.eventRepo.GetStats(clientName)
+	sinceStr := r.URL.Query().Get("since")
+	untilStr := r.URL.Query().Get("until")
+	stats, err := h.eventRepo.GetStats(clientName, sinceStr, untilStr)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

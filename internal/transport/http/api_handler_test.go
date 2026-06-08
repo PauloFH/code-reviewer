@@ -16,7 +16,7 @@ func (statsRepo) ListEvents(domain.ReviewEventFilter) ([]domain.ReviewEvent, err
 	return nil, nil
 }
 func (statsRepo) CountEvents(domain.ReviewEventFilter) (int64, error) { return 0, nil }
-func (statsRepo) GetStats(string) (*domain.ReviewStats, error) {
+func (statsRepo) GetStats(string, string, string) (*domain.ReviewStats, error) {
 	return &domain.ReviewStats{}, nil
 }
 func (statsRepo) GetDailyCosts(string, int) ([]domain.DailyCostPoint, error) {
