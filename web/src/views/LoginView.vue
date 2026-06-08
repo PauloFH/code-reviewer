@@ -1,21 +1,47 @@
 <template>
   <div class="login-wrap">
-    <form class="login-card" @submit.prevent="handleLogin">
-      <h1>Code Reviewer</h1>
-      <p v-if="error" class="error">{{ error }}</p>
-      <label>
-        Username
-        <input v-model="username" type="text" autocomplete="username" required />
-      </label>
-      <label>
-        Password
-        <input v-model="password" type="password" autocomplete="current-password" required />
-      </label>
-      <button type="submit" :disabled="loading">
-        <span v-if="loading" class="btn-spinner" />
-        {{ loading ? 'Signing in…' : 'Sign in' }}
-      </button>
-    </form>
+    <div class="login-card">
+      <!-- Brand -->
+      <div class="brand">
+        <div class="brand-mark">CR</div>
+        <div class="brand-info">
+          <div class="brand-name">Code Reviewer</div>
+          <div class="brand-sub">v 2.4</div>
+        </div>
+      </div>
+
+      <form @submit.prevent="handleLogin">
+        <h1>Sign in</h1>
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <div class="field">
+          <label>Username</label>
+          <input
+            v-model="username"
+            type="text"
+            autocomplete="username"
+            placeholder="admin"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label>Password</label>
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="••••••••"
+            required
+          />
+        </div>
+
+        <button type="submit" :disabled="loading" class="btn primary">
+          <span v-if="loading" class="spinner" />
+          {{ loading ? 'Signing in…' : 'Sign in' }}
+        </button>
+      </form>
+    </div>
   </div>
 </template>
 
@@ -52,47 +78,121 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--bg);
+  padding: 20px;
 }
+
 .login-card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 1.5rem;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%);
+}
+
+.brand-info {
+  flex: 1;
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-bottom: 1.5rem;
+}
+
+form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
-h1 { font-size: 1.4rem; font-weight: 700; color: #f8fafc; }
-label { display: flex; flex-direction: column; gap: .4rem; font-size: .85rem; color: #94a3b8; }
-input {
-  padding: .6rem .8rem;
-  background: #0f172a;
-  border: 1px solid #475569;
-  border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 1rem;
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-input:focus { outline: none; border-color: #6366f1; }
-button {
-  padding: .7rem;
-  background: #6366f1;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  cursor: pointer;
+
+.field label {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-button { display: flex; align-items: center; justify-content: center; gap: .5rem; }
-button:disabled { opacity: .6; cursor: not-allowed; }
-.btn-spinner {
-  width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
+
+.field input {
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  transition: border-color 0.12s;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-.error { color: #f87171; font-size: .85rem; }
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field input::placeholder {
+  color: var(--muted-2);
+}
+
+.btn.primary {
+  width: 100%;
+  justify-content: center;
+  padding: 10px;
+  margin-top: 0.5rem;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+}
 </style>

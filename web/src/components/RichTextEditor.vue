@@ -55,38 +55,38 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .editor-wrap {
-  border: 1px solid #475569;
-  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
   overflow: hidden;
-  background: #0f172a;
+  background: var(--bg-2);
 }
 .toolbar {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 6px 8px;
-  background: #1e293b;
-  border-bottom: 1px solid #334155;
+  background: var(--panel);
+  border-bottom: 1px solid var(--hairline);
   flex-wrap: wrap;
 }
 .toolbar button {
   padding: 4px 8px;
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: var(--muted);
   border-radius: 4px;
   cursor: pointer;
-  font-size: .75rem;
+  font-size: 11px;
   font-weight: 600;
 }
-.toolbar button:hover { background: #334155; color: #e2e8f0; }
-.toolbar button.active { background: #6366f1; color: white; }
-.sep { width: 1px; height: 18px; background: #334155; margin: 0 4px; }
+.toolbar button:hover { background: var(--panel-2); color: var(--text-2); }
+.toolbar button.active { background: var(--accent); color: var(--bg); }
+.sep { width: 1px; height: 18px; background: var(--hairline); margin: 0 4px; }
 .editor-content {
   padding: 12px;
   min-height: 150px;
-  color: #e2e8f0;
-  font-size: .875rem;
+  color: var(--text);
+  font-size: 13px;
   line-height: 1.6;
 }
 .editor-content :deep(.tiptap) {
@@ -95,16 +95,16 @@ onBeforeUnmount(() => {
 }
 .editor-content :deep(.tiptap p.is-editor-empty:first-child::before) {
   content: attr(data-placeholder);
-  color: #475569;
+  color: var(--muted-2);
   pointer-events: none;
   float: left;
   height: 0;
 }
-.editor-content :deep(h2) { font-size: 1.2rem; font-weight: 700; margin: .5rem 0; color: #f8fafc; }
-.editor-content :deep(h3) { font-size: 1rem; font-weight: 600; margin: .4rem 0; color: #f1f5f9; }
-.editor-content :deep(ul), .editor-content :deep(ol) { padding-left: 1.5rem; margin: .4rem 0; }
-.editor-content :deep(li) { margin: .2rem 0; }
-.editor-content :deep(code) { background: #1e293b; padding: 2px 4px; border-radius: 3px; font-size: .8rem; }
-.editor-content :deep(pre) { background: #1e293b; padding: 12px; border-radius: 6px; overflow-x: auto; margin: .5rem 0; }
+.editor-content :deep(h2) { font-size: 16px; font-weight: 600; margin: 8px 0; color: var(--text); }
+.editor-content :deep(h3) { font-size: 14px; font-weight: 600; margin: 6px 0; color: var(--text-2); }
+.editor-content :deep(ul), .editor-content :deep(ol) { padding-left: 1.5rem; margin: 6px 0; }
+.editor-content :deep(li) { margin: 3px 0; }
+.editor-content :deep(code) { background: var(--bg); padding: 2px 4px; border-radius: 3px; font-size: 12px; }
+.editor-content :deep(pre) { background: var(--bg); padding: 12px; border-radius: var(--radius); overflow-x: auto; margin: 8px 0; }
 .editor-content :deep(pre code) { background: none; padding: 0; }
 </style>

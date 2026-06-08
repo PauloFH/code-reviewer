@@ -1,45 +1,89 @@
 <template>
-  <div class="wrap" v-if="stats.length > 0">
-    <h3>By Client</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Client</th>
-          <th>Reviews</th>
-          <th>Tokens</th>
-          <th>Cost</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="s in stats" :key="s.client_name">
-          <td>{{ s.client_name }}</td>
-          <td class="num">{{ s.review_count }}</td>
-          <td class="num">{{ fmtK(s.total_tokens) }}</td>
-          <td class="num">${{ s.total_cost_usd.toFixed(4) }}</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="wrap">
+    <div v-for="s in stats" :key="s.client_name" class="stat-row">
+      <div class="stat-info">
+        <div class="stat-name">{{ s.client_name }}</div>
+        <div class="stat-meta">{{ s.review_count }} reviews · ${{ s.total_cost_usd.toFixed(4) }}</div>
+      </div>
+      <div class="stat-bar">
+        <div class="stat-fill" :style="{ width: getShare(s.total_cost_usd) + '%' }"></div>
+      </div>
+      <div class="stat-share mono">{{ getShare(s.total_cost_usd).toFixed(1) }}%</div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ReviewStats } from '@/api/events'
 
-const { stats } = defineProps<{ stats: ReviewStats['by_client'] }>()
+const props = defineProps<{ stats: ReviewStats['by_client'] }>()
 
-function fmtK(n: number) {
-  return n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M'
-       : n >= 1000     ? (n / 1000).toFixed(1) + 'k'
-       : String(n)
+const totalCost = computed(() => {
+  return props.stats.reduce((acc, s) => acc + s.total_cost_usd, 0)
+})
+
+function getShare(cost: number) {
+  if (totalCost.value === 0) return 0
+  return (cost / totalCost.value) * 100
 }
 </script>
 
 <style scoped>
-.wrap { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.25rem; }
-h3 { font-size: 1rem; font-weight: 600; color: #e2e8f0; margin-bottom: .75rem; }
-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
-th { text-align: left; padding: .5rem .75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; }
-td { padding: .5rem .75rem; border-bottom: 1px solid #0f172a; color: #cbd5e1; }
-tr:last-child td { border-bottom: none; }
-.num { font-variant-numeric: tabular-nums; text-align: right; }
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.stat-row:last-child {
+  border-bottom: 0;
+}
+
+.stat-row:hover {
+  background: var(--panel-2);
+}
+
+.stat-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.stat-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.stat-bar {
+  width: 80px;
+  height: 4px;
+  background: var(--hairline);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stat-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.stat-share {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 40px;
+  text-align: right;
+}
 </style>

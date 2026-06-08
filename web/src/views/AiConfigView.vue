@@ -1,86 +1,148 @@
 <template>
   <div class="page">
-    <!-- Configs Section -->
-    <div class="section">
-      <div class="header">
-        <h2>Configurações de IA</h2>
-        <button @click="openCreate">+ Nova Configuração</button>
+    <!-- Page head -->
+    <div class="page-head">
+      <div>
+        <div class="page-eyebrow">Configuração · modelos de IA</div>
+        <h1 class="page-title">Modelos de IA</h1>
+        <div class="page-sub">Configure provedores, modelos e credenciais de IA para o agente de code review.</div>
       </div>
+    </div>
 
-      <div v-if="loading" class="loading-row">
-        <span class="spinner" /> Carregando…
-      </div>
-      <div v-else class="table-wrap">
-        <table>
+    <div class="stack">
+      <!-- Configs card -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Configurações</div>
+            <div class="card-sub">{{ configs.length }} configs · prioridade: projeto → cliente → global</div>
+          </div>
+          <button class="btn primary" @click="openCreate">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nova configuração
+          </button>
+        </div>
+
+        <div v-if="loading" class="loading-row">
+          <span class="spinner" /> Carregando…
+        </div>
+        <div v-else-if="configs.length === 0" class="empty-state">
+          <div class="empty-title">Nenhuma configuração cadastrada</div>
+          <div class="empty-sub">Configure um modelo de IA para usar na revisão de código. Sem configuração, o sistema usa o fallback do ambiente.</div>
+        </div>
+        <table v-else class="table">
           <thead>
             <tr>
               <th>Nome</th>
               <th>Provedor</th>
               <th>Modo</th>
               <th>Credencial</th>
-              <th>Ações</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="c in configs" :key="c.id">
-              <td>{{ c.name }}</td>
-              <td>{{ providerLabel(c.provider) }}</td>
-              <td><span class="badge" :class="c.mode">{{ modeLabel(c.mode) }}</span></td>
+              <td style="font-weight: 500;">{{ c.name }}</td>
+              <td class="muted">{{ providerLabel(c.provider) }}</td>
+              <td>
+                <span class="pill" :class="c.mode === 'account' ? 'warn' : 'accent'">
+                  <span class="dot"></span>{{ modeLabel(c.mode) }}
+                </span>
+              </td>
               <td>
                 <span v-if="c.mode === 'account'" :class="['cred', c.account_connected ? 'ok' : 'off']">
+                  <svg v-if="c.account_connected" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17l-5-5"/>
+                  </svg>
                   {{ c.account_connected ? 'Conectado' : 'Não conectado' }}
                 </span>
                 <span v-else :class="['cred', c.has_api_key ? 'ok' : 'off']">
+                  <svg v-if="c.has_api_key" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17l-5-5"/>
+                  </svg>
                   {{ c.has_api_key ? 'Chave definida' : 'Sem chave' }}
                 </span>
               </td>
-              <td class="actions">
-                <button :disabled="testingId === c.id" @click="doTest(c)">
-                  <span v-if="testingId === c.id" class="spinner" />
-                  {{ testingId === c.id ? 'Testando…' : 'Testar' }}
-                </button>
-                <button @click="openEdit(c)">Editar</button>
-                <button class="danger" @click="deleteTarget = c">Excluir</button>
+              <td>
+                <div class="row-actions">
+                  <button class="btn sm" :disabled="testingId === c.id" @click="doTest(c)">
+                    <svg v-if="testingId !== c.id" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <span v-if="testingId === c.id" class="spinner" />
+                  </button>
+                  <button class="btn sm ghost" @click="openEdit(c)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M17 3l4 4-12 12H5v-4z"/>
+                      <path d="M14.5 5.5l4 4"/>
+                    </svg>
+                  </button>
+                  <button class="btn sm ghost danger" @click="deleteTarget = c">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
               </td>
-            </tr>
-            <tr v-if="configs.length === 0">
-              <td colspan="5" class="empty">Nenhuma configuração cadastrada</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
 
-    <!-- Assignments Section -->
-    <div class="section">
-      <div class="header">
-        <h2>Atribuições</h2>
-        <button @click="showAssignForm = true">+ Nova Atribuição</button>
-      </div>
+      <!-- Assignments card -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Atribuições</div>
+            <div class="card-sub">Fallback do ambiente usado quando nenhuma atribuição resolve</div>
+          </div>
+          <button class="btn primary" @click="showAssignForm = true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nova atribuição
+          </button>
+        </div>
 
-      <div class="table-wrap">
-        <table>
+        <div v-if="assignments.length === 0" class="empty-state">
+          <div class="empty-title">Nenhuma atribuição configurada</div>
+          <div class="empty-sub">O sistema está usando a configuração padrão do ambiente (AI_PROVIDER + variáveis relacionadas).</div>
+        </div>
+        <table v-else class="table">
           <thead>
             <tr>
-              <th>Escopo</th>
-              <th>Client</th>
+              <th style="width: 110px;">Escopo</th>
+              <th>Cliente</th>
               <th>Projeto</th>
               <th>Configuração</th>
-              <th>Ações</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="a in assignments" :key="a.id">
-              <td><span class="badge" :class="a.scope">{{ scopeLabel(a.scope) }}</span></td>
-              <td>{{ a.client_name || '—' }}</td>
-              <td>{{ a.project_ref || '—' }}</td>
-              <td>{{ a.config_name }}</td>
-              <td class="actions">
-                <button class="danger" @click="removeAssign(a)">Remover</button>
+              <td>
+                <span class="pill" :class="a.scope === 'global' ? 'accent' : 'skip'">
+                  <span class="dot"></span>{{ scopeLabel(a.scope) }}
+                </span>
               </td>
-            </tr>
-            <tr v-if="assignments.length === 0">
-              <td colspan="5" class="empty">Nenhuma atribuição configurada (usa o fallback do ambiente)</td>
+              <td class="muted">{{ a.client_name || '—' }}</td>
+              <td class="muted">{{ a.project_ref || '—' }}</td>
+              <td>{{ a.config_name }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn sm ghost danger" @click="removeAssign(a)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -107,19 +169,25 @@
 
     <!-- Test result modal -->
     <div v-if="testResult || testError" class="overlay" @click.self="closeTest">
-      <div class="test-modal">
-        <div class="test-head">
-          <h3>Resultado do teste — {{ testName }}</h3>
-          <button class="close-x" @click="closeTest">✕</button>
+      <div class="modal test-modal">
+        <div class="modal-head">
+          <h2>Resultado do teste — {{ testName }}</h2>
+          <button class="icon-btn" @click="closeTest">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
-        <p v-if="testError" class="error">{{ testError }}</p>
-        <template v-else-if="testResult">
-          <p class="usage">
-            Tokens: {{ testResult.usage.TotalTokens }}
-            (entrada {{ testResult.usage.PromptTokens }} / saída {{ testResult.usage.CompletionTokens }})
-          </p>
-          <pre class="review">{{ testResult.review_markdown }}</pre>
-        </template>
+        <div class="modal-body">
+          <p v-if="testError" class="error">{{ testError }}</p>
+          <template v-else-if="testResult">
+            <p class="usage mono">
+              {{ testResult.usage.TotalTokens }} tokens
+              (entrada {{ testResult.usage.PromptTokens }} / saída {{ testResult.usage.CompletionTokens }})
+            </p>
+            <pre class="review">{{ testResult.review_markdown }}</pre>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -203,7 +271,6 @@ async function handleSaved(data: AIConfigInput & { _id?: number }) {
     } else {
       const created = await createConfig(payload)
       toast.push('Configuração criada', 'success')
-      // Account-mode configs need a follow-up OAuth connect; reopen in edit mode.
       if (created.mode === 'account') {
         await load()
         editingConfig.value = configs.value.find((c) => c.id === created.id) ?? created
@@ -309,74 +376,96 @@ function providerLabel(provider: string) {
 </script>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 2rem; }
-.section { display: flex; flex-direction: column; gap: 1rem; }
-h2 { font-size: 1.3rem; font-weight: 700; color: #f8fafc; }
-.header { display: flex; align-items: center; justify-content: space-between; }
-.header button {
-  padding: .5rem 1rem; background: #6366f1; color: white;
-  border: none; border-radius: 6px; cursor: pointer; font-size: .875rem;
+.page {
+  display: flex;
+  flex-direction: column;
 }
-.loading-row { display: flex; align-items: center; gap: .5rem; color: #64748b; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
-th { text-align: left; padding: .6rem .75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; white-space: nowrap; }
-td { padding: .6rem .75rem; border-bottom: 1px solid #0f172a; color: #cbd5e1; }
-.badge { font-size: .7rem; padding: .15rem .5rem; border-radius: 999px; }
-.badge.global { background: #1e3a5f; color: #93c5fd; }
-.badge.client { background: #1e3b1e; color: #86efac; }
-.badge.project { background: #3b1e3b; color: #d8b4fe; }
-.badge.api { background: #1e3a5f; color: #93c5fd; }
-.badge.account { background: #3b2e1e; color: #fcd34d; }
-.cred { font-size: .8rem; }
-.cred.ok { color: #86efac; }
-.cred.off { color: #64748b; }
-.actions { display: flex; gap: .5rem; }
-.actions button {
-  padding: .3rem .6rem; border: 1px solid #334155; background: #1e293b;
-  color: #e2e8f0; border-radius: 4px; cursor: pointer; font-size: .8rem;
+
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  padding: 24px;
 }
-.actions button.danger { color: #f87171; border-color: #7f1d1d; }
-.empty { text-align: center; color: #475569; padding: 2rem; }
-.overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
+
+.empty-state {
+  padding: 56px 32px;
+  text-align: center;
 }
+
+.muted {
+  color: var(--muted);
+}
+
+.cred {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.cred.ok {
+  color: var(--ok);
+}
+
+.cred.off {
+  color: var(--muted);
+}
+
+/* Modal */
 .test-modal {
-  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; max-width: 680px; width: 100%; max-height: 85vh;
-  display: flex; flex-direction: column; gap: .75rem;
+  max-width: 680px;
 }
-.test-head { display: flex; align-items: center; justify-content: space-between; }
-.test-head h3 { font-size: 1.05rem; font-weight: 600; color: #f8fafc; }
-.close-x { background: none; border: none; color: #64748b; cursor: pointer; font-size: 1rem; }
-.usage { font-size: .8rem; color: #94a3b8; }
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.modal-head h2 {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+}
+
+.modal-body {
+  padding: 22px;
+}
+
+.usage {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
 .review {
-  background: #0f172a; border: 1px solid #334155; border-radius: 8px;
-  padding: 1rem; color: #cbd5e1; font-size: .8rem; line-height: 1.5;
-  white-space: pre-wrap; word-break: break-word; overflow-y: auto; margin: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 16px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 400px;
+  margin: 0;
 }
-.error { color: #f87171; font-size: .85rem; }
-.confirm-modal {
-  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; max-width: 360px; width: 100%; text-align: center;
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+  margin: 0;
 }
-.confirm-modal p { color: #e2e8f0; margin-bottom: .5rem; }
-.confirm-modal .warn { color: #fbbf24; font-size: .8rem; margin-bottom: 1rem; }
-.confirm-actions { display: flex; justify-content: center; gap: .75rem; }
-.confirm-actions button {
-  padding: .5rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: .875rem;
-  border: 1px solid #334155; background: #334155; color: #e2e8f0;
-  display: flex; align-items: center; gap: .4rem;
-}
-.confirm-actions button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
-.confirm-actions button:disabled { opacity: .6; cursor: not-allowed; }
-.spinner {
-  width: 12px; height: 12px;
-  border: 2px solid rgba(255,255,255,.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

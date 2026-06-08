@@ -28,18 +28,19 @@ import { getDailyCosts, type DailyCostPoint } from '@/api/events'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Filler)
 
-const props = defineProps<{ client?: string }>()
+const props = defineProps<{ client?: string; days?: number }>()
 
 const points = ref<DailyCostPoint[]>([])
 const loading = ref(false)
 
 onMounted(load)
 watch(() => props.client, load)
+watch(() => props.days, load)
 
 async function load() {
   loading.value = true
   try {
-    points.value = await getDailyCosts(props.client, 30)
+    points.value = await getDailyCosts(props.client, props.days || 30)
   } finally {
     loading.value = false
   }
@@ -51,12 +52,12 @@ const chartData = computed(() => ({
     {
       label: 'Cost (USD)',
       data: points.value.map((p) => p.cost_usd),
-      borderColor: '#6366f1',
-      backgroundColor: 'rgba(99,102,241,.15)',
+      borderColor: 'var(--accent)',
+      backgroundColor: 'rgba(129,140,248,0.12)',
       fill: true,
       tension: 0.4,
       pointRadius: 3,
-      pointBackgroundColor: '#6366f1',
+      pointBackgroundColor: 'var(--accent)',
     },
   ],
 }))
@@ -74,15 +75,15 @@ const chartOptions = {
   },
   scales: {
     x: {
-      ticks: { color: '#64748b', maxTicksLimit: 10 },
-      grid: { color: '#1e293b' },
+      ticks: { color: 'var(--muted)', maxTicksLimit: 10 },
+      grid: { color: 'var(--hairline)' },
     },
     y: {
       ticks: {
-        color: '#64748b',
+        color: 'var(--muted)',
         callback: (v: unknown) => `$${Number(v).toFixed(4)}`,
       },
-      grid: { color: '#1e293b' },
+      grid: { color: 'var(--hairline)' },
     },
   },
 }
@@ -90,18 +91,18 @@ const chartOptions = {
 
 <style scoped>
 .chart-wrap {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
 }
 .chart-header {
   display: flex;
   align-items: center;
-  gap: .75rem;
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
-h3 { font-size: 1rem; font-weight: 600; color: #e2e8f0; }
+h3 { font-size: 13.5px; font-weight: 500; color: var(--text); }
 .chart-box {
   position: relative;
   height: 220px;
@@ -113,13 +114,11 @@ h3 { font-size: 1rem; font-weight: 600; color: #e2e8f0; }
   width: 100% !important;
   height: 100% !important;
 }
-.empty { text-align: center; color: #475569; padding: 3rem 0; font-size: .875rem; }
-.spinner {
-  width: 14px; height: 14px;
-  border: 2px solid #334155;
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 3rem 0;
+  font-size: 13px;
+  font-family: var(--font-mono);
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

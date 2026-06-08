@@ -1,59 +1,126 @@
 <template>
-  <div class="users-view">
-    <div class="header">
-      <h1>Usuários</h1>
-      <button class="btn-primary" @click="showForm = true">+ Novo Usuário</button>
+  <div class="page">
+    <!-- Page head -->
+    <div class="page-head">
+      <div>
+        <div class="page-eyebrow">Acesso</div>
+        <h1 class="page-title">Usuários</h1>
+        <div class="page-sub">Operadores com acesso ao painel. Permissões herdadas do papel atribuído.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <path d="M15 3h6v6M10 14L21 3"/>
+          </svg>
+          Convites
+        </button>
+        <button class="btn primary" @click="openCreate">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Novo usuário
+        </button>
+      </div>
     </div>
 
-    <table v-if="users.length" class="table">
-      <thead>
-        <tr>
-          <th>Usuário</th>
-          <th>Role</th>
-          <th>Criado em</th>
-          <th>Ações</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="u in users" :key="u.id">
-          <td>{{ u.username }}</td>
-          <td><span :class="['badge', 'badge-' + u.role]">{{ u.role }}</span></td>
-          <td>{{ formatDate(u.created_at) }}</td>
-          <td>
-            <button class="btn-sm" @click="editUser(u)">Editar</button>
-            <button class="btn-sm btn-danger" @click="confirmDelete(u)">Excluir</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p v-else-if="!loading" class="empty">Nenhum usuário encontrado.</p>
+    <!-- Users table -->
+    <div class="card">
+      <div v-if="loading" class="loading-row">
+        <span class="spinner" /> Carregando…
+      </div>
+      <div v-else-if="users.length === 0" class="empty-state">
+        <div class="empty-title">Nenhum usuário encontrado</div>
+        <div class="empty-sub">Crie um usuário para dar acesso ao painel.</div>
+      </div>
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>Usuário</th>
+            <th>Papel</th>
+            <th>Criado em</th>
+            <th>Última atividade</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="u in users" :key="u.id">
+            <td>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="avatar">{{ u.username.slice(0, 2).toUpperCase() }}</div>
+                <div>
+                  <div style="font-weight: 500;">{{ u.username }}</div>
+                  <div class="card-sub">{{ u.role }}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="pill" :class="u.role === 'super' ? 'accent' : 'skip'">
+                <span class="dot"></span>{{ u.role }}
+              </span>
+            </td>
+            <td class="num">{{ fmtDate(u.created_at) }}</td>
+            <td class="num muted">—</td>
+            <td>
+              <div class="row-actions">
+                <button class="btn sm ghost" @click="editUser(u)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 3l4 4-12 12H5v-4z"/>
+                    <path d="M14.5 5.5l4 4"/>
+                  </svg>
+                </button>
+                <button class="btn sm ghost danger" @click="confirmDelete(u)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <!-- Create/Edit Modal -->
-    <div v-if="showForm" class="modal-overlay" @click.self="closeForm">
+    <div v-if="showForm" class="overlay" @click.self="closeForm">
       <div class="modal">
-        <h2>{{ editing ? 'Editar Usuário' : 'Novo Usuário' }}</h2>
-        <form @submit.prevent="handleSubmit">
-          <label>
-            Usuário
+        <div class="modal-head">
+          <h2>{{ editing ? 'Editar Usuário' : 'Novo Usuário' }}</h2>
+          <button class="icon-btn" @click="closeForm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <form @submit.prevent="handleSubmit" class="modal-body">
+          <div class="field">
+            <label>Usuário</label>
             <input v-model="form.username" type="text" required />
-          </label>
-          <label>
-            Senha {{ editing ? '(deixe vazio para manter)' : '' }}
-            <input v-model="form.password" type="password" :required="!editing" />
-          </label>
-          <label>
-            Role
+          </div>
+
+          <div class="field">
+            <label>Senha {{ editing ? '(deixe vazio para manter)' : '' }}</label>
+            <input v-model="form.password" :type="editing ? 'password' : 'password'" :required="!editing" />
+          </div>
+
+          <div class="field">
+            <label>Papel</label>
             <select v-model="form.role" required>
               <option value="super">Super</option>
               <option value="gestor">Gestor</option>
               <option value="padrao">Padrão</option>
             </select>
-          </label>
+          </div>
+
           <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button type="button" class="btn-secondary" @click="closeForm">Cancelar</button>
-            <button type="submit" class="btn-primary" :disabled="saving">
+
+          <div class="modal-actions">
+            <button type="button" class="btn" @click="closeForm">Cancelar</button>
+            <button type="submit" class="btn primary" :disabled="saving">
+              <span v-if="saving" class="spinner" />
               {{ saving ? 'Salvando...' : 'Salvar' }}
             </button>
           </div>
@@ -100,6 +167,13 @@ function editUser(u: User) {
   showForm.value = true
 }
 
+function openCreate() {
+  editing.value = null
+  form.value = { username: '', password: '', role: 'padrao' }
+  formError.value = ''
+  showForm.value = true
+}
+
 function closeForm() {
   showForm.value = false
   editing.value = null
@@ -135,8 +209,12 @@ async function handleSubmit() {
   }
 }
 
-async function confirmDelete(u: User) {
+function confirmDelete(u: User) {
   if (!confirm(`Excluir usuário "${u.username}"?`)) return
+  doDelete(u)
+}
+
+async function doDelete(u: User) {
   try {
     await deleteUser(u.id)
     toast.push('Usuário excluído', 'success')
@@ -146,7 +224,7 @@ async function confirmDelete(u: User) {
   }
 }
 
-function formatDate(iso: string) {
+function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
 }
 
@@ -154,36 +232,106 @@ onMounted(load)
 </script>
 
 <style scoped>
-.users-view { max-width: 900px; }
-.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
-h1 { font-size: 1.5rem; color: #e2e8f0; margin: 0; }
+.page {
+  display: flex;
+  flex-direction: column;
+}
 
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td { padding: .6rem .75rem; text-align: left; border-bottom: 1px solid #334155; }
-.table th { color: #94a3b8; font-size: .8rem; text-transform: uppercase; }
-.table td { color: #e2e8f0; font-size: .9rem; }
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  padding: 24px;
+}
 
-.badge { padding: .2rem .5rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
-.badge-super { background: #6366f1; color: #fff; }
-.badge-gestor { background: #0ea5e9; color: #fff; }
-.badge-padrao { background: #475569; color: #e2e8f0; }
+.empty-state {
+  padding: 56px 32px;
+  text-align: center;
+}
 
-.btn-primary { background: #6366f1; color: #fff; border: none; padding: .5rem 1rem; border-radius: 6px; cursor: pointer; font-size: .85rem; }
-.btn-primary:hover { background: #4f46e5; }
-.btn-primary:disabled { opacity: .6; cursor: not-allowed; }
-.btn-secondary { background: none; border: 1px solid #475569; color: #94a3b8; padding: .5rem 1rem; border-radius: 6px; cursor: pointer; font-size: .85rem; }
-.btn-sm { background: none; border: 1px solid #475569; color: #94a3b8; padding: .25rem .5rem; border-radius: 4px; cursor: pointer; font-size: .8rem; margin-right: .25rem; }
-.btn-sm:hover { background: #334155; }
-.btn-danger { border-color: #ef4444; color: #ef4444; }
-.btn-danger:hover { background: #ef4444; color: #fff; }
+/* Modal */
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 420px;
+  overflow: hidden;
+}
 
-.empty { color: #64748b; }
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--hairline);
+}
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 300; }
-.modal { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.5rem; width: 100%; max-width: 400px; }
-.modal h2 { margin: 0 0 1rem; color: #e2e8f0; font-size: 1.1rem; }
-.modal label { display: block; margin-bottom: .75rem; color: #94a3b8; font-size: .85rem; }
-.modal input, .modal select { display: block; width: 100%; margin-top: .25rem; padding: .5rem; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #e2e8f0; font-size: .9rem; }
-.form-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
-.error { color: #ef4444; font-size: .85rem; margin: .5rem 0 0; }
+.modal-head h2 {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+}
+
+.modal-body {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.field input,
+.field select {
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  transition: border-color 0.12s;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field select {
+  cursor: pointer;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+  margin: 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
 </style>

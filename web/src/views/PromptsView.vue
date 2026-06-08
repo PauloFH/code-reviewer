@@ -1,71 +1,135 @@
 <template>
   <div class="page">
-    <!-- Prompts Section -->
-    <div class="section">
-      <div class="header">
-        <h2>Prompts</h2>
-        <button @click="openCreate">+ Novo Prompt</button>
+    <!-- Page head -->
+    <div class="page-head">
+      <div>
+        <div class="page-eyebrow">Configuração · prompts</div>
+        <h1 class="page-title">Prompts &amp; atribuições</h1>
+        <div class="page-sub">Defina os prompts usados pelo agente e a quais escopos eles se aplicam — global, por cliente ou por projeto.</div>
       </div>
+    </div>
 
-      <div v-if="loading" class="loading-row">
-        <span class="spinner" /> Carregando…
-      </div>
-      <div v-else class="table-wrap">
-        <table>
+    <div class="stack">
+      <!-- Prompts card -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Prompts</div>
+            <div class="card-sub">{{ prompts.length }} prompts definidos</div>
+          </div>
+          <button class="btn primary" @click="openCreate">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Novo prompt
+          </button>
+        </div>
+
+        <div v-if="loading" class="loading-row">
+          <span class="spinner" /> Carregando…
+        </div>
+        <div v-else-if="prompts.length === 0" class="empty-state">
+          <div class="empty-title">Nenhum prompt cadastrado</div>
+          <div class="empty-sub">Crie um prompt para customizar como o agente analisa o código.</div>
+        </div>
+        <table v-else class="table">
           <thead>
             <tr>
               <th>Nome</th>
               <th>Criado em</th>
-              <th>Ações</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="p in prompts" :key="p.id">
-              <td>{{ p.name }}</td>
-              <td class="date">{{ fmtDate(p.created_at) }}</td>
-              <td class="actions">
-                <button @click="openEdit(p)">Editar</button>
-                <button class="danger" @click="deleteTarget = p">Excluir</button>
+              <td>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div class="prompt-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <path d="M14 2v6h6"/>
+                      <path d="M8 13h8M8 17h6"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style="font-weight: 500;">{{ p.name }}</div>
+                    <div class="card-sub">criado em {{ fmtDate(p.created_at) }}</div>
+                  </div>
+                </div>
               </td>
-            </tr>
-            <tr v-if="prompts.length === 0">
-              <td colspan="3" class="empty">Nenhum prompt cadastrado</td>
+              <td class="num">{{ fmtDate(p.created_at) }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn sm ghost" @click="openEdit(p)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M17 3l4 4-12 12H5v-4z"/>
+                      <path d="M14.5 5.5l4 4"/>
+                    </svg>
+                  </button>
+                  <button class="btn sm ghost danger" @click="deleteTarget = p">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
 
-    <!-- Assignments Section -->
-    <div class="section">
-      <div class="header">
-        <h2>Atribuições</h2>
-        <button @click="showAssignForm = true">+ Nova Atribuição</button>
-      </div>
+      <!-- Assignments card -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Atribuições</div>
+            <div class="card-sub">resolução do prompt por escopo · ordem: projeto → cliente → global</div>
+          </div>
+          <button class="btn primary" @click="showAssignForm = true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nova atribuição
+          </button>
+        </div>
 
-      <div class="table-wrap">
-        <table>
+        <div v-if="assignments.length === 0" class="empty-state">
+          <div class="empty-title">Nenhuma atribuição configurada</div>
+          <div class="empty-sub">O sistema está usando a configuração padrão do ambiente. Crie uma atribuição para sobrepor o fallback em clientes ou projetos específicos.</div>
+        </div>
+        <table v-else class="table">
           <thead>
             <tr>
-              <th>Escopo</th>
-              <th>Client</th>
+              <th style="width: 110px;">Escopo</th>
+              <th>Cliente</th>
               <th>Projeto</th>
               <th>Prompt</th>
-              <th>Ações</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="a in assignments" :key="a.id">
-              <td><span class="badge" :class="a.scope">{{ scopeLabel(a.scope) }}</span></td>
-              <td>{{ a.client_name || '—' }}</td>
-              <td>{{ a.project_ref || '—' }}</td>
-              <td>{{ a.prompt_name }}</td>
-              <td class="actions">
-                <button class="danger" @click="removeAssign(a)">Remover</button>
+              <td>
+                <span class="pill" :class="a.scope === 'global' ? 'accent' : 'skip'">
+                  <span class="dot"></span>{{ scopeLabel(a.scope) }}
+                </span>
               </td>
-            </tr>
-            <tr v-if="assignments.length === 0">
-              <td colspan="5" class="empty">Nenhuma atribuição configurada</td>
+              <td class="muted">{{ a.client_name || '—' }}</td>
+              <td class="muted">{{ a.project_ref || '—' }}</td>
+              <td>{{ a.prompt_name }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn sm ghost danger" @click="removeAssign(a)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -224,55 +288,32 @@ function fmtDate(s: string) {
 </script>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 2rem; }
-.section { display: flex; flex-direction: column; gap: 1rem; }
-h2 { font-size: 1.3rem; font-weight: 700; color: #f8fafc; }
-.header { display: flex; align-items: center; justify-content: space-between; }
-.header button {
-  padding: .5rem 1rem; background: #6366f1; color: white;
-  border: none; border-radius: 6px; cursor: pointer; font-size: .875rem;
+.page {
+  display: flex;
+  flex-direction: column;
 }
-.loading-row { display: flex; align-items: center; gap: .5rem; color: #64748b; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
-th { text-align: left; padding: .6rem .75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; white-space: nowrap; }
-td { padding: .6rem .75rem; border-bottom: 1px solid #0f172a; color: #cbd5e1; }
-.date { font-size: .8rem; color: #94a3b8; }
-.badge { font-size: .7rem; padding: .15rem .5rem; border-radius: 999px; }
-.badge.global { background: #1e3a5f; color: #93c5fd; }
-.badge.client { background: #1e3b1e; color: #86efac; }
-.badge.project { background: #3b1e3b; color: #d8b4fe; }
-.actions { display: flex; gap: .5rem; }
-.actions button {
-  padding: .3rem .6rem; border: 1px solid #334155; background: #1e293b;
-  color: #e2e8f0; border-radius: 4px; cursor: pointer; font-size: .8rem;
+
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  padding: 24px;
 }
-.actions button.danger { color: #f87171; border-color: #7f1d1d; }
-.empty { text-align: center; color: #475569; padding: 2rem; }
-.overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
+
+.empty-state {
+  padding: 56px 32px;
+  text-align: center;
 }
-.confirm-modal {
-  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; max-width: 360px; width: 100%; text-align: center;
+
+.prompt-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
 }
-.confirm-modal p { color: #e2e8f0; margin-bottom: .5rem; }
-.confirm-modal .warn { color: #fbbf24; font-size: .8rem; margin-bottom: 1rem; }
-.confirm-actions { display: flex; justify-content: center; gap: .75rem; }
-.confirm-actions button {
-  padding: .5rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: .875rem;
-  border: 1px solid #334155; background: #334155; color: #e2e8f0;
-  display: flex; align-items: center; gap: .4rem;
-}
-.confirm-actions button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
-.confirm-actions button:disabled { opacity: .6; cursor: not-allowed; }
-.spinner {
-  width: 12px; height: 12px;
-  border: 2px solid rgba(255,255,255,.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

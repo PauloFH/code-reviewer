@@ -1,20 +1,83 @@
 <template>
   <div class="page">
-    <h2>Events</h2>
-
-    <div class="filters">
-      <input v-model="filterClient" placeholder="Filter by client" @keyup.enter="applyFilter" />
-      <input v-model="filterSince" type="date" @change="applyFilter" />
-      <input v-model="filterUntil" type="date" @change="applyFilter" />
-      <button @click="applyFilter">Apply</button>
+    <!-- Page head -->
+    <div class="page-head">
+      <div>
+        <div class="page-eyebrow">Reviews · histórico</div>
+        <h1 class="page-title">Events</h1>
+        <div class="page-sub">Cada evento representa uma MR/PR processada pelo agente. Filtros e drill-down disponíveis.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn" @click="exportCSV">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <path d="M15 3h6v6M10 14L21 3"/>
+          </svg>
+          Exportar CSV
+        </button>
+      </div>
     </div>
 
-    <EventsTable :events="events" :loading="loading" />
+    <!-- Filterbar -->
+    <div class="filterbar">
+      <div class="field">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/>
+          <path d="M21 21l-4.3-4.3"/>
+        </svg>
+        <input v-model="filterSearch" placeholder="Buscar por título, autor ou hash…" @keyup.enter="applyFilter" />
+      </div>
+      <div class="field">
+        <label>Cliente</label>
+        <select v-model="filterClient">
+          <option value="">todos</option>
+          <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select v-model="filterStatus">
+          <option value="">todos</option>
+          <option value="success">success</option>
+          <option value="skipped">skipped</option>
+          <option value="error">error</option>
+        </select>
+      </div>
+      <div class="field">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="5" width="18" height="16" rx="2"/>
+          <path d="M3 10h18M8 3v4M16 3v4"/>
+        </svg>
+        <input v-model="filterSince" type="date" @change="applyFilter" />
+        <span style="color: var(--muted)">→</span>
+        <input v-model="filterUntil" type="date" @change="applyFilter" />
+      </div>
+      <button class="btn primary" @click="applyFilter">Aplicar</button>
+      <span class="counter">{{ total.toLocaleString() }} resultados · {{ totalTokens }} tokens · ${{ totalCost.toFixed(4) }}</span>
+    </div>
 
+    <!-- Table -->
+    <div class="card">
+      <EventsTable :events="events" :loading="loading" />
+    </div>
+
+    <!-- Pagination -->
     <div class="pagination">
-      <button :disabled="page === 0" @click="prevPage">← Prev</button>
-      <span>Page {{ page + 1 }} of {{ totalPages }}</span>
-      <button :disabled="page >= totalPages - 1" @click="nextPage">Next →</button>
+      <span>Página {{ page + 1 }} de {{ totalPages }} · {{ total.toLocaleString() }} resultados</span>
+      <div class="pagination-controls">
+        <button class="btn sm" :disabled="page === 0" @click="prevPage">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          Anterior
+        </button>
+        <button class="btn sm" :disabled="page >= totalPages - 1" @click="nextPage">
+          Próxima
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -23,20 +86,30 @@
 import { ref, computed, onMounted } from 'vue'
 import EventsTable from '@/components/EventsTable.vue'
 import { listEvents, type ReviewEvent } from '@/api/events'
+import { listClients } from '@/api/clients'
 
 const events = ref<ReviewEvent[]>([])
+const clients = ref<string[]>([])
 const total = ref(0)
 const page = ref(0)
 const loading = ref(false)
 const pageSize = 25
 
+const filterSearch = ref('')
 const filterClient = ref('')
+const filterStatus = ref('')
 const filterSince = ref('')
 const filterUntil = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
-onMounted(load)
+const totalTokens = computed(() => {
+  return events.value.reduce((acc, e) => acc + (e.prompt_tokens || 0) + (e.completion_tokens || 0), 0)
+})
+
+const totalCost = computed(() => {
+  return events.value.reduce((acc, e) => acc + (e.cost_usd || 0), 0)
+})
 
 async function load() {
   loading.value = true
@@ -55,29 +128,66 @@ async function load() {
   }
 }
 
-function applyFilter() { page.value = 0; load() }
-function prevPage() { page.value--; load() }
-function nextPage() { page.value++; load() }
+async function loadClients() {
+  try {
+    const c = await listClients()
+    clients.value = c.map((cl: { name: string }) => cl.name)
+  } catch {
+    // ignore
+  }
+}
+
+function applyFilter() {
+  page.value = 0
+  load()
+}
+
+function prevPage() {
+  page.value--
+  load()
+}
+
+function nextPage() {
+  page.value++
+  load()
+}
+
+function exportCSV() {
+  const headers = ['Time', 'Client', 'Project', 'MR IID', 'MR Title', 'Author', 'Status', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost (USD)', 'Duration (ms)', 'Reviewed At']
+  const rows = events.value.map(e => [
+    e.reviewed_at,
+    e.client_name,
+    e.project_ref,
+    e.mr_iid,
+    `"${(e.mr_title || '').replace(/"/g, '""')}"`,
+    e.author_username,
+    e.status,
+    e.prompt_tokens,
+    e.completion_tokens,
+    e.total_tokens,
+    e.cost_usd.toFixed(6),
+    e.duration_ms,
+    e.reviewed_at,
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `code-reviewer-events-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+onMounted(() => {
+  load()
+  loadClients()
+})
 </script>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 1.25rem; }
-h2 { font-size: 1.5rem; font-weight: 700; color: #f8fafc; }
-.filters { display: flex; gap: .75rem; flex-wrap: wrap; }
-.filters input {
-  padding: .5rem .75rem;
-  background: #1e293b; border: 1px solid #334155;
-  border-radius: 6px; color: #e2e8f0; font-size: .875rem;
+.page {
+  display: flex;
+  flex-direction: column;
 }
-.filters input:focus { outline: none; border-color: #6366f1; }
-.filters button {
-  padding: .5rem 1rem; background: #6366f1; color: white;
-  border: none; border-radius: 6px; cursor: pointer; font-size: .875rem;
-}
-.pagination { display: flex; align-items: center; gap: 1rem; font-size: .875rem; color: #94a3b8; }
-.pagination button {
-  padding: .4rem .75rem; background: #1e293b;
-  border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; cursor: pointer;
-}
-.pagination button:disabled { opacity: .4; cursor: not-allowed; }
 </style>
