@@ -168,43 +168,26 @@
     />
 
     <!-- Test result modal -->
-    <div v-if="testResult || testError" class="overlay" @click.self="closeTest">
-      <div class="modal test-modal">
-        <div class="modal-head">
-          <h2>Resultado do teste — {{ testName }}</h2>
-          <button class="icon-btn" @click="closeTest">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <p v-if="testError" class="error">{{ testError }}</p>
-          <template v-else-if="testResult">
-            <p class="usage mono">
-              {{ testResult.usage.TotalTokens }} tokens
-              (entrada {{ testResult.usage.PromptTokens }} / saída {{ testResult.usage.CompletionTokens }})
-            </p>
-            <pre class="review">{{ testResult.review_markdown }}</pre>
-          </template>
-        </div>
-      </div>
-    </div>
+    <Modal v-if="testResult || testError" title="Resultado do teste — {{ testName }}" max-width="680px" @close="closeTest">
+      <div v-if="testError" class="error-box">{{ testError }}</div>
+      <template v-else-if="testResult">
+        <p class="usage">
+          {{ testResult.usage.TotalTokens }} tokens
+          (entrada {{ testResult.usage.PromptTokens }} / saída {{ testResult.usage.CompletionTokens }})
+        </p>
+        <pre class="review">{{ testResult.review_markdown }}</pre>
+      </template>
+    </Modal>
 
     <!-- Delete confirm -->
-    <div v-if="deleteTarget" class="overlay" @click.self="deleteTarget = null">
-      <div class="confirm-modal">
-        <p>Excluir configuração <strong>{{ deleteTarget.name }}</strong>?</p>
-        <p class="warn">Atribuições vinculadas serão removidas.</p>
-        <div class="confirm-actions">
-          <button @click="deleteTarget = null">Cancelar</button>
-          <button class="danger" :disabled="deleting" @click="doDelete">
-            <span v-if="deleting" class="spinner" />
-            {{ deleting ? 'Excluindo…' : 'Excluir' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      v-if="deleteTarget"
+      :name="deleteTarget.name"
+      warning="Atribuições vinculadas serão removidas."
+      :loading="deleting"
+      @close="deleteTarget = null"
+      @confirm="doDelete"
+    />
   </div>
 </template>
 
@@ -212,6 +195,8 @@
 import { ref, onMounted } from 'vue'
 import AiConfigForm from '@/components/AiConfigForm.vue'
 import AiConfigAssignmentForm from '@/components/AiConfigAssignmentForm.vue'
+import Modal from '@/components/Modal.vue'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useToastStore } from '@/stores/toast'
 import {
   listConfigs, createConfig, updateConfig, deleteConfig,
@@ -414,34 +399,11 @@ function providerLabel(provider: string) {
   color: var(--muted);
 }
 
-/* Modal */
-.test-modal {
-  max-width: 680px;
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.modal-head h2 {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-  margin: 0;
-}
-
-.modal-body {
-  padding: 22px;
-}
-
 .usage {
   font-size: 12px;
   color: var(--muted);
   margin: 0 0 16px;
+  font-family: var(--font-mono);
 }
 
 .review {
@@ -459,7 +421,7 @@ function providerLabel(provider: string) {
   margin: 0;
 }
 
-.error {
+.error-box {
   color: var(--danger);
   font-size: 13px;
   padding: 12px;

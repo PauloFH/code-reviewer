@@ -1,35 +1,33 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
-      <h3>{{ isEdit ? 'Editar Prompt' : 'Novo Prompt' }}</h3>
-      <p v-if="error" class="error">{{ error }}</p>
-      <form @submit.prevent="submit">
-        <label>
-          Nome
-          <input v-model="form.name" required placeholder="Ex: Review Backend Go" />
-        </label>
-        <label>
-          System Prompt
-          <RichTextEditor v-model="form.system_prompt" placeholder="Instruções para a IA..." />
-        </label>
-        <label>
-          Template de Saída
-          <RichTextEditor v-model="form.output_template" placeholder="Formato esperado do review..." />
-        </label>
-        <div class="actions">
-          <button type="button" @click="$emit('close')">Cancelar</button>
-          <button type="submit" :disabled="saving">
-            <span v-if="saving" class="spinner" />
-            {{ saving ? 'Salvando…' : 'Salvar' }}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <Modal :title="isEdit ? 'Editar Prompt' : 'Novo Prompt'" max-width="700px" @close="$emit('close')">
+    <p v-if="error" class="error">{{ error }}</p>
+    <form @submit.prevent="submit" class="form">
+      <div class="field">
+        <label>Nome</label>
+        <input v-model="form.name" required placeholder="Ex: Review Backend Go" />
+      </div>
+      <div class="field field-tall">
+        <label>System Prompt</label>
+        <RichTextEditor v-model="form.system_prompt" placeholder="Instruções para a IA..." />
+      </div>
+      <div class="field field-tall">
+        <label>Template de Saída</label>
+        <RichTextEditor v-model="form.output_template" placeholder="Formato esperado do review..." />
+      </div>
+    </form>
+    <template #footer>
+      <button class="btn" type="button" @click="$emit('close')">Cancelar</button>
+      <button class="btn primary" type="submit" :disabled="saving" @click="submit">
+        <span v-if="saving" class="spinner" />
+        {{ saving ? 'Salvando…' : 'Salvar' }}
+      </button>
+    </template>
+  </Modal>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import Modal from '@/components/Modal.vue'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import type { Prompt, PromptInput } from '@/api/prompts'
 
@@ -65,41 +63,60 @@ defineExpose({
 </script>
 
 <style scoped>
-.overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100;
-  padding: 2vh 1rem;
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.modal {
-  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; width: 100%; max-width: 700px;
-  max-height: 90vh; overflow-y: auto;
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-h3 { font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 1rem; }
-form { display: flex; flex-direction: column; gap: 1rem; }
-label { display: flex; flex-direction: column; gap: .4rem; font-size: .8rem; color: #94a3b8; }
-input {
-  padding: .5rem .75rem; background: #0f172a; border: 1px solid #475569;
-  border-radius: 6px; color: #e2e8f0; font-size: .875rem;
+
+.field-tall {
+  flex: 1;
 }
-input:focus { outline: none; border-color: #6366f1; }
-.actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: .5rem; }
-.actions button {
-  display: flex; align-items: center; gap: .4rem;
-  padding: .5rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: .875rem;
-  border: 1px solid #334155; background: #334155; color: #e2e8f0;
+
+.field label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-.actions button[type="submit"] { background: #6366f1; border-color: #6366f1; color: white; }
-.actions button:disabled { opacity: .6; cursor: not-allowed; }
-.spinner {
-  width: 12px; height: 12px;
-  border: 2px solid rgba(255,255,255,.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
+
+.field input,
+.field select {
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.1s;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-.error { color: #f87171; font-size: .8rem; margin-bottom: .25rem; }
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field input::placeholder {
+  color: var(--muted-2);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12.5px;
+  padding: 10px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
 </style>

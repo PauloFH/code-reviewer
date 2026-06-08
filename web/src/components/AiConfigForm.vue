@@ -1,117 +1,111 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
-      <h3>{{ initial ? 'Editar Configuração' : 'Nova Configuração de IA' }}</h3>
-      <p v-if="error" class="error">{{ error }}</p>
-      <form @submit.prevent="submit">
-        <label>
-          Nome
-          <input v-model="form.name" required placeholder="Ex: Claude produção" />
-        </label>
+  <Modal :title="initial ? 'Editar Configuração' : 'Nova Configuração de IA'" max-width="520px" @close="$emit('close')">
+    <p v-if="error" class="error">{{ error }}</p>
+    <form @submit.prevent="submit" class="form">
+      <div class="field">
+        <label>Nome</label>
+        <input v-model="form.name" required placeholder="Ex: Claude produção" />
+      </div>
 
-        <div class="row">
-          <label>
-            Provedor
-            <select v-model="form.provider" @change="onProviderChange">
-              <option value="openai">OpenAI</option>
-              <option value="claude">Claude (Anthropic)</option>
-              <option value="gemini">Gemini (Google)</option>
-              <option value="deepseek">DeepSeek</option>
-            </select>
-          </label>
-          <label>
-            Modo
-            <select v-model="form.mode" :disabled="form.provider !== 'claude'">
-              <option value="api">API (chave)</option>
-              <option value="account">Conta (login)</option>
-            </select>
-          </label>
+      <div class="field-row">
+        <div class="field">
+          <label>Provedor</label>
+          <select v-model="form.provider" @change="onProviderChange">
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Gemini (Google)</option>
+            <option value="deepseek">DeepSeek</option>
+          </select>
         </div>
-        <p v-if="form.provider !== 'claude'" class="hint">
-          O modo "Conta" só está disponível para o Claude.
-        </p>
-
-        <label v-if="form.mode === 'api'">
-          Chave de API
-          <input
-            v-model="form.api_key"
-            type="password"
-            :placeholder="initial?.has_api_key ? '•••••• (deixe vazio para manter)' : 'Cole a chave de API'"
-          />
-        </label>
-
-        <label>
-          Modelo <span class="opt">(opcional)</span>
-          <input v-model="form.model" :placeholder="modelPlaceholder" />
-        </label>
-        <label>
-          Base URL <span class="opt">(opcional)</span>
-          <input v-model="form.base_url" :placeholder="baseURLPlaceholder" />
-        </label>
-
-        <div class="row">
-          <label>
-            Preço / M tokens (entrada)
-            <input v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
-          </label>
-          <label>
-            Preço / M tokens (saída)
-            <input v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
-          </label>
+        <div class="field">
+          <label>Modo</label>
+          <select v-model="form.mode" :disabled="form.provider !== 'claude'">
+            <option value="api">API (chave)</option>
+            <option value="account">Conta (login)</option>
+          </select>
         </div>
-        <div class="row">
-          <label>
-            Máximo de tokens (saída) <span class="opt">(0 = padrão)</span>
-            <input v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
-          </label>
-          <label>
-            Timeout (segundos)
-            <input v-model.number="form.timeout_seconds" type="number" min="1" />
-          </label>
-        </div>
-        <p class="hint">0 usa o padrão do provedor (Claude usa 4096; OpenAI/Gemini/DeepSeek usam o default deles).</p>
+      </div>
 
-        <!-- OAuth connect (account mode, existing config only) -->
-        <div v-if="form.mode === 'account'" class="oauth-box">
-          <div v-if="!initial" class="hint">
-            Salve a configuração primeiro para conectar a conta Claude.
+      <p v-if="form.provider !== 'claude'" class="hint">O modo "Conta" só está disponível para o Claude.</p>
+
+      <div v-if="form.mode === 'api'" class="field">
+        <label>Chave de API</label>
+        <input
+          v-model="form.api_key"
+          type="password"
+          :placeholder="initial?.has_api_key ? '•••••• (deixe vazio para manter)' : 'Cole a chave de API'"
+        />
+      </div>
+
+      <div class="field">
+        <label>Modelo <span class="opt">(opcional)</span></label>
+        <input v-model="form.model" :placeholder="modelPlaceholder" />
+      </div>
+
+      <div class="field">
+        <label>Base URL <span class="opt">(opcional)</span></label>
+        <input v-model="form.base_url" :placeholder="baseURLPlaceholder" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Preço / M tokens (entrada)</label>
+          <input v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
+        </div>
+        <div class="field">
+          <label>Preço / M tokens (saída)</label>
+          <input v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Máx tokens saída <span class="opt">(0 = padrão)</span></label>
+          <input v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Timeout (seg)</label>
+          <input v-model.number="form.timeout_seconds" type="number" min="1" />
+        </div>
+      </div>
+
+      <p class="hint">0 usa o padrão do provedor (Claude: 4096).</p>
+
+      <div v-if="form.mode === 'account'" class="oauth-box">
+        <div v-if="!initial" class="hint">Salve a configuração primeiro para conectar a conta Claude.</div>
+        <template v-else>
+          <div class="oauth-status">
+            <span :class="['dot', connected ? 'ok' : 'off']" />
+            {{ connected ? `Conta conectada${expiresLabel}` : 'Conta não conectada' }}
           </div>
-          <template v-else>
-            <div class="oauth-status">
-              <span :class="['dot', connected ? 'ok' : 'off']" />
-              {{ connected ? `Conta conectada${expiresLabel}` : 'Conta não conectada' }}
-            </div>
-            <p v-if="oauthError" class="error">{{ oauthError }}</p>
-            <button type="button" class="oauth-btn" :disabled="oauthBusy" @click="startConnect">
-              <span v-if="oauthBusy" class="spinner" />
-              {{ connected ? 'Reconectar conta Claude' : 'Conectar conta Claude' }}
-            </button>
-            <div v-if="awaitingCode" class="code-step">
-              <p class="hint">
-                Autorize na aba aberta e cole o código retornado abaixo.
-              </p>
-              <input v-model="pastedCode" placeholder="Cole o código de autorização" />
-              <button type="button" class="oauth-btn" :disabled="oauthBusy || !pastedCode" @click="finishConnect">
-                Concluir conexão
-              </button>
-            </div>
-          </template>
-        </div>
-
-        <div class="actions">
-          <button type="button" @click="$emit('close')">Cancelar</button>
-          <button type="submit" :disabled="saving">
-            <span v-if="saving" class="spinner" />
-            {{ saving ? 'Salvando…' : 'Salvar' }}
+          <p v-if="oauthError" class="error oauth-error">{{ oauthError }}</p>
+          <button type="button" class="btn" :disabled="oauthBusy" @click="startConnect">
+            <span v-if="oauthBusy" class="spinner" />
+            {{ connected ? 'Reconectar conta Claude' : 'Conectar conta Claude' }}
           </button>
-        </div>
-      </form>
-    </div>
-  </div>
+          <div v-if="awaitingCode" class="code-step">
+            <p class="hint">Autorize na aba aberta e cole o código retornado abaixo.</p>
+            <input v-model="pastedCode" placeholder="Cole o código de autorização" class="code-input" />
+            <button type="button" class="btn primary" :disabled="oauthBusy || !pastedCode" @click="finishConnect">
+              Concluir conexão
+            </button>
+          </div>
+        </template>
+      </div>
+    </form>
+    <template #footer>
+      <button class="btn" type="button" @click="$emit('close')">Cancelar</button>
+      <button class="btn primary" type="submit" :disabled="saving" @click="submit">
+        <span v-if="saving" class="spinner" />
+        {{ saving ? 'Salvando…' : 'Salvar' }}
+      </button>
+    </template>
+  </Modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import Modal from '@/components/Modal.vue'
 import {
   startClaudeOAuth, exchangeClaudeOAuth,
   type AIConfig, type AIConfigInput, type AIProvider,
@@ -140,7 +134,6 @@ const form = ref<AIConfigInput>({
   timeout_seconds: props.initial?.timeout_seconds ?? 120,
 })
 
-// ── OAuth connect state ──────────────────────────────────────────────────────
 const connected = ref(props.initial?.account_connected ?? false)
 const oauthBusy = ref(false)
 const oauthError = ref('')
@@ -233,60 +226,121 @@ defineExpose({
 </script>
 
 <style scoped>
-.overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100; padding: 1rem;
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.modal {
-  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-  padding: 1.5rem; width: 100%; max-width: 520px;
-  max-height: 90vh; overflow-y: auto;
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-h3 { font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 1rem; }
-form { display: flex; flex-direction: column; gap: .75rem; }
-.row { display: flex; gap: .75rem; }
-.row label { flex: 1; }
-label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; color: #94a3b8; }
-.opt { color: #64748b; font-weight: 400; }
-input, select {
-  padding: .5rem .75rem; background: #0f172a; border: 1px solid #475569;
-  border-radius: 6px; color: #e2e8f0; font-size: .875rem;
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
-input:focus, select:focus { outline: none; border-color: #6366f1; }
-select:disabled { opacity: .6; cursor: not-allowed; }
-.hint { font-size: .75rem; color: #64748b; }
+
+.field label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.field input,
+.field select {
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.1s;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field input::placeholder {
+  color: var(--muted-2);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.opt {
+  color: var(--muted-2);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 0;
+}
+
 .oauth-box {
-  border: 1px solid #334155; border-radius: 8px; padding: .75rem;
-  display: flex; flex-direction: column; gap: .5rem; background: #0f172a;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-2);
 }
-.oauth-status { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #cbd5e1; }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot.ok { background: #22c55e; }
-.dot.off { background: #64748b; }
-.oauth-btn {
-  padding: .45rem .8rem; border-radius: 6px; cursor: pointer; font-size: .8rem;
-  border: 1px solid #6366f1; background: #312e81; color: #c7d2fe;
-  display: flex; align-items: center; gap: .4rem; align-self: flex-start;
+
+.oauth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
 }
-.oauth-btn:disabled { opacity: .6; cursor: not-allowed; }
-.code-step { display: flex; flex-direction: column; gap: .5rem; }
-.actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: .5rem; }
-.actions button {
-  display: flex; align-items: center; gap: .4rem;
-  padding: .5rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: .875rem;
-  border: 1px solid #334155; background: #334155; color: #e2e8f0;
-}
-.actions button[type="submit"] { background: #6366f1; border-color: #6366f1; color: white; }
-.actions button:disabled { opacity: .6; cursor: not-allowed; }
-.spinner {
-  width: 12px; height: 12px;
-  border: 2px solid rgba(255,255,255,.3);
-  border-top-color: white;
+
+.dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  animation: spin .6s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-.error { color: #f87171; font-size: .8rem; margin-bottom: .25rem; }
+
+.dot.ok { background: var(--ok); }
+.dot.off { background: var(--muted); }
+
+.oauth-error {
+  margin: 0;
+}
+
+.code-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-input {
+  width: 100%;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12.5px;
+  padding: 10px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+}
 </style>

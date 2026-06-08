@@ -154,19 +154,14 @@
     />
 
     <!-- Delete confirm -->
-    <div v-if="deleteTarget" class="overlay" @click.self="deleteTarget = null">
-      <div class="confirm-modal">
-        <p>Excluir prompt <strong>{{ deleteTarget.name }}</strong>?</p>
-        <p class="warn">Atribuições vinculadas serão removidas.</p>
-        <div class="confirm-actions">
-          <button @click="deleteTarget = null">Cancelar</button>
-          <button class="danger" :disabled="deleting" @click="doDelete">
-            <span v-if="deleting" class="spinner" />
-            {{ deleting ? 'Excluindo…' : 'Excluir' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      v-if="deleteTarget"
+      :name="deleteTarget.name"
+      warning="Atribuições vinculadas serão removidas."
+      :loading="deleting"
+      @close="deleteTarget = null"
+      @confirm="doDelete"
+    />
   </div>
 </template>
 
@@ -174,6 +169,7 @@
 import { ref, onMounted } from 'vue'
 import PromptForm from '@/components/PromptForm.vue'
 import PromptAssignmentForm from '@/components/PromptAssignmentForm.vue'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useToastStore } from '@/stores/toast'
 import {
   listPrompts, createPrompt, updatePrompt, deletePrompt,
