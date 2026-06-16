@@ -14,6 +14,13 @@ const aiConfigColumns = `id, name, provider, mode, base_url, model,
 	api_key_enc, oauth_access_enc, oauth_refresh_enc, oauth_expires_at,
 	price_in, price_out, timeout_seconds, max_tokens, created_at, updated_at`
 
+// aiConfigColumnsAliased is the same list with the "c." table alias, for the
+// ResolveConfig JOINs where ai_config_assignments also has an "id" column
+// (an unqualified "id" there is ambiguous and fails at runtime).
+const aiConfigColumnsAliased = `c.id, c.name, c.provider, c.mode, c.base_url, c.model,
+	c.api_key_enc, c.oauth_access_enc, c.oauth_refresh_enc, c.oauth_expires_at,
+	c.price_in, c.price_out, c.timeout_seconds, c.max_tokens, c.created_at, c.updated_at`
+
 func (r *SQLiteRepository) ListConfigs() ([]domain.AIConfig, error) {
 	rows, err := r.db.Query(`SELECT ` + aiConfigColumns + ` FROM ai_configs ORDER BY name`)
 	if err != nil {
@@ -169,13 +176,13 @@ func (r *SQLiteRepository) ResolveConfig(clientName, projectRef string) (*domain
 		sql  string
 		args []any
 	}{
-		{`SELECT ` + aiConfigColumns + ` FROM ai_configs c
+		{`SELECT ` + aiConfigColumnsAliased + ` FROM ai_configs c
 			JOIN ai_config_assignments a ON a.config_id = c.id
 			WHERE a.scope='project' AND a.client_name=? AND a.project_ref=?`, []any{clientName, projectRef}},
-		{`SELECT ` + aiConfigColumns + ` FROM ai_configs c
+		{`SELECT ` + aiConfigColumnsAliased + ` FROM ai_configs c
 			JOIN ai_config_assignments a ON a.config_id = c.id
 			WHERE a.scope='client' AND a.client_name=? AND a.project_ref=''`, []any{clientName}},
-		{`SELECT ` + aiConfigColumns + ` FROM ai_configs c
+		{`SELECT ` + aiConfigColumnsAliased + ` FROM ai_configs c
 			JOIN ai_config_assignments a ON a.config_id = c.id
 			WHERE a.scope='global'`, nil},
 	}
