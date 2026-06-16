@@ -10,6 +10,17 @@ A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo
 
 Credenciais são cifradas em repouso (AES-256-GCM). Se nenhuma `AIConfig` for resolvida, o serviço cai no **fallback configurado por env** (`gemini` ou `chat_completions`), preservando o comportamento legado.
 
+## Modos de revisão (perfis)
+
+A revisão é composta por **camadas combináveis**, definidas por um `ReviewProfile` resolvido por escopo (global → client → projeto, igual a prompts/AIConfig). Sem perfil resolvido, o default é `diff`-only (comportamento legado):
+
+- **base `diff`** (sempre): título/descrição/diff.
+- **`related`** (flag `include_related`): puxa issues vinculadas (incl. `closes_issues`), MRs relacionados e a thread de discussão, e pede checagem de compatibilidade com as issues. Capacidade opcional da plataforma via `domain.RelatedContextProvider` (só GitLab por ora).
+- **`agentic`** (flag `agentic`): clona a working tree da branch no `DiffHeadSHA` e roda um loop de tool-use (read_file/list_dir/grep) onde a IA navega o repo. Funciona com Claude/OpenAI/DeepSeek/Gemini. Repositório obtido via `domain.RepoLocator` (GitLab) + `gitfetch.GitWorkspaceFetcher`: prefere o bare local `@hashed` (via `file://`) quando `GITLAB_REPOS_PATH` está setado (same-machine), senão clona pela rede via token. Falhas degradam graciosamente para o single-shot.
+- **`execution`** (flag `execution`): adiciona a tool `run` ao loop, executando comandos (testes/build/lint) num sandbox Docker isolado (`--network=none`, `--read-only`, `-v <ws>:/src:ro`, sem env/segredos). Habilitada só quando `SANDBOX_IMAGE` está setado. Implementação em `internal/infrastructure/sandbox`.
+
+O perfil pode ser sobrescrito por MR via comentário `/review <preset>`: `diff` | `related` | `deep` (agêntico) | `full` (related+agêntico). Spec e planos em `docs/superpowers/`.
+
 ## Comandos essenciais
 
 ```bash
@@ -133,14 +144,21 @@ go run ./cmd/server
 | `GET/PUT/DELETE` | `/api/v1/ai-configs/assignments` | Atribuições de config por escopo |
 | `POST` | `/api/v1/ai-configs/oauth/claude/start` | Inicia o OAuth (gera authorize_url + state) |
 | `POST` | `/api/v1/ai-configs/oauth/claude/exchange` | Troca o código por tokens e persiste |
+| `GET/POST` | `/api/v1/review-profiles` | Lista / cria perfil de revisão |
+| `GET/PUT/DELETE` | `/api/v1/review-profiles/{id}` | Lê / atualiza / remove perfil |
+| `GET/PUT/DELETE` | `/api/v1/review-profiles/assignments` | Atribuições de perfil por escopo |
 
-Todas as rotas de `prompts`, `clients` e `ai-configs` exigem JWT + `requireRole(super, gestor)`; `users` exige `super`.
+Todas as rotas de `prompts`, `clients`, `ai-configs` e `review-profiles` exigem JWT + `requireRole(super, gestor)`; `users` exige `super`.
 
 ## Variáveis de ambiente obrigatórias
 
 `AI_PROVIDER` define o **fallback** de IA (`gemini` ou `chat_completions`), usado quando nenhuma `AIConfig` for resolvida no banco. Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
 
 `AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend. É obrigatória apenas quando existem configs persistidas com segredo — sem ela, o boot falha rápido ao tentar lê-las. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
+
+A revisão agêntica (perfil com `agentic`) usa variáveis opcionais com defaults: `WORKSPACE_DIR` (raiz dos checkouts efêmeros, default `./data/workspaces`), `AGENTIC_CLONE_DEPTH` (profundidade do clone, default `1`; 0 = clone completo), `AGENTIC_TIMEOUT_SECONDS` (timeout das operações git, default `120`) e `GITLAB_REPOS_PATH` (raiz do `@hashed` para clone local same-machine; vazio = só remoto). O `WORKSPACE_DIR` fica sob `data/` (já no `.gitignore`).
+
+A camada `execution` usa `SANDBOX_IMAGE` (imagem Docker; vazio = desabilitado), `SANDBOX_CPUS` (default `2`), `SANDBOX_MEMORY` (default `2g`) e `SANDBOX_TIMEOUT_SECONDS` (default `120`).
 
 ## Testes
 
