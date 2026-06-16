@@ -71,6 +71,40 @@ var irrelevantPatterns = []string{
 	"_generated",
 }
 
+// renderRelatedContext formats the related layer (issues, linked MRs, discussion)
+// into a Markdown block, including an explicit compatibility question for issues.
+func renderRelatedContext(rc *domain.RelatedContext) string {
+	if rc.IsEmpty() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Contexto relacionado\n")
+
+	if len(rc.Issues) > 0 {
+		b.WriteString("\n### Issues vinculadas\n")
+		for _, is := range rc.Issues {
+			fmt.Fprintf(&b, "\n**#%d — %s** (%s)\n%s\n", is.IID, is.Title, is.State, is.Description)
+		}
+		b.WriteString("\nAo revisar, verifique a **compatibilidade**: o MR cumpre o que cada issue acima pede? Aponte divergências explicitamente.\n")
+	}
+
+	if len(rc.LinkedMRs) > 0 {
+		b.WriteString("\n### MRs relacionados\n")
+		for _, m := range rc.LinkedMRs {
+			fmt.Fprintf(&b, "- !%d — %s (%s) %s\n", m.IID, m.Title, m.State, m.WebURL)
+		}
+	}
+
+	if len(rc.Discussions) > 0 {
+		b.WriteString("\n### Discussão do MR\n")
+		for _, d := range rc.Discussions {
+			fmt.Fprintf(&b, "- **%s:** %s\n", d.Author, d.Body)
+		}
+	}
+
+	return b.String()
+}
+
 func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 	mr := input.MergeRequest
 	diff := filterDiff(input.Diff)
@@ -78,6 +112,11 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 		diff = diff[:maxDiffBytes] + "\n\n[diff truncado por exceder o limite de tamanho]"
 	}
 	diff = annotateDiffLineNumbers(diff)
+
+	related := ""
+	if input.Related != nil {
+		related = renderRelatedContext(input.Related)
+	}
 
 	outputFmt := defaultOutputFormat
 	if outputTemplate != "" {
@@ -94,6 +133,7 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 
 ## Diff
 
+%s
 %s
 
 ---
@@ -130,6 +170,7 @@ Template do campo "review_markdown":
 		mr.WebURL,
 		mr.Description,
 		diff,
+		related,
 		maxInlineComments,
 		outputFmt,
 	)

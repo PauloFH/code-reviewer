@@ -77,7 +77,7 @@ func TestResolvingReviewer_FallsBackToEnvClient(t *testing.T) {
 
 	repo := &mockConfigRepo{resolve: nil} // nothing assigned
 	envClient := New("chat_completions", server.URL, "env-token", "gpt-4o", time.Second, nil)
-	r := NewResolvingReviewer(repo, nil, &stubRefresher{}, envClient, 7.0, 9.0, discardLogger())
+	r := NewResolvingReviewer(repo, nil, &stubRefresher{}, envClient, 7.0, 9.0, nil, discardLogger())
 
 	result, err := r.ReviewDiff(sampleInput())
 	if err != nil {
@@ -111,7 +111,7 @@ func TestResolvingReviewer_UsesResolvedGeminiConfig(t *testing.T) {
 		PricePerMOutputTokens: 2.5,
 		TimeoutSeconds:        5,
 	}}
-	r := NewResolvingReviewer(repo, nil, &stubRefresher{}, nil, 0, 0, discardLogger())
+	r := NewResolvingReviewer(repo, nil, &stubRefresher{}, nil, 0, 0, nil, discardLogger())
 
 	result, err := r.ReviewDiff(sampleInput())
 	if err != nil {
@@ -154,7 +154,7 @@ func TestResolvingReviewer_RefreshesExpiredAccountToken(t *testing.T) {
 		RefreshToken: "new-refresh",
 		ExpiresAt:    time.Now().Add(time.Hour),
 	}}
-	r := NewResolvingReviewer(repo, nil, refresher, nil, 0, 0, discardLogger())
+	r := NewResolvingReviewer(repo, nil, refresher, nil, 0, 0, nil, discardLogger())
 
 	result, err := r.ReviewDiff(sampleInput())
 	if err != nil {

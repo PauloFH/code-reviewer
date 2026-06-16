@@ -10,6 +10,7 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
+
 // transportKind identifies the wire protocol used to talk to a provider.
 const (
 	providerGemini          = "gemini"
@@ -37,6 +38,7 @@ type Client struct {
 	maxTokens     int
 	http          *http.Client
 	promptRepo    domain.PromptRepository
+	sandbox       Sandbox
 }
 
 // New builds a Client from the legacy env-based configuration. provider is
@@ -80,11 +82,55 @@ func (c *Client) ReviewDiff(input domain.ReviewInput) (*domain.ReviewResult, err
 	sysPrompt, outputTpl := c.resolvePrompt(input)
 	userPrompt := buildPrompt(input, outputTpl)
 
+	if input.Workspace != nil && input.Profile != nil && input.Profile.Agentic {
+		if result, err, ok := c.tryAgentic(input, sysPrompt, userPrompt); ok {
+			return result, err
+		}
+		// no agentic driver for this provider → fall back to single-shot
+	}
+
 	t, err := c.transport()
 	if err != nil {
 		return nil, err
 	}
 	return t.review(sysPrompt, userPrompt)
+}
+
+// tryAgentic runs the agentic loop when a driver exists for the provider.
+// The third return value is false when this provider has no agentic driver
+// (caller should fall back to single-shot). When true, (result, err) is the
+// real outcome of the agentic run.
+func (c *Client) tryAgentic(input domain.ReviewInput, sysPrompt, userPrompt string) (*domain.ReviewResult, error, bool) {
+	execution := input.Profile != nil && input.Profile.Execution && c.sandbox != nil
+	driver, err := c.agenticDriver(sysPrompt, userPrompt, toolSpecsFor(execution))
+	if err != nil {
+		return nil, nil, false
+	}
+	var sb Sandbox
+	if execution {
+		sb = c.sandbox
+	}
+	maxIter := 0
+	if input.Profile != nil {
+		maxIter = input.Profile.MaxIterations
+	}
+	result, runErr := runAgenticLoop(driver, newToolExecutor(input.Workspace, sb), maxIter)
+	return result, runErr, true
+}
+
+// agenticDriver builds the provider-specific tool-use driver. Returns an error
+// for providers that don't yet support agentic review.
+func (c *Client) agenticDriver(sysPrompt, userPrompt string, tools []toolSpec) (agenticDriver, error) {
+	switch c.transportKind {
+	case providerAnthropic:
+		return newAnthropicAgenticDriver(c, sysPrompt, userPrompt, tools), nil
+	case providerChatCompletions:
+		return newChatCompletionsAgenticDriver(c, sysPrompt, userPrompt, tools), nil
+	case providerGemini:
+		return newGeminiAgenticDriver(c, sysPrompt, userPrompt, tools), nil
+	default:
+		return nil, fmt.Errorf("ai: agentic mode not supported for provider %q", c.transportKind)
+	}
 }
 
 // resolvePrompt returns the system prompt and output template for the review,

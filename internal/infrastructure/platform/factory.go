@@ -13,12 +13,12 @@ import (
 
 // Build creates a domain.PlatformClient from a ClientConfig entry.
 // Adding support for a new platform requires only a new case here.
-func Build(cfg config.ClientConfig, timeout time.Duration) (domain.PlatformClient, error) {
+func Build(cfg config.ClientConfig, timeout time.Duration, reposPath string) (domain.PlatformClient, error) {
 	switch cfg.Platform {
 	case "gitlab":
-		return gitlab.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
+		return gitlab.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout, reposPath), nil
 	case "gitlab-selfhosted":
-		return gitlab.NewSelfHosted(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
+		return gitlab.NewSelfHosted(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout, reposPath), nil
 	case "github":
 		return github.New(cfg.Name, cfg.BaseURL, cfg.Token, cfg.WebhookSecret, cfg.Username, timeout), nil
 	case "gitea":
@@ -31,10 +31,10 @@ func Build(cfg config.ClientConfig, timeout time.Duration) (domain.PlatformClien
 }
 
 // BuildAll constructs and registers all clients defined in configs.
-func BuildAll(configs []config.ClientConfig, timeout time.Duration) (*Registry, error) {
+func BuildAll(configs []config.ClientConfig, timeout time.Duration, reposPath string) (*Registry, error) {
 	reg := NewRegistry()
 	for _, cfg := range configs {
-		client, err := Build(cfg, timeout)
+		client, err := Build(cfg, timeout, reposPath)
 		if err != nil {
 			return nil, err
 		}
@@ -44,9 +44,11 @@ func BuildAll(configs []config.ClientConfig, timeout time.Duration) (*Registry, 
 }
 
 // Factory implements usecase.ClientFactory using the platform-specific builders.
-type Factory struct{}
+type Factory struct {
+	reposPath string
+}
 
-func NewFactory() *Factory { return &Factory{} }
+func NewFactory(reposPath string) *Factory { return &Factory{reposPath: reposPath} }
 
 // BuildFromDomain creates a domain.PlatformClient from a domain.Client entity.
 func (f *Factory) BuildFromDomain(c domain.Client, timeout time.Duration) (domain.PlatformClient, error) {
@@ -58,5 +60,5 @@ func (f *Factory) BuildFromDomain(c domain.Client, timeout time.Duration) (domai
 		WebhookSecret: c.WebhookSecret,
 		Username:      c.Username,
 	}
-	return Build(cfg, timeout)
+	return Build(cfg, timeout, f.reposPath)
 }

@@ -107,12 +107,37 @@ func (m *mockUserRepoUC) CountUsers() (int, error)                              
 func (m *mockUserRepoUC) UserExists(_ string) (bool, error)                       { return false, nil }
 
 type mockAI struct {
-	result *domain.ReviewResult
-	err    error
+	result    *domain.ReviewResult
+	err       error
+	lastInput domain.ReviewInput
 }
 
-func (m *mockAI) ReviewDiff(_ domain.ReviewInput) (*domain.ReviewResult, error) {
+func (m *mockAI) ReviewDiff(in domain.ReviewInput) (*domain.ReviewResult, error) {
+	m.lastInput = in
 	return m.result, m.err
+}
+
+type mockProfileRepo struct {
+	resolved *domain.ReviewProfile
+	err      error
+}
+
+func (m *mockProfileRepo) ListProfiles() ([]domain.ReviewProfile, error)          { return nil, nil }
+func (m *mockProfileRepo) GetProfile(_ int64) (*domain.ReviewProfile, error)       { return nil, nil }
+func (m *mockProfileRepo) CreateProfile(p domain.ReviewProfile) (*domain.ReviewProfile, error) {
+	return &p, nil
+}
+func (m *mockProfileRepo) UpdateProfile(_ int64, p domain.ReviewProfile) (*domain.ReviewProfile, error) {
+	return &p, nil
+}
+func (m *mockProfileRepo) DeleteProfile(_ int64) error                                { return nil }
+func (m *mockProfileRepo) SetProfileAssignment(_ domain.ReviewProfileAssignment) error { return nil }
+func (m *mockProfileRepo) RemoveProfileAssignment(_, _, _ string) error               { return nil }
+func (m *mockProfileRepo) ListProfileAssignments() ([]domain.ReviewProfileAssignment, error) {
+	return nil, nil
+}
+func (m *mockProfileRepo) ResolveProfile(_, _ string) (*domain.ReviewProfile, error) {
+	return m.resolved, m.err
 }
 
 // ---------- helpers ----------
@@ -143,11 +168,45 @@ func baseEvent() *domain.WebhookEvent {
 }
 
 func newUsecase(client *mockClient, repo *mockRepository, ai *mockAI) *ProcessMergeRequest {
+	return newUsecaseWithProfiles(client, repo, ai, &mockProfileRepo{})
+}
+
+// stubWorkspace is a no-op CodeWorkspace for wiring tests.
+type stubWorkspace struct{}
+
+func (stubWorkspace) ReadFile(string) ([]byte, error)              { return nil, nil }
+func (stubWorkspace) ListDir(string) ([]domain.DirEntry, error)   { return nil, nil }
+func (stubWorkspace) Grep(string, string) ([]domain.GrepHit, error) { return nil, nil }
+func (stubWorkspace) Root() string                                 { return "/stub" }
+
+type mockRepoFetcher struct {
+	ws      domain.CodeWorkspace
+	err     error
+	cleaned bool
+}
+
+func (m *mockRepoFetcher) Checkout(_ domain.RepoSource, _ string) (domain.CodeWorkspace, func(), error) {
+	if m.err != nil {
+		return nil, nil, m.err
+	}
+	return m.ws, func() { m.cleaned = true }, nil
+}
+
+// mockAgenticClient implements PlatformClient + domain.RepoLocator.
+type mockAgenticClient struct {
+	mockClient
+}
+
+func (m *mockAgenticClient) RepoSource(_ string) (domain.RepoSource, error) {
+	return domain.RepoSource{RemoteURL: "https://oauth2:t@h/x.git"}, nil
+}
+
+func newUsecaseWithProfiles(client *mockClient, repo *mockRepository, ai *mockAI, profiles domain.ReviewProfileRepository) *ProcessMergeRequest {
 	reg := &mockRegistry{}
 	if client != nil {
 		reg.client = client
 	}
-	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, ai, nil, 3.0, 15.0, discardLogger())
+	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, profiles, nil, ai, nil, 3.0, 15.0, discardLogger())
 }
 
 // ---------- tests ----------
@@ -366,9 +425,138 @@ func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
 func TestExecute_UnknownClient_ReturnsError(t *testing.T) {
 	// Registry is empty — client lookup will fail.
 	reg := &mockRegistry{}
-	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockAI{}, nil, 3.0, 15.0, discardLogger())
+	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockProfileRepo{}, nil, &mockAI{}, nil, 3.0, 15.0, discardLogger())
 
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error for unknown client name")
+	}
+}
+
+func TestExecute_ResolvedProfilePassedToReviewer(t *testing.T) {
+	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
+	repo := &mockRepository{}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "related", IncludeRelated: true}}
+	uc := newUsecaseWithProfiles(client, repo, ai, profiles)
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Profile == nil || !ai.lastInput.Profile.IncludeRelated {
+		t.Fatalf("expected resolved related profile passed to reviewer, got %+v", ai.lastInput.Profile)
+	}
+}
+
+func TestExecute_DefaultProfileWhenNoneResolved(t *testing.T) {
+	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, &mockProfileRepo{resolved: nil})
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Profile == nil || ai.lastInput.Profile.IncludeRelated || ai.lastInput.Profile.Agentic {
+		t.Fatalf("expected diff-only default profile, got %+v", ai.lastInput.Profile)
+	}
+}
+
+func TestExecute_RelatedCollectedWhenProfileIncludesRelated(t *testing.T) {
+	mr := happyMR("alice")
+	mr.Description = "Closes #7"
+	client := &mockRelatedClient{
+		mockClient:  mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"},
+		closes:      []domain.Issue{{IID: 7, Title: "Bug"}},
+		issuesByIID: map[int64]*domain.Issue{7: {IID: 7, Title: "Bug"}},
+	}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "related", IncludeRelated: true}}
+	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, profiles)
+	// the registry must return the related-capable client:
+	uc.registry = &mockRegistry{client: client}
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Related == nil || len(ai.lastInput.Related.Issues) != 1 {
+		t.Fatalf("expected related context with 1 issue, got %+v", ai.lastInput.Related)
+	}
+}
+
+func TestExecute_NoRelatedWhenProfileDiffOnly(t *testing.T) {
+	mr := happyMR("alice")
+	mr.Description = "Closes #7"
+	client := &mockRelatedClient{
+		mockClient: mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"},
+		closes:     []domain.Issue{{IID: 7, Title: "Bug"}},
+	}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, &mockProfileRepo{resolved: nil})
+	uc.registry = &mockRegistry{client: client}
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Related != nil {
+		t.Fatalf("expected no related context for diff-only profile, got %+v", ai.lastInput.Related)
+	}
+}
+
+func TestExecute_AgenticCheckoutSetsWorkspace(t *testing.T) {
+	mr := happyMR("alice")
+	client := &mockAgenticClient{mockClient: mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"}}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "deep", Agentic: true}}
+	fetcher := &mockRepoFetcher{ws: stubWorkspace{}}
+
+	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, profiles)
+	uc.registry = &mockRegistry{client: client}
+	uc.repoFetcher = fetcher
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Workspace == nil {
+		t.Fatal("expected workspace set for agentic profile")
+	}
+	if !fetcher.cleaned {
+		t.Error("expected cleanup to be called after Execute")
+	}
+}
+
+func TestExecute_AgenticNoLocatorFallsBack(t *testing.T) {
+	// plain mockClient does NOT implement RepoLocator → no workspace, no error
+	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "deep", Agentic: true}}
+
+	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, profiles)
+	uc.repoFetcher = &mockRepoFetcher{ws: stubWorkspace{}}
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Workspace != nil {
+		t.Fatal("expected no workspace when client lacks RepoLocator")
+	}
+}
+
+func TestExecute_CommandPresetOverridesScope(t *testing.T) {
+	// MR author issues "/review full" — authorized because they are the author.
+	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
+	client.mr.AuthorUsername = "carol"
+	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
+	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "diff"}}
+	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, profiles)
+
+	ev := baseEvent()
+	ev.IsReanalyze = true
+	ev.CommentAuthor = "carol"
+	ev.RequestedProfile = "full"
+
+	if err := uc.Execute(ev); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ai.lastInput.Profile == nil || !ai.lastInput.Profile.IncludeRelated || !ai.lastInput.Profile.Agentic {
+		t.Fatalf("expected /review full to override to related+agentic, got %+v", ai.lastInput.Profile)
 	}
 }

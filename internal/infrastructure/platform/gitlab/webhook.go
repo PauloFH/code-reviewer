@@ -92,8 +92,13 @@ func (c *Client) parseNoteWebhook(w domain.RawWebhook) (*domain.WebhookEvent, er
 	}
 
 	note := strings.TrimSpace(payload.ObjectAttributes.Note)
-	if note != "/review" {
+	fields := strings.Fields(note)
+	if len(fields) == 0 || fields[0] != "/review" {
 		return nil, fmt.Errorf("gitlab: note is not /review command, ignoring")
+	}
+	requestedProfile := ""
+	if len(fields) > 1 {
+		requestedProfile = strings.ToLower(fields[1])
 	}
 
 	projectRef := payload.Project.PathWithNamespace
@@ -102,12 +107,13 @@ func (c *Client) parseNoteWebhook(w domain.RawWebhook) (*domain.WebhookEvent, er
 	}
 
 	return &domain.WebhookEvent{
-		ClientName:    c.name,
-		ProjectRef:    projectRef,
-		MRIID:         payload.MergeRequest.IID,
-		MRID:          payload.MergeRequest.ID,
-		Action:        "note",
-		IsReanalyze:   true,
-		CommentAuthor: payload.User.Username,
+		ClientName:       c.name,
+		ProjectRef:       projectRef,
+		MRIID:            payload.MergeRequest.IID,
+		MRID:             payload.MergeRequest.ID,
+		Action:           "note",
+		IsReanalyze:      true,
+		CommentAuthor:    payload.User.Username,
+		RequestedProfile: requestedProfile,
 	}, nil
 }

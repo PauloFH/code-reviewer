@@ -3,6 +3,8 @@ package ai
 import (
 	"strings"
 	"testing"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
 var sampleDiff = `--- a/src/main.go
@@ -106,5 +108,33 @@ func TestFilterDiff_TruncatesLargeDiff(t *testing.T) {
 	// filterDiff itself should not truncate — just verify it returns the full content.
 	if len(result) == 0 {
 		t.Error("expected non-empty result for large valid diff")
+	}
+}
+
+func TestBuildPromptIncludesRelatedContext(t *testing.T) {
+	input := domain.ReviewInput{
+		MergeRequest: &domain.MergeRequest{Title: "feat", ProjectRef: "42", Description: "d"},
+		Diff:         "--- a/x.go\n+++ b/x.go\n@@ -1 +1 @@\n+x",
+		Related: &domain.RelatedContext{
+			Issues:      []domain.Issue{{IID: 7, Title: "Bug do login", Description: "usuário não loga"}},
+			LinkedMRs:   []domain.MergeRequestRef{{IID: 34, Title: "Refactor", State: "merged"}},
+			Discussions: []domain.Discussion{{Author: "ana", Body: "revisem o caso X"}},
+		},
+	}
+	out := buildPrompt(input, "")
+	for _, want := range []string{"Contexto relacionado", "#7", "Bug do login", "!34", "ana", "compat"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestBuildPromptWithoutRelatedContextOmitsBlock(t *testing.T) {
+	input := domain.ReviewInput{
+		MergeRequest: &domain.MergeRequest{Title: "feat", ProjectRef: "42"},
+		Diff:         "--- a/x.go\n+++ b/x.go\n@@ -1 +1 @@\n+x",
+	}
+	if strings.Contains(buildPrompt(input, ""), "Contexto relacionado") {
+		t.Error("expected no related block when Related is nil")
 	}
 }
