@@ -7,6 +7,10 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      # The Go module git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go is
+      # private: GOPRIVATE tells Go to skip the public proxy/checksum DB for it.
+      GOPRIVATE: git.pauloholanda.com.br/*
     steps:
       - uses: actions/checkout@v4
 
@@ -17,6 +21,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # Authenticate to the private module host so `go` can fetch the SDK.
+      # Requires a Gitea secret CI_GIT_TOKEN with read access to the SDK repo.
+      - name: Configure private module access
+        run: |
+          git config --global url."https://${{ secrets.CI_GIT_TOKEN }}@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"
 
       # Go lint
       # install-mode goinstall compiles golangci-lint with the project's Go
