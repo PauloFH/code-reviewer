@@ -16,7 +16,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Latest patch of the 1.25 series (go.mod requires >= 1.25.0). Pinning
+          # to '1.25.x' keeps stdlib security fixes current so govulncheck passes.
+          go-version: '1.25.x'
 
       - uses: actions/setup-node@v4
         with:
