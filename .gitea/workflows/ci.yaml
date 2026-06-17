@@ -16,9 +16,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # Latest patch of the 1.25 series (go.mod requires >= 1.25.0). Pinning
-          # to '1.25.x' keeps stdlib security fixes current so govulncheck passes.
+          # Latest patch of the 1.25 series (go.mod requires >= 1.25.0).
+          # check-latest forces fetching the newest 1.25.x instead of reusing an
+          # older cached patch on the runner, keeping stdlib security fixes
+          # current so govulncheck passes.
           go-version: '1.25.x'
+          check-latest: true
 
       - uses: actions/setup-node@v4
         with:
