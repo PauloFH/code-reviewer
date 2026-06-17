@@ -25,8 +25,20 @@ jobs:
       # Authenticate to the private module host so `go` can fetch the SDK.
       # Requires a Gitea secret CI_GIT_TOKEN with read access to the SDK repo.
       - name: Configure private module access
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
         run: |
-          git config --global url."https://${{ secrets.CI_GIT_TOKEN }}@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"
+          if [ -z "$CI_GIT_TOKEN" ]; then
+            echo "::error::secret CI_GIT_TOKEN is empty or not set — create it in the repo's Actions secrets with read access to the SDK repo"
+            exit 1
+          fi
+          git config --global url."https://${CI_GIT_TOKEN}@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"
+
+      # Pre-fetch modules with credentials in place. Populates the module cache
+      # for golangci-lint/test/build and surfaces a clear download/auth error
+      # instead of golangci-lint's cryptic "no export data".
+      - name: Download Go modules
+        run: go mod download
 
       # Go lint
       # install-mode goinstall compiles golangci-lint with the project's Go
