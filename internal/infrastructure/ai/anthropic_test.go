@@ -40,7 +40,7 @@ func TestAnthropicTransport_APIKeyMode(t *testing.T) {
 	if gotPath != "/v1/messages" {
 		t.Fatalf("path = %q, want /v1/messages", gotPath)
 	}
-	if gotAPIKey != "sk-ant-key" {
+	if gotAPIKey != "sk-ant-key" { //nolint:gosec // G101: test fixture, not a real credential
 		t.Fatalf("x-api-key = %q, want sk-ant-key", gotAPIKey)
 	}
 	if gotAuth != "" {

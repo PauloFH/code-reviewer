@@ -12,17 +12,21 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       # Go lint
+      # install-mode goinstall compiles golangci-lint with the project's Go
+      # toolchain (from go.mod), so its targeted-version check matches. The
+      # prebuilt binary is built with an older Go and rejects newer go.mod targets.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.64.8
+          install-mode: goinstall
 
       # Go vulnerability check
       - name: govulncheck

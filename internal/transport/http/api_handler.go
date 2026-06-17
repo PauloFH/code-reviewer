@@ -171,7 +171,7 @@ func redactClients(clients []domain.Client) []domain.Client {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func intQuery(r *http.Request, key string, def int) int {
@@ -217,7 +217,7 @@ func (h *APIHandler) Reanalyze(w http.ResponseWriter, r *http.Request) {
 		IsReanalyze: true,
 	}
 
-	go h.uc.Execute(event)
+	go func() { _ = h.uc.Execute(event) }()
 
 	w.WriteHeader(http.StatusAccepted)
 }

@@ -75,7 +75,7 @@ func runMigrations(db *sql.DB) error {
 
 	for _, m := range pending {
 		var count int
-		db.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE version=?`, m.version).Scan(&count)
+		_ = db.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE version=?`, m.version).Scan(&count)
 		if count > 0 {
 			continue
 		}
@@ -313,11 +313,11 @@ func (r *SQLiteRepository) GetStats(clientName, sinceStr, untilStr string) (*dom
 
 	globalQ := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'%s%s`,
 		sinceClause, untilClause)
-	r.db.QueryRow(globalQ).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD)
+	_ = r.db.QueryRow(globalQ).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD)
 
 	last30Q := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')%s%s`,
 		sinceClause, untilClause)
-	r.db.QueryRow(last30Q).Scan(&stats.ReviewsLast30d, &stats.CostLast30d)
+	_ = r.db.QueryRow(last30Q).Scan(&stats.ReviewsLast30d, &stats.CostLast30d)
 
 	byClientQ := fmt.Sprintf(`SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
 		FROM review_events WHERE status='success'%s%s`, sinceClause, untilClause)
@@ -335,7 +335,7 @@ func (r *SQLiteRepository) GetStats(clientName, sinceStr, untilStr string) (*dom
 	defer rows.Close()
 	for rows.Next() {
 		var cs domain.ClientStat
-		rows.Scan(&cs.ClientName, &cs.ReviewCount, &cs.TotalTokens, &cs.TotalCostUSD)
+		_ = rows.Scan(&cs.ClientName, &cs.ReviewCount, &cs.TotalTokens, &cs.TotalCostUSD)
 		stats.ByClient = append(stats.ByClient, cs)
 	}
 	return stats, rows.Err()
