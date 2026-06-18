@@ -88,6 +88,9 @@ jobs:
     steps:
       - name: Deploy
         run: |
+          # act_runner runs steps in a non-login shell, so the host's profile
+          # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
+          export PATH="/usr/local/go/bin:$PATH"
           cd /opt/code-reviewer
           git pull
           cd web
