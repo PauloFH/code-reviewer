@@ -10,7 +10,6 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-
 // transportKind identifies the wire protocol used to talk to a provider.
 const (
 	providerGemini          = "gemini"
@@ -270,11 +269,10 @@ func sanitizeMarkdown(s string) string {
 
 func parseReviewPayload(content string) (string, []domain.InlineComment) {
 	trimmed := strings.TrimSpace(content)
-	jsonText := stripOuterCodeFence(trimmed)
 
-	var payload reviewPayload
-	if err := json.Unmarshal([]byte(jsonText), &payload); err != nil {
-		// Not the expected JSON envelope — post the raw text, sanitised.
+	payload, ok := decodeReviewPayload(trimmed)
+	if !ok {
+		// Not a recognisable JSON envelope — post the raw text, sanitised.
 		return sanitizeMarkdown(trimmed), nil
 	}
 
@@ -297,6 +295,60 @@ func parseReviewPayload(content string) (string, []domain.InlineComment) {
 	}
 
 	return body, comments
+}
+
+// decodeReviewPayload decodes the review envelope. It first tries the whole
+// (fence-stripped) text, then the outermost {…} object extracted from any
+// surrounding prose or ```json fence — agentic models often prepend a sentence
+// like "Vou montar a revisão:" before the JSON, which would otherwise fail to
+// parse and get posted raw.
+func decodeReviewPayload(trimmed string) (reviewPayload, bool) {
+	candidates := []string{stripOuterCodeFence(trimmed)}
+	if obj, ok := extractJSONObject(trimmed); ok {
+		candidates = append(candidates, obj)
+	}
+	for _, c := range candidates {
+		var p reviewPayload
+		if err := json.Unmarshal([]byte(c), &p); err == nil {
+			return p, true
+		}
+	}
+	return reviewPayload{}, false
+}
+
+// extractJSONObject returns the first complete, balanced {…} object in s,
+// ignoring braces inside JSON string literals. Byte-based scanning is safe
+// because '{', '}', '"' and '\\' never appear in UTF-8 continuation bytes.
+func extractJSONObject(s string) (string, bool) {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return "", false
+	}
+	depth := 0
+	inStr := false
+	escaped := false
+	for i := start; i < len(s); i++ {
+		switch c := s[i]; {
+		case inStr && escaped:
+			escaped = false
+		case inStr && c == '\\':
+			escaped = true
+		case inStr && c == '"':
+			inStr = false
+		case inStr:
+			// other character inside a string literal — ignore
+		case c == '"':
+			inStr = true
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1], true
+			}
+		}
+	}
+	return "", false
 }
 
 // assembleReviewMarkdown renders the structured fields into the final markdown,
