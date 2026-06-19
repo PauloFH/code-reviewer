@@ -7,12 +7,30 @@ import (
 	"strings"
 )
 
+// AgenticConfig tunes the agentic review's repository checkout.
+type AgenticConfig struct {
+	WorkspaceDir    string // root for ephemeral checkouts
+	CloneDepth      int    // shallow clone depth (0 = full clone)
+	TimeoutSeconds  int    // total git operation timeout
+	GitLabReposPath string // root of GitLab @hashed storage for same-machine local clones (empty = disabled)
+}
+
+// SandboxConfig tunes the execution sandbox. Image empty = sandbox disabled.
+type SandboxConfig struct {
+	Image          string
+	CPUs           string
+	Memory         string
+	TimeoutSeconds int
+}
+
 type Config struct {
 	App               AppConfig
 	AI                AIConfig
 	Database          DatabaseConfig
 	Log               LogConfig
 	Dashboard         DashboardConfig
+	Agentic           AgenticConfig
+	Sandbox           SandboxConfig
 	ClientsConfigPath string
 	// AIConfigEncKey is the base64-encoded 32-byte master key used to encrypt
 	// frontend-managed AI credentials at rest. Required only when such configs
@@ -104,6 +122,18 @@ func Load() (*Config, error) {
 			Password:  getEnv("DASHBOARD_PASSWORD", ""),
 			JWTSecret: getEnv("DASHBOARD_JWT_SECRET", ""),
 		},
+		Agentic: AgenticConfig{
+			WorkspaceDir:    getEnv("WORKSPACE_DIR", "./data/workspaces"),
+			CloneDepth:      getEnvInt("AGENTIC_CLONE_DEPTH", 1),
+			TimeoutSeconds:  getEnvInt("AGENTIC_TIMEOUT_SECONDS", 120),
+			GitLabReposPath: getEnv("GITLAB_REPOS_PATH", ""),
+		},
+		Sandbox: SandboxConfig{
+			Image:          getEnv("SANDBOX_IMAGE", ""),
+			CPUs:           getEnv("SANDBOX_CPUS", "2"),
+			Memory:         getEnv("SANDBOX_MEMORY", "2g"),
+			TimeoutSeconds: getEnvInt("SANDBOX_TIMEOUT_SECONDS", 120),
+		},
 		ClientsConfigPath: getEnv("CLIENTS_CONFIG_PATH", "./clients.json"),
 		AIConfigEncKey:    getEnv("AI_CONFIG_ENC_KEY", ""),
 	}
@@ -157,4 +187,14 @@ func requireAnyEnv(keys ...string) string {
 		}
 	}
 	panic(fmt.Sprintf("required environment variable %q is not set", strings.Join(keys, " or ")))
+}
+
+// getEnvInt reads an integer env var, returning fallback when unset or invalid.
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
 }

@@ -77,3 +77,20 @@ type PromptRepository interface {
 	ListAssignments() ([]PromptAssignment, error)
 	ResolvePrompt(clientName, projectRef string) (*Prompt, error)
 }
+
+// ReviewProfileRepository manages the review profile library and scope-based
+// assignments, mirroring AIConfigRepository naming to avoid method collision
+// with PromptRepository on SQLiteRepository.
+type ReviewProfileRepository interface {
+	ListProfiles() ([]ReviewProfile, error)
+	GetProfile(id int64) (*ReviewProfile, error)
+	CreateProfile(p ReviewProfile) (*ReviewProfile, error)
+	UpdateProfile(id int64, p ReviewProfile) (*ReviewProfile, error)
+	DeleteProfile(id int64) error
+	SetProfileAssignment(a ReviewProfileAssignment) error
+	RemoveProfileAssignment(scope, clientName, projectRef string) error
+	ListProfileAssignments() ([]ReviewProfileAssignment, error)
+	// ResolveProfile returns the profile assigned to the most specific scope
+	// (project → client → global). Returns nil when nothing is assigned.
+	ResolveProfile(clientName, projectRef string) (*ReviewProfile, error)
+}

@@ -2,11 +2,15 @@ package gitlab
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,18 +25,19 @@ type Client struct {
 	token        string
 	secret       string
 	username     string
+	reposPath    string
 	http         *http.Client
 }
 
-func New(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
-	return newClient(domain.PlatformGitLab, name, baseURL, token, secret, username, timeout)
+func New(name, baseURL, token, secret, username string, timeout time.Duration, reposPath string) *Client {
+	return newClient(domain.PlatformGitLab, name, baseURL, token, secret, username, timeout, reposPath)
 }
 
-func NewSelfHosted(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
-	return newClient(domain.PlatformGitLabSelfHosted, name, baseURL, token, secret, username, timeout)
+func NewSelfHosted(name, baseURL, token, secret, username string, timeout time.Duration, reposPath string) *Client {
+	return newClient(domain.PlatformGitLabSelfHosted, name, baseURL, token, secret, username, timeout, reposPath)
 }
 
-func newClient(pt domain.PlatformType, name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+func newClient(pt domain.PlatformType, name, baseURL, token, secret, username string, timeout time.Duration, reposPath string) *Client {
 	return &Client{
 		platformType: pt,
 		name:         name,
@@ -40,6 +45,7 @@ func newClient(pt domain.PlatformType, name, baseURL, token, secret, username st
 		token:        token,
 		secret:       secret,
 		username:     username,
+		reposPath:    reposPath,
 		http:         &http.Client{Timeout: timeout},
 	}
 }
@@ -191,6 +197,131 @@ func (c *Client) CreateMergeRequestInlineComment(projectRef string, mr *domain.M
 
 	return nil
 }
+
+// ---------- RelatedContextProvider ----------
+
+func (c *Client) GetIssue(projectRef string, issueIID int64) (*domain.Issue, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%s/issues/%d", c.baseURL, encodeProjectRef(projectRef), issueIID)
+
+	var raw struct {
+		IID         int64  `json:"iid"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		State       string `json:"state"`
+		WebURL      string `json:"web_url"`
+	}
+	if err := c.get(url, &raw); err != nil {
+		return nil, fmt.Errorf("gitlab GetIssue: %w", err)
+	}
+	return &domain.Issue{
+		IID: raw.IID, Title: raw.Title, Description: raw.Description,
+		State: raw.State, WebURL: raw.WebURL,
+	}, nil
+}
+
+func (c *Client) GetClosesIssues(projectRef string, mrIID int64) ([]domain.Issue, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/closes_issues", c.baseURL, encodeProjectRef(projectRef), mrIID)
+
+	var raw []struct {
+		IID         int64  `json:"iid"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		State       string `json:"state"`
+		WebURL      string `json:"web_url"`
+	}
+	if err := c.get(url, &raw); err != nil {
+		return nil, fmt.Errorf("gitlab GetClosesIssues: %w", err)
+	}
+	out := make([]domain.Issue, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, domain.Issue{
+			IID: r.IID, Title: r.Title, Description: r.Description, State: r.State, WebURL: r.WebURL,
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) GetMergeRequestDiscussions(projectRef string, mrIID int64) ([]domain.Discussion, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/discussions", c.baseURL, encodeProjectRef(projectRef), mrIID)
+
+	var raw []struct {
+		Notes []struct {
+			Body   string `json:"body"`
+			System bool   `json:"system"`
+			Author struct {
+				Username string `json:"username"`
+			} `json:"author"`
+		} `json:"notes"`
+	}
+	if err := c.get(url, &raw); err != nil {
+		return nil, fmt.Errorf("gitlab GetMergeRequestDiscussions: %w", err)
+	}
+	var out []domain.Discussion
+	for _, d := range raw {
+		for _, n := range d.Notes {
+			if n.System || n.Body == "" {
+				continue // skip system notes (label changes, etc.)
+			}
+			out = append(out, domain.Discussion{Author: n.Author.Username, Body: n.Body})
+		}
+	}
+	return out, nil
+}
+
+// Compile-time check: GitLab supports the optional related-context capability.
+var _ domain.RelatedContextProvider = (*Client)(nil)
+
+// ---------- RepoLocator ----------
+
+// hashedRepoPath computes the GitLab @hashed storage path for a project id:
+// <root>/@hashed/<h[0:2]>/<h[2:4]>/<h>.git where h = hex(sha256(decimal id)).
+func hashedRepoPath(root string, projectID int64) string {
+	sum := sha256.Sum256([]byte(strconv.FormatInt(projectID, 10)))
+	h := hex.EncodeToString(sum[:])
+	return filepath.Join(root, "@hashed", h[0:2], h[2:4], h+".git")
+}
+
+// RepoSource builds an authenticated HTTPS clone URL for the project and, when
+// GITLAB_REPOS_PATH is configured, the local @hashed bare-repo path for fast
+// same-machine clones. Resolves the project id/path via the API as needed.
+func (c *Client) RepoSource(projectRef string) (domain.RepoSource, error) {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return domain.RepoSource{}, fmt.Errorf("gitlab RepoSource: parsing base URL: %w", err)
+	}
+
+	path := projectRef
+	var projectID int64
+
+	// We need the API when the ref is numeric (to get the path) or when a local
+	// repos path is configured (to get the id for @hashed).
+	if !strings.Contains(projectRef, "/") || c.reposPath != "" {
+		var raw struct {
+			ID                int64  `json:"id"`
+			PathWithNamespace string `json:"path_with_namespace"`
+		}
+		apiURL := fmt.Sprintf("%s/api/v4/projects/%s", c.baseURL, encodeProjectRef(projectRef))
+		if err := c.get(apiURL, &raw); err != nil {
+			return domain.RepoSource{}, fmt.Errorf("gitlab RepoSource: resolving project: %w", err)
+		}
+		if raw.PathWithNamespace != "" {
+			path = raw.PathWithNamespace
+		}
+		projectID = raw.ID
+	}
+
+	u.User = url.UserPassword("oauth2", c.token)
+	u.Path = "/" + strings.TrimPrefix(path, "/") + ".git"
+
+	src := domain.RepoSource{RemoteURL: u.String()}
+	if c.reposPath != "" && projectID != 0 {
+		src.LocalPath = hashedRepoPath(c.reposPath, projectID)
+	}
+	return src, nil
+}
+
+// Compile-time check: GitLab can locate a repository for agentic checkout.
+var _ domain.RepoLocator = (*Client)(nil)
 
 // ---------- helpers ----------
 

@@ -47,6 +47,12 @@ const router = createRouter({
           meta: { roles: ['super', 'gestor'] },
         },
         {
+          path: 'review-profiles',
+          name: 'review-profiles',
+          component: () => import('@/views/ReviewProfilesView.vue'),
+          meta: { roles: ['super', 'gestor'] },
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('@/views/UsersView.vue'),

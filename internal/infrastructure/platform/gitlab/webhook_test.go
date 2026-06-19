@@ -9,7 +9,7 @@ import (
 )
 
 func newTestClient() *Client {
-	return New("test-gitlab", "https://gitlab.com", "token", "mysecret", "paulorfholanda", 30*time.Second)
+	return New("test-gitlab", "https://gitlab.com", "token", "mysecret", "paulorfholanda", 30*time.Second, "")
 }
 
 func rawWebhook(headers map[string]string, body []byte) domain.RawWebhook {
@@ -101,5 +101,58 @@ func TestParseWebhook_InvalidJSON(t *testing.T) {
 
 	if _, err := c.ParseWebhook(w); err == nil {
 		t.Error("expected error for invalid JSON")
+	}
+}
+
+func notePayload(note string) []byte {
+	payload := map[string]any{
+		"object_kind": "note",
+		"project":     map[string]any{"id": 42},
+		"object_attributes": map[string]any{
+			"note":          note,
+			"noteable_type": "MergeRequest",
+		},
+		"merge_request": map[string]any{"id": 100, "iid": 7},
+		"user":          map[string]any{"username": "carol"},
+	}
+	b, _ := json.Marshal(payload)
+	return b
+}
+
+func TestParseWebhook_ReviewCommandNoPreset(t *testing.T) {
+	c := newTestClient()
+	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("/review"))
+
+	event, err := c.ParseWebhook(w)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !event.IsReanalyze || event.CommentAuthor != "carol" {
+		t.Fatalf("expected reanalyze by carol, got %+v", event)
+	}
+	if event.RequestedProfile != "" {
+		t.Errorf("RequestedProfile = %q, want empty", event.RequestedProfile)
+	}
+}
+
+func TestParseWebhook_ReviewCommandWithPreset(t *testing.T) {
+	c := newTestClient()
+	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("/review deep"))
+
+	event, err := c.ParseWebhook(w)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event.RequestedProfile != "deep" {
+		t.Errorf("RequestedProfile = %q, want %q", event.RequestedProfile, "deep")
+	}
+}
+
+func TestParseWebhook_NonReviewNoteIgnored(t *testing.T) {
+	c := newTestClient()
+	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("just a comment"))
+
+	if _, err := c.ParseWebhook(w); err == nil {
+		t.Error("expected non-/review note to be ignored with an error")
 	}
 }

@@ -7,6 +7,14 @@ type ReviewInput struct {
 	Diff         string
 	ClientName   string
 	ProjectRef   string
+	// Profile is the resolved review profile (layers). Nil means diff-only.
+	Profile *ReviewProfile
+	// Related is the gathered related context (issues, linked MRs, discussion).
+	// Nil when the related layer is disabled or yielded nothing.
+	Related *RelatedContext
+	// Workspace is the checked-out working tree for agentic review.
+	// Nil when the agentic layer is disabled.
+	Workspace CodeWorkspace
 }
 
 // TokenUsage holds token consumption data returned by the AI API.

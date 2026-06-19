@@ -15,6 +15,8 @@ import (
 	"github.com/paulofh/code-reviewer/internal/infrastructure/ai"
 	applogger "github.com/paulofh/code-reviewer/internal/infrastructure/logger"
 	"github.com/paulofh/code-reviewer/internal/infrastructure/platform"
+	"github.com/paulofh/code-reviewer/internal/infrastructure/platform/gitfetch"
+	"github.com/paulofh/code-reviewer/internal/infrastructure/sandbox"
 	"github.com/paulofh/code-reviewer/internal/infrastructure/storage"
 	transport "github.com/paulofh/code-reviewer/internal/transport/http"
 	"github.com/paulofh/code-reviewer/internal/usecase"
@@ -100,7 +102,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	factory := platform.NewFactory()
+	factory := platform.NewFactory(cfg.Agentic.GitLabReposPath)
 	registry := platform.NewRegistry()
 	for _, c := range dbClients {
 		pc, err := factory.BuildFromDomain(c, aiTimeout)
@@ -136,18 +138,35 @@ func main() {
 	// envClient is the fallback used when no AI config is assigned in the DB.
 	envClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
 	claudeOAuth := ai.NewClaudeOAuth()
+
+	var execSandbox ai.Sandbox
+	if cfg.Sandbox.Image != "" {
+		execSandbox = sandbox.NewDockerSandbox(
+			cfg.Sandbox.Image, cfg.Sandbox.CPUs, cfg.Sandbox.Memory,
+			time.Duration(cfg.Sandbox.TimeoutSeconds)*time.Second, log,
+		)
+		log.Info("execution sandbox enabled", slog.String("image", cfg.Sandbox.Image))
+	}
+
 	reviewer := ai.NewResolvingReviewer(
 		repo, repo, claudeOAuth, envClient,
 		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
-		log,
+		execSandbox, log,
 	)
 
 	// ── SSE broadcaster ───────────────────────────────────────────────────────
 	broadcaster := transport.NewEventBroadcaster()
 
 	// ── Usecases ──────────────────────────────────────────────────────────────
+	agenticFetcher := gitfetch.NewGitWorkspaceFetcher(
+		cfg.Agentic.WorkspaceDir,
+		cfg.Agentic.CloneDepth,
+		time.Duration(cfg.Agentic.TimeoutSeconds)*time.Second,
+		log,
+	)
+
 	uc := usecase.NewProcessMergeRequest(
-		registry, repo, repo, repo, reviewer, broadcaster,
+		registry, repo, repo, repo, repo, agenticFetcher, reviewer, broadcaster,
 		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
 		log,
 	)
@@ -163,10 +182,11 @@ func main() {
 	)
 	apiHandler := transport.NewAPIHandler(repo, repo, clientMgmtSvc, uc)
 	promptHandler := transport.NewPromptHandler(repo)
+	reviewProfileHandler := transport.NewReviewProfileHandler(repo)
 	aiConfigHandler := transport.NewAIConfigHandler(repo, claudeOAuthAdapter{inner: claudeOAuth}, reviewer)
 	userHandler := transport.NewUserHandler(repo)
 
-	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, aiConfigHandler, userHandler, broadcaster, log)
+	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, reviewProfileHandler, aiConfigHandler, userHandler, broadcaster, log)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

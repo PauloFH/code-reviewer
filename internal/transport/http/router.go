@@ -38,6 +38,7 @@ func NewRouter(
 	auth *AuthHandler,
 	api *APIHandler,
 	prompts *PromptHandler,
+	reviewProfiles *ReviewProfileHandler,
 	aiConfigs *AIConfigHandler,
 	users *UserHandler,
 	broadcaster *EventBroadcaster,
@@ -139,6 +140,40 @@ func NewRouter(
 	))
 	mux.Handle("POST /api/v1/prompts", chain(
 		http.HandlerFunc(prompts.CreatePrompt),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+
+	// ── Review profiles (super + gestor) ──────────────────────────────────────
+	mux.Handle("GET /api/v1/review-profiles/assignments", chain(
+		http.HandlerFunc(reviewProfiles.ListAssignments),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("PUT /api/v1/review-profiles/assignments", chain(
+		http.HandlerFunc(reviewProfiles.SetAssignment),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("DELETE /api/v1/review-profiles/assignments", chain(
+		http.HandlerFunc(reviewProfiles.RemoveAssignment),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("GET /api/v1/review-profiles/{id}", chain(
+		http.HandlerFunc(reviewProfiles.GetProfile),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("PUT /api/v1/review-profiles/{id}", chain(
+		http.HandlerFunc(reviewProfiles.UpdateProfile),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("DELETE /api/v1/review-profiles/{id}", chain(
+		http.HandlerFunc(reviewProfiles.DeleteProfile),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("GET /api/v1/review-profiles", chain(
+		http.HandlerFunc(reviewProfiles.ListProfiles),
+		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
+	))
+	mux.Handle("POST /api/v1/review-profiles", chain(
+		http.HandlerFunc(reviewProfiles.CreateProfile),
 		jwtMiddleware, requireRole(domain.RoleSuper, domain.RoleGestor),
 	))
 

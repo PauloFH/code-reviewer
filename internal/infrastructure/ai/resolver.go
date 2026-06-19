@@ -24,6 +24,7 @@ type ResolvingReviewer struct {
 	envClient   *Client
 	envPriceIn  float64
 	envPriceOut float64
+	sandbox     Sandbox
 	log         *slog.Logger
 }
 
@@ -33,6 +34,7 @@ func NewResolvingReviewer(
 	oauth tokenRefresher,
 	envClient *Client,
 	envPriceIn, envPriceOut float64,
+	sandbox Sandbox,
 	log *slog.Logger,
 ) *ResolvingReviewer {
 	return &ResolvingReviewer{
@@ -42,6 +44,7 @@ func NewResolvingReviewer(
 		envClient:   envClient,
 		envPriceIn:  envPriceIn,
 		envPriceOut: envPriceOut,
+		sandbox:     sandbox,
 		log:         log,
 	}
 }
@@ -54,6 +57,7 @@ func (r *ResolvingReviewer) ReviewDiff(input domain.ReviewInput) (*domain.Review
 	}
 
 	if cfg == nil {
+		r.envClient.sandbox = r.sandbox
 		result, err := r.envClient.ReviewDiff(input)
 		if err != nil {
 			return nil, err
@@ -70,6 +74,7 @@ func (r *ResolvingReviewer) ReviewDiff(input domain.ReviewInput) (*domain.Review
 	}
 
 	client := newClientFromConfig(*cfg, r.promptRepo)
+	client.sandbox = r.sandbox
 	result, err := client.ReviewDiff(input)
 	if err != nil {
 		return nil, err
@@ -112,6 +117,7 @@ func (r *ResolvingReviewer) TestConfig(id int64) (*domain.ReviewResult, error) {
 	}
 
 	client := newClientFromConfig(*cfg, r.promptRepo)
+	client.sandbox = r.sandbox
 	result, err := client.ReviewDiff(domain.ReviewInput{
 		MergeRequest: &domain.MergeRequest{
 			Title:       "Teste de configuração de IA",

@@ -139,3 +139,36 @@ CREATE INDEX IF NOT EXISTS idx_ai_config_assignments_lookup
 const migration006 = `
 ALTER TABLE ai_configs ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0;
 `
+
+// migration007 adds the review profiles library and scope-based assignments,
+// mirroring the prompts schema. Seeds a global "Diff" profile (legacy behavior).
+const migration007 = `
+CREATE TABLE IF NOT EXISTS review_profiles (
+    id              INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name            TEXT     NOT NULL UNIQUE,
+    include_related INTEGER  NOT NULL DEFAULT 0,
+    agentic         INTEGER  NOT NULL DEFAULT 0,
+    execution       INTEGER  NOT NULL DEFAULT 0,
+    max_iterations  INTEGER  NOT NULL DEFAULT 0,
+    created_at      DATETIME NOT NULL,
+    updated_at      DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS review_profile_assignments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id   INTEGER NOT NULL REFERENCES review_profiles(id) ON DELETE CASCADE,
+    scope        TEXT    NOT NULL CHECK(scope IN ('global','client','project')),
+    client_name  TEXT    NOT NULL DEFAULT '',
+    project_ref  TEXT    NOT NULL DEFAULT '',
+    UNIQUE(scope, client_name, project_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_profile_assignments_lookup
+    ON review_profile_assignments(client_name, project_ref);
+
+INSERT INTO review_profiles(name, include_related, agentic, execution, max_iterations, created_at, updated_at)
+VALUES('Diff', 0, 0, 0, 0, datetime('now'), datetime('now'));
+
+INSERT INTO review_profile_assignments(profile_id, scope, client_name, project_ref)
+VALUES((SELECT id FROM review_profiles WHERE name='Diff'), 'global', '', '');
+`

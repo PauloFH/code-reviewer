@@ -31,6 +31,9 @@ type WebhookEvent struct {
 	Action        string
 	IsReanalyze   bool
 	CommentAuthor string
+	// RequestedProfile is the preset token after a "/review <preset>" command
+	// (e.g. "deep", "full"). Empty means no override was requested.
+	RequestedProfile string
 }
 
 // PlatformClient is the Strategy interface. Every Git hosting platform

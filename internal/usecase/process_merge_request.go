@@ -15,6 +15,12 @@ type EventPublisher interface {
 	Publish(e domain.ReviewEvent)
 }
 
+// RepoFetcher checks out the MR working tree for agentic review.
+// Satisfied by gitfetch.GitWorkspaceFetcher.
+type RepoFetcher interface {
+	Checkout(src domain.RepoSource, sha string) (domain.CodeWorkspace, func(), error)
+}
+
 // ProcessMergeRequest is the central usecase. It receives a normalised
 // WebhookEvent from the transport layer and orchestrates:
 //
@@ -32,6 +38,9 @@ type ProcessMergeRequest struct {
 	repository     domain.ReviewRepository
 	eventRepo      domain.ReviewEventRepository
 	userRepo       domain.UserRepository
+	profileRepo    domain.ReviewProfileRepository
+	related        *RelatedCollector
+	repoFetcher    RepoFetcher
 	reviewer       domain.AIReviewer
 	publisher      EventPublisher
 	pricePerMInput float64
@@ -44,6 +53,8 @@ func NewProcessMergeRequest(
 	repository domain.ReviewRepository,
 	eventRepo domain.ReviewEventRepository,
 	userRepo domain.UserRepository,
+	profileRepo domain.ReviewProfileRepository,
+	repoFetcher RepoFetcher,
 	reviewer domain.AIReviewer,
 	publisher EventPublisher,
 	pricePerMInput, pricePerMOut float64,
@@ -54,6 +65,9 @@ func NewProcessMergeRequest(
 		repository:     repository,
 		eventRepo:      eventRepo,
 		userRepo:       userRepo,
+		profileRepo:    profileRepo,
+		related:        NewRelatedCollector(log),
+		repoFetcher:    repoFetcher,
 		reviewer:       reviewer,
 		publisher:      publisher,
 		pricePerMInput: pricePerMInput,
@@ -138,13 +152,39 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		return fmt.Errorf("fetching diff: %w", err)
 	}
 
-	log.Info("sending diff to AI reviewer")
+	profile := uc.resolveProfile(log, event)
+
+	var related *domain.RelatedContext
+	if profile.IncludeRelated {
+		related = uc.related.Collect(client, mr)
+		if related != nil {
+			log.Info("related context collected",
+				slog.Int("issues", len(related.Issues)),
+				slog.Int("linked_mrs", len(related.LinkedMRs)),
+				slog.Int("discussions", len(related.Discussions)),
+			)
+		}
+	}
+
+	var workspace domain.CodeWorkspace
+	if profile.Agentic {
+		if ws, cleanup, ok := uc.checkoutWorkspace(log, client, event, mr); ok {
+			workspace = ws
+			defer cleanup()
+			log.Info("agentic workspace checked out", slog.String("root", ws.Root()))
+		}
+	}
+
+	log.Info("sending diff to AI reviewer", slog.String("profile", profile.Name))
 
 	result, err := uc.reviewer.ReviewDiff(domain.ReviewInput{
 		MergeRequest: mr,
 		Diff:         diff,
 		ClientName:   event.ClientName,
 		ProjectRef:   event.ProjectRef,
+		Profile:      &profile,
+		Related:      related,
+		Workspace:    workspace,
 	})
 	if err != nil {
 		log.Error("AI reviewer returned error", slog.String("error", err.Error()))
@@ -210,6 +250,55 @@ func (uc *ProcessMergeRequest) postInlineComments(
 			slog.String("error", err.Error()),
 		)
 	}
+}
+
+// resolveProfile picks the review profile for this event: the one assigned to
+// the most specific scope (project → client → global), or the diff-only default
+// when nothing is assigned. A valid "/review <preset>" override replaces it.
+func (uc *ProcessMergeRequest) resolveProfile(log *slog.Logger, event *domain.WebhookEvent) domain.ReviewProfile {
+	profile := domain.DefaultReviewProfile()
+	if uc.profileRepo != nil {
+		resolved, err := uc.profileRepo.ResolveProfile(event.ClientName, event.ProjectRef)
+		if err != nil {
+			log.Error("resolving review profile, using diff-only default", slog.String("error", err.Error()))
+		} else if resolved != nil {
+			profile = *resolved
+		}
+	}
+	if event.RequestedProfile != "" {
+		if preset, ok := domain.ProfileFromPreset(event.RequestedProfile); ok {
+			profile = preset
+			log.Info("review profile overridden by /review command", slog.String("preset", event.RequestedProfile))
+		} else {
+			log.Warn("unknown /review preset, ignoring", slog.String("preset", event.RequestedProfile))
+		}
+	}
+	return profile
+}
+
+// checkoutWorkspace clones the MR working tree for agentic review. Best-effort:
+// returns ok=false (and the review proceeds without a workspace) on any problem.
+func (uc *ProcessMergeRequest) checkoutWorkspace(log *slog.Logger, client domain.PlatformClient, event *domain.WebhookEvent, mr *domain.MergeRequest) (domain.CodeWorkspace, func(), bool) {
+	if uc.repoFetcher == nil {
+		return nil, nil, false
+	}
+	locator, ok := client.(domain.RepoLocator)
+	if !ok {
+		log.Warn("agentic profile but platform has no RepoLocator; proceeding without workspace",
+			slog.String("platform", string(client.Platform())))
+		return nil, nil, false
+	}
+	src, err := locator.RepoSource(event.ProjectRef)
+	if err != nil {
+		log.Error("resolving repo source for agentic review", slog.String("error", err.Error()))
+		return nil, nil, false
+	}
+	ws, cleanup, err := uc.repoFetcher.Checkout(src, mr.DiffHeadSHA)
+	if err != nil {
+		log.Error("checking out working tree, proceeding without workspace", slog.String("error", err.Error()))
+		return nil, nil, false
+	}
+	return ws, cleanup, true
 }
 
 // saveEvent persists a ReviewEvent and publishes it to the SSE broadcaster.
