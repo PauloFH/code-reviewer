@@ -180,31 +180,67 @@ func normalizeProvider(provider string) string {
 }
 
 // reviewPayload is the JSON contract every provider's response is expected to
-// follow: a markdown review plus optional structured inline comments.
+// follow. The model emits the review as separate text fields and NEVER writes
+// code fences itself — the Mermaid fences are added by assembleReviewMarkdown.
+// ReviewMarkdown is a legacy fallback for responses that still ship a single
+// pre-rendered markdown body.
 type reviewPayload struct {
-	ReviewMarkdown string                 `json:"review_markdown"`
+	Guia              string `json:"guia"`
+	DiagramaSequencia string `json:"diagrama_sequencia"`
+	DiagramaClasses   string `json:"diagrama_classes"`
+	Alteracoes        string `json:"alteracoes"`
+	PontosAtencao     string `json:"pontos_atencao"`
+	Sugestoes         string `json:"sugestoes"`
+	Riscos            string `json:"riscos"`
+	Testes            string `json:"testes"`
+	Conclusao         string `json:"conclusao"`
+
+	// Legacy single-body fallback.
+	ReviewMarkdown string `json:"review_markdown"`
+
 	InlineComments []domain.InlineComment `json:"inline_comments"`
+}
+
+// mermaidFenceOpen / codeFenceClose are the only place code fences are produced.
+// They are added programmatically so the model never has to emit a triple
+// backtick (which gets dropped when it builds JSON strings).
+const (
+	mermaidFenceOpen = "```mermaid"
+	codeFenceClose   = "```"
+)
+
+// markdownSanitizer strips invisible characters that have broken Mermaid 11
+// rendering: U+00A0 (non-breaking space) becomes a normal space, U+200B
+// (zero-width space) and U+FEFF (BOM / zero-width no-break space) are removed.
+var markdownSanitizer = strings.NewReplacer(
+	"\u00a0", " ", // non-breaking space -> normal space
+	"\u200b", "", // zero-width space
+	"\ufeff", "", // BOM / zero-width no-break space
+)
+
+func sanitizeMarkdown(s string) string {
+	return markdownSanitizer.Replace(s)
 }
 
 func parseReviewPayload(content string) (string, []domain.InlineComment) {
 	trimmed := strings.TrimSpace(content)
-	jsonText := strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(trimmed, "```"), "```json"))
-	jsonText = strings.TrimSpace(strings.TrimPrefix(jsonText, "```"))
+	jsonText := stripOuterCodeFence(trimmed)
 
 	var payload reviewPayload
 	if err := json.Unmarshal([]byte(jsonText), &payload); err != nil {
-		return trimmed, nil
+		// Not the expected JSON envelope — post the raw text, sanitised.
+		return sanitizeMarkdown(trimmed), nil
 	}
 
-	body := strings.TrimSpace(payload.ReviewMarkdown)
+	body := assembleReviewMarkdown(payload)
 	if body == "" {
-		body = trimmed
+		body = sanitizeMarkdown(trimmed)
 	}
 
 	comments := make([]domain.InlineComment, 0, len(payload.InlineComments))
 	for _, comment := range payload.InlineComments {
 		comment.Path = strings.TrimSpace(comment.Path)
-		comment.Body = strings.TrimSpace(comment.Body)
+		comment.Body = sanitizeMarkdown(strings.TrimSpace(comment.Body))
 		if comment.Path == "" || comment.Body == "" || comment.Line <= 0 {
 			continue
 		}
@@ -215,4 +251,87 @@ func parseReviewPayload(content string) (string, []domain.InlineComment) {
 	}
 
 	return body, comments
+}
+
+// assembleReviewMarkdown renders the structured fields into the final markdown,
+// wrapping the Mermaid diagrams in code fences here (never by the model). When
+// the payload only carries the legacy review_markdown body, that is returned
+// as-is (sanitised). The result is always sanitised before posting.
+func assembleReviewMarkdown(p reviewPayload) string {
+	if !p.hasStructuredContent() {
+		return sanitizeMarkdown(strings.TrimSpace(p.ReviewMarkdown))
+	}
+
+	var b strings.Builder
+	section := func(header, raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(header)
+		b.WriteString("\n\n")
+		b.WriteString(raw)
+	}
+	diagram := func(header, raw string) {
+		// Defensive: drop any fence the model emitted anyway, leaving pure Mermaid.
+		raw = strings.TrimSpace(stripOuterCodeFence(strings.TrimSpace(raw)))
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "mermaid"))
+		if raw == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(header)
+		b.WriteString("\n\n")
+		b.WriteString(mermaidFenceOpen)
+		b.WriteByte('\n')
+		b.WriteString(raw)
+		b.WriteByte('\n')
+		b.WriteString(codeFenceClose)
+	}
+
+	section("## Guia do Revisor", p.Guia)
+	diagram("### Diagrama de sequência", p.DiagramaSequencia)
+	diagram("### Diagrama de classes/componentes", p.DiagramaClasses)
+	section("### Alterações por arquivo", p.Alteracoes)
+	section("### Pontos de atenção", p.PontosAtencao)
+	section("### Sugestões de melhoria", p.Sugestoes)
+	section("### Riscos", p.Riscos)
+	section("### Testes sugeridos", p.Testes)
+	section("### Conclusão", p.Conclusao)
+
+	return sanitizeMarkdown(b.String())
+}
+
+func (p reviewPayload) hasStructuredContent() bool {
+	return p.Guia != "" || p.DiagramaSequencia != "" || p.DiagramaClasses != "" ||
+		p.Alteracoes != "" || p.PontosAtencao != "" || p.Sugestoes != "" ||
+		p.Riscos != "" || p.Testes != "" || p.Conclusao != ""
+}
+
+// stripOuterCodeFence removes a single OUTER code-fence wrapper (``` or ~~~,
+// optionally with a language tag on the opening line) when the whole string is
+// wrapped in one. It never touches fences in the interior — only the matching
+// first and last fence lines — so nested fences are preserved.
+func stripOuterCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	for _, fence := range []string{"```", "~~~"} {
+		if !strings.HasPrefix(s, fence) || !strings.HasSuffix(s, fence) {
+			continue
+		}
+		nl := strings.IndexByte(s, '\n')
+		if nl == -1 {
+			continue
+		}
+		inner := s[nl+1:] // drop the opening fence line (e.g. ```json)
+		if !strings.HasSuffix(inner, fence) {
+			continue
+		}
+		return strings.TrimSpace(inner[:len(inner)-len(fence)])
+	}
+	return s
 }

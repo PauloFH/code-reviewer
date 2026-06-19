@@ -203,3 +203,81 @@ func TestParseReviewPayload_FallbackToPlainText(t *testing.T) {
 		t.Fatalf("expected no inline comments, got %d", len(comments))
 	}
 }
+
+func TestParseReviewPayload_StructuredAddsMermaidFences(t *testing.T) {
+	body, _ := parseReviewPayload(`{
+		"guia": "Adiciona endpoint de health.",
+		"diagrama_sequencia": "sequenceDiagram\n  A->>B: req",
+		"diagrama_classes": "",
+		"pontos_atencao": "- nenhum",
+		"conclusao": "✅ Aprovado"
+	}`)
+
+	// The model never emits fences; we add exactly one ```mermaid block here.
+	if !strings.Contains(body, "### Diagrama de sequência\n\n```mermaid\nsequenceDiagram\n  A->>B: req\n```") {
+		t.Fatalf("sequence diagram not fenced as expected:\n%s", body)
+	}
+	if strings.Contains(body, "Diagrama de classes") {
+		t.Fatalf("empty diagram section should be omitted:\n%s", body)
+	}
+	if !strings.HasPrefix(body, "## Guia do Revisor\n\nAdiciona endpoint de health.") {
+		t.Fatalf("guia section missing or misordered:\n%s", body)
+	}
+	if !strings.Contains(body, "### Conclusão\n\n✅ Aprovado") {
+		t.Fatalf("conclusao section missing:\n%s", body)
+	}
+}
+
+func TestParseReviewPayload_DiagramFenceStrippedDefensively(t *testing.T) {
+	// Even if the model wrongly wraps the diagram, we keep a single clean fence.
+	body, _ := parseReviewPayload(`{
+		"guia": "x",
+		"diagrama_sequencia": "` + "```mermaid" + `\nsequenceDiagram\n  A->>B: req\n` + "```" + `"
+	}`)
+
+	if strings.Count(body, "```mermaid") != 1 || strings.Count(body, "```") != 2 {
+		t.Fatalf("expected exactly one mermaid fence pair:\n%s", body)
+	}
+	if strings.Contains(body, "mermaid\nmermaid") {
+		t.Fatalf("language tag leaked into body:\n%s", body)
+	}
+}
+
+func TestParseReviewPayload_SanitizesInvisibleChars(t *testing.T) {
+	// U+00A0 (nbsp) -> space, U+200B and U+FEFF removed.
+	in := "{\"guia\": \"a b\u00a0c\ufeff\", \"inline_comments\": [{\"path\":\"a.go\",\"line\":1,\"body\":\"x\u200by\"}]}"
+	body, comments := parseReviewPayload(in)
+
+	if strings.ContainsAny(body, "\u00a0\u200b\ufeff") {
+		t.Fatalf("invisible chars survived in body: %q", body)
+	}
+	if !strings.Contains(body, "a b c") {
+		t.Fatalf("nbsp not normalised to space: %q", body)
+	}
+	if len(comments) != 1 || comments[0].Body != "xy" {
+		t.Fatalf("inline comment not sanitised: %+v", comments)
+	}
+}
+
+func TestStripOuterCodeFence(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"json fence", "```json\n{\"a\":1}\n```", `{"a":1}`},
+		{"bare fence", "```\n{\"a\":1}\n```", `{"a":1}`},
+		{"no fence", `{"a":1}`, `{"a":1}`},
+		{"preserves inner fences", "```json\n{\"x\":\"~~~\"}\n```", `{"x":"~~~"}`},
+	}
+	for _, tc := range cases {
+		if got := stripOuterCodeFence(tc.in); got != tc.want {
+			t.Errorf("%s: stripOuterCodeFence(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseReviewPayload_UnwrapsJSONInCodeFence(t *testing.T) {
+	body, _ := parseReviewPayload("```json\n{\"guia\": \"olá\"}\n```")
+	if body != "## Guia do Revisor\n\nolá" {
+		t.Fatalf("fenced JSON not unwrapped/assembled: %q", body)
+	}
+}

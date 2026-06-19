@@ -22,7 +22,7 @@ Resolve a configuração de IA e despacha o review para o transporte do provider
 - `transportKindForProvider`: gemini → gemini; claude → anthropic; openai/deepseek → chat_completions.
 - `baseURLForConfig`/`modelForConfig`: defaults por provider, sobrescrevíveis pela config.
 - `New(...)` é o construtor legado usado pelo fallback de env.
-- `parseReviewPayload` extrai `review_markdown` + `inline_comments`; sem JSON válido, usa a resposta inteira.
+- `parseReviewPayload` decodifica o JSON estruturado da LLM (`guia`, `diagrama_sequencia`, `diagrama_classes`, `alteracoes`, `pontos_atencao`, `sugestoes`, `riscos`, `testes`, `conclusao` + `inline_comments`) e monta o Markdown via `assembleReviewMarkdown`, **adicionando as cercas ```mermaid programaticamente** (a LLM nunca emite crases triplas). `review_markdown` é fallback legado; sem JSON válido, usa a resposta inteira. Desembrulha cerca externa de forma cirúrgica (`stripOuterCodeFence`, preserva cercas internas) e sanitiza invisíveis que quebram o Mermaid 11 (`sanitizeMarkdown`: U+00A0→espaço, remove U+200B/U+FEFF).
 
 **Transportes** (interface interna `transport`):
 - **`gemini.go`** — `POST /models/{model}:generateContent`, header `X-goog-api-key`, `generationConfig.maxOutputTokens` opcional.

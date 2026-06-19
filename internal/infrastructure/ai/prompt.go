@@ -12,41 +12,10 @@ import (
 
 const systemPrompt = `Você é um revisor sênior de código com ampla experiência em engenharia de software.
 Sua tarefa é revisar o diff de um Merge Request de forma objetiva, direta e em português brasileiro.
-Não faça comentários genéricos. Foque apenas no que está no diff recebido.`
-
-const defaultOutputFormat = `## Guia do Revisor
-
-(Resumo de 2-3 frases explicando o que o MR faz e qual o impacto arquitetural)
-
-### Diagrama de sequência
-
-(Se aplicável — diagrama Mermaid mostrando o fluxo principal introduzido ou modificado)
-
-### Diagrama de classes/componentes
-
-(Se aplicável — diagrama Mermaid mostrando novos tipos, interfaces ou relações entre módulos)
-
-### Alterações por arquivo
-
-| Mudança | Detalhes | Arquivos |
-|---------|----------|----------|
-| (descrição curta) | - detalhe 1<br>- detalhe 2 | path/to/file.go |
-
-### Pontos de atenção
-- (bugs, vulnerabilidades, race conditions, edge cases não tratados)
-
-### Sugestões de melhoria
-- (refatorações, simplificações, melhor nomenclatura, padrões mais adequados)
-
-### Riscos
-- (breaking changes, impacto em performance, regressões possíveis)
-
-### Testes sugeridos
-- (cenários que deveriam ter cobertura de teste)
-
-### Conclusão
-
-(Veredicto: ✅ Aprovado | ⚠️ Aprovado com ressalvas | ❌ Solicitar alterações — com justificativa breve)`
+Não faça comentários genéricos. Foque apenas no que está no diff recebido.
+Você responde SEMPRE com um único objeto JSON, com campos de texto separados.
+NUNCA escreve crases triplas (` + "```" + `) em nenhum campo: os diagramas Mermaid são
+devolvidos como corpo puro e o sistema adiciona as cercas de código automaticamente.`
 
 const maxDiffBytes = 80_000
 const maxInlineComments = 20
@@ -79,9 +48,9 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 	}
 	diff = annotateDiffLineNumbers(diff)
 
-	outputFmt := defaultOutputFormat
+	extraGuidance := ""
 	if outputTemplate != "" {
-		outputFmt = outputTemplate
+		extraGuidance = "\n\nDiretrizes adicionais de conteúdo (use como ênfase ao preencher os campos acima, sem alterar o formato JSON):\n\n" + outputTemplate
 	}
 
 	return fmt.Sprintf(`## Merge Request
@@ -100,10 +69,18 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 
 Por favor, revise o diff acima.
 
-Retorne exclusivamente um objeto JSON válido, sem markdown fences e sem texto antes ou depois, neste formato:
+Retorne EXCLUSIVAMENTE um único objeto JSON válido (sem markdown, sem crases, sem texto antes ou depois), com exatamente estes campos de texto:
 
 {
-  "review_markdown": "review completo em Markdown, seguindo o template informado",
+  "guia": "Resumo de 2-3 frases explicando o que o MR faz e qual o impacto arquitetural.",
+  "diagrama_sequencia": "Corpo PURO de um diagrama Mermaid de sequência (normalmente começa com 'sequenceDiagram'). Apenas a sintaxe do diagrama, SEM crases e SEM a palavra 'mermaid'. Use \"\" (string vazia) se não se aplicar.",
+  "diagrama_classes": "Corpo PURO de um diagrama Mermaid de classes/componentes (normalmente começa com 'classDiagram'). Apenas a sintaxe do diagrama, SEM crases e SEM a palavra 'mermaid'. Use \"\" se não se aplicar.",
+  "alteracoes": "Markdown com uma tabela | Mudança | Detalhes | Arquivos | resumindo as alterações por arquivo.",
+  "pontos_atencao": "Markdown em lista: bugs, vulnerabilidades, race conditions, edge cases não tratados.",
+  "sugestoes": "Markdown em lista: refatorações, simplificações, melhor nomenclatura, padrões mais adequados.",
+  "riscos": "Markdown em lista: breaking changes, impacto em performance, regressões possíveis.",
+  "testes": "Markdown em lista: cenários que deveriam ter cobertura de teste.",
+  "conclusao": "Veredicto: ✅ Aprovado | ⚠️ Aprovado com ressalvas | ❌ Solicitar alterações — com justificativa breve.",
   "inline_comments": [
     {
       "path": "caminho/do/arquivo.ext",
@@ -113,6 +90,13 @@ Retorne exclusivamente um objeto JSON válido, sem markdown fences e sem texto a
   ]
 }
 
+Regras de formatação (OBRIGATÓRIAS):
+- NUNCA use crases triplas em nenhum campo. Os diagramas Mermaid vêm como corpo puro; o sistema adiciona as cercas de código automaticamente.
+- Se precisar mostrar um trecho de código dentro de qualquer campo textual, use til triplo (~~~), nunca crases.
+- Os campos "diagrama_sequencia" e "diagrama_classes" contêm SOMENTE a sintaxe Mermaid (sem a palavra 'mermaid', sem cercas). Deixe "" quando não houver diagrama relevante.
+- Escape quebras de linha dentro das strings JSON como \n.
+- Use "" para qualquer seção que não se aplique a este MR.
+
 Regras para "inline_comments":
 - Inclua no máximo %d comentários.
 - Inclua apenas pontos acionáveis que recomendem mudança ou revisão.
@@ -120,18 +104,14 @@ Regras para "inline_comments":
 - Em "line", use o número exato do marcador [new:<linha>].
 - Em "path", use o caminho do arquivo conforme aparece no cabeçalho "+++ b/path".
 - Se não houver um caminho e linha exatos, omita o comentário inline.
-- Não duplique no inline todos os pontos do review; priorize os mais importantes.
-
-Template do campo "review_markdown":
-
-%s`,
+- Não duplique no inline todos os pontos do review; priorize os mais importantes.%s`,
 		mr.Title,
 		mr.ProjectRef,
 		mr.WebURL,
 		mr.Description,
 		diff,
 		maxInlineComments,
-		outputFmt,
+		extraGuidance,
 	)
 }
 
