@@ -129,7 +129,9 @@ func TestLogin_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decoding response body: %v", err)
+	}
 	if resp["token"] == "" {
 		t.Error("expected non-empty token in response")
 	}

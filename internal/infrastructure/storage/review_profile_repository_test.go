@@ -13,6 +13,10 @@ func newTestRepo(t *testing.T) *SQLiteRepository {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	t.Cleanup(func() { _ = repo.Close() })
+	if err := repo.UseEncryptionKey(testEncKey); err != nil {
+		t.Fatalf("UseEncryptionKey: %v", err)
+	}
 	return repo
 }
 

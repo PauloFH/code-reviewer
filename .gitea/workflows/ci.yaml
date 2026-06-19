@@ -7,22 +7,53 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      # The Go module git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go is
+      # private: GOPRIVATE tells Go to skip the public proxy/checksum DB for it.
+      GOPRIVATE: git.pauloholanda.com.br/*
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # Latest patch of the 1.25 series (go.mod requires >= 1.25.0).
+          # check-latest forces fetching the newest 1.25.x instead of reusing an
+          # older cached patch on the runner, keeping stdlib security fixes
+          # current so govulncheck passes.
+          go-version: '1.25.x'
+          check-latest: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # Authenticate to the private module host so `go` can fetch the SDK.
+      # Requires a Gitea secret CI_GIT_TOKEN with read access to the SDK repo.
+      - name: Configure private module access
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+        run: |
+          if [ -z "$CI_GIT_TOKEN" ]; then
+            echo "::error::secret CI_GIT_TOKEN is empty or not set — create it in the repo's Actions secrets with read access to the SDK repo"
+            exit 1
+          fi
+          git config --global url."https://${CI_GIT_TOKEN}@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"
+
+      # Pre-fetch modules with credentials in place. Populates the module cache
+      # for golangci-lint/test/build and surfaces a clear download/auth error
+      # instead of golangci-lint's cryptic "no export data".
+      - name: Download Go modules
+        run: go mod download
+
       # Go lint
+      # install-mode goinstall compiles golangci-lint with the project's Go
+      # toolchain (from go.mod), so its targeted-version check matches. The
+      # prebuilt binary is built with an older Go and rejects newer go.mod targets.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.64.8
+          install-mode: goinstall
 
       # Go vulnerability check
       - name: govulncheck
@@ -57,6 +88,9 @@ jobs:
     steps:
       - name: Deploy
         run: |
+          # act_runner runs steps in a non-login shell, so the host's profile
+          # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
+          export PATH="/usr/local/go/bin:$PATH"
           cd /opt/code-reviewer
           git pull
           cd web

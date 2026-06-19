@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
@@ -57,15 +56,4 @@ func computeHMAC(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// normaliseAction maps Gitea action names to a common vocabulary shared
-// with the GitHub client, so the usecase doesn't need platform awareness.
-func normaliseAction(action string) string {
-	switch strings.ToLower(action) {
-	case "review_requested", "assigned":
-		return action
-	default:
-		return action
-	}
 }

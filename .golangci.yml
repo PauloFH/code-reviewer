@@ -19,3 +19,10 @@ linters-settings:
 issues:
   exclude-dirs:
     - vendor
+  exclude-rules:
+    # SQL is assembled from fixed literal fragments; all user-supplied values are
+    # bound as ? parameters, so these G201/G202 reports are false positives.
+    - path: internal/infrastructure/storage/sqlite_repository.go
+      linters:
+        - gosec
+      text: "G20[12]"
