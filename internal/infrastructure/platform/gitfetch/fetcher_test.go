@@ -33,7 +33,7 @@ func makeOriginRepo(t *testing.T) (path, sha string) {
 		return string(out)
 	}
 	run("init", "-q")
-	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("oi mundo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("oi mundo\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")

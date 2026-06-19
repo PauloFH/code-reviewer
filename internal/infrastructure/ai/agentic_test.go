@@ -197,7 +197,7 @@ func TestRunAgenticLoopExceedsIterations(t *testing.T) {
 
 func TestReviewDiffSingleShotWhenNoWorkspace(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"choices":[{"message":{"content":"{\"review_markdown\":\"single shot\",\"inline_comments\":[]}"}}],"usage":{"total_tokens":7}}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"review_markdown\":\"single shot\",\"inline_comments\":[]}"}}],"usage":{"total_tokens":7}}`))
 	}))
 	defer srv.Close()
 	c := &Client{transportKind: providerChatCompletions, mode: domain.AIModeAPI, baseURL: srv.URL, token: "k", model: "gpt-4o", http: &http.Client{Timeout: 10 * time.Second}}

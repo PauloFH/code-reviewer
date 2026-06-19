@@ -20,7 +20,7 @@ func TestGeminiAgenticToolThenFinal(t *testing.T) {
 			if !strings.Contains(string(body), "functionDeclarations") {
 				t.Errorf("first request missing functionDeclarations: %s", body)
 			}
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"candidates":[{"content":{"role":"model","parts":[
 					{"functionCall":{"name":"read_file","args":{"path":"main.go"}}}
 				]},"finishReason":"STOP"}],
@@ -31,7 +31,7 @@ func TestGeminiAgenticToolThenFinal(t *testing.T) {
 		if !strings.Contains(string(body), "functionResponse") || !strings.Contains(string(body), "read_file") {
 			t.Errorf("second request missing functionResponse: %s", body)
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"candidates":[{"content":{"role":"model","parts":[{"text":"{\"review_markdown\":\"ok gemini\",\"inline_comments\":[]}"}]},"finishReason":"STOP"}],
 			"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":10,"totalTokenCount":60}
 		}`))

@@ -51,7 +51,7 @@ func TestHashedRepoPathMatchesStdlib(t *testing.T) {
 
 func TestRepoSourceWithLocalReposPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"id":1,"path_with_namespace":"grp/repo"}`))
+		_, _ = w.Write([]byte(`{"id":1,"path_with_namespace":"grp/repo"}`))
 	}))
 	defer srv.Close()
 

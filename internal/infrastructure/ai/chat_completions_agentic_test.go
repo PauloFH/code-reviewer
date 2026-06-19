@@ -23,7 +23,7 @@ func TestChatCompletionsAgenticToolThenFinal(t *testing.T) {
 			if _, ok := req["tools"]; !ok {
 				t.Errorf("first request missing tools")
 			}
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"choices":[{"message":{"content":null,"tool_calls":[
 					{"id":"tc_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"main.go\"}"}}
 				]},"finish_reason":"tool_calls"}],
@@ -34,7 +34,7 @@ func TestChatCompletionsAgenticToolThenFinal(t *testing.T) {
 		if !strings.Contains(string(body), `"role":"tool"`) || !strings.Contains(string(body), "tc_1") {
 			t.Errorf("second request missing tool result for tc_1: %s", body)
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"choices":[{"message":{"content":"{\"review_markdown\":\"ok chat\",\"inline_comments\":[]}"},"finish_reason":"stop"}],
 			"usage":{"prompt_tokens":50,"completion_tokens":10,"total_tokens":60}
 		}`))

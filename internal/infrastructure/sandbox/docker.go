@@ -42,6 +42,9 @@ func (s *DockerSandbox) Run(workdir, command string) (string, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
+	// G204: the sandbox deliberately runs AI-provided commands; isolation is
+	// enforced by the container (--network=none, --read-only, no host env).
+	//nolint:gosec // intentional: sandboxed execution of untrusted commands
 	cmd := exec.CommandContext(ctx, "docker", buildDockerArgs(s.image, s.cpus, s.memory, workdir, command)...)
 	cmd.Env = []string{} // no host env / secrets leak into the container
 

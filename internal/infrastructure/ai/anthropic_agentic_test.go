@@ -25,7 +25,7 @@ func TestAnthropicAgenticDriverToolThenFinal(t *testing.T) {
 			if _, ok := req["tools"]; !ok {
 				t.Errorf("first request missing tools")
 			}
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"content":[
 					{"type":"text","text":"vou olhar o arquivo"},
 					{"type":"tool_use","id":"tu_1","name":"read_file","input":{"path":"main.go"}}
@@ -39,7 +39,7 @@ func TestAnthropicAgenticDriverToolThenFinal(t *testing.T) {
 		if !strings.Contains(string(body), "tool_result") || !strings.Contains(string(body), "tu_1") {
 			t.Errorf("second request missing tool_result for tu_1: %s", body)
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"content":[{"type":"text","text":"{\"review_markdown\":\"ok agentic\",\"inline_comments\":[]}"}],
 			"stop_reason":"end_turn",
 			"usage":{"input_tokens":50,"output_tokens":10}
