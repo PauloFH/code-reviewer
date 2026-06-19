@@ -82,6 +82,14 @@ func TestFetcherEmptyRemoteURL(t *testing.T) {
 	}
 }
 
+func TestFetcherRejectsSuspiciousSHA(t *testing.T) {
+	f := NewGitWorkspaceFetcher(t.TempDir(), 0, 5*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// A flag-like sha must be rejected before any git command runs.
+	if _, _, err := f.Checkout(domain.RepoSource{RemoteURL: "file:///nonexistent"}, "--upload-pack=touch /tmp/x"); err == nil {
+		t.Fatal("expected rejection of flag-like sha")
+	}
+}
+
 func TestFetcherPrefersLocalPath(t *testing.T) {
 	origin, sha := makeOriginRepo(t)
 

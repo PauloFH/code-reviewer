@@ -12,6 +12,7 @@ func TestBuildDockerArgs(t *testing.T) {
 	for _, want := range []string{
 		"run", "--rm", "--network=none", "--read-only",
 		"--tmpfs /tmp", "--cpus 2", "--memory 2g",
+		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=512",
 		"/work/src:/src:ro", "-w /src", "golang:1.25", "go test ./...",
 	} {
 		if !strings.Contains(joined, want) {

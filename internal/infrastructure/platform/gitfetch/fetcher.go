@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -47,8 +48,15 @@ func (f *GitWorkspaceFetcher) Checkout(src domain.RepoSource, sha string) (domai
 	return f.cloneFrom(src.RemoteURL, f.cloneDepth, sha)
 }
 
+// validSHA matches a git object name (short or full). cloneFrom rejects anything
+// else so an attacker-influenced ref can't smuggle a leading-dash git flag.
+var validSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
+
 // cloneFrom clones repoURL (depth 0 = full) into an ephemeral dir and checks out sha.
 func (f *GitWorkspaceFetcher) cloneFrom(repoURL string, depth int, sha string) (domain.CodeWorkspace, func(), error) {
+	if sha != "" && !validSHA.MatchString(sha) {
+		return nil, nil, fmt.Errorf("gitfetch: refusing suspicious sha %q", sha)
+	}
 	if err := os.MkdirAll(f.workspaceDir, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("gitfetch: creating workspace dir: %w", err)
 	}
@@ -65,7 +73,8 @@ func (f *GitWorkspaceFetcher) cloneFrom(repoURL string, depth int, sha string) (
 	if depth > 0 {
 		args = append(args, "--depth", strconv.Itoa(depth))
 	}
-	args = append(args, repoURL, dir)
+	// "--" stops git from treating a repoURL/dir starting with "-" as a flag.
+	args = append(args, "--", repoURL, dir)
 	if out, err := f.runGit(ctx, "", args...); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("gitfetch: clone failed: %w (%s)", err, out)
@@ -88,12 +97,15 @@ func (f *GitWorkspaceFetcher) cloneFrom(repoURL string, depth int, sha string) (
 }
 
 func (f *GitWorkspaceFetcher) runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	// Disable the ext:: transport (an arbitrary-command RCE vector) and system
+	// config; combined with the "--" separators this blocks flag/URL smuggling.
+	full := append([]string{"-c", "protocol.ext.allow=never"}, args...)
+	cmd := exec.CommandContext(ctx, "git", full...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	// Never prompt for credentials — fail fast instead of hanging.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
