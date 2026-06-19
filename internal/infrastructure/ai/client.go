@@ -239,6 +239,7 @@ type reviewPayload struct {
 	Riscos            string `json:"riscos"`
 	Testes            string `json:"testes"`
 	Conclusao         string `json:"conclusao"`
+	PromptCorrecao    string `json:"prompt_correcao"`
 
 	// Legacy single-body fallback.
 	ReviewMarkdown string `json:"review_markdown"`
@@ -391,6 +392,21 @@ func assembleReviewMarkdown(p reviewPayload) string {
 		b.WriteByte('\n')
 		b.WriteString(codeFenceClose)
 	}
+	// promptBlock renders a copy-pasteable text block. It uses a "~~~" fence so a
+	// prompt that itself contains "```" can't break out of the block.
+	promptBlock := func(header, raw string) {
+		raw = strings.TrimSpace(stripOuterCodeFence(strings.TrimSpace(raw)))
+		if raw == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(header)
+		b.WriteString("\n\n~~~text\n")
+		b.WriteString(raw)
+		b.WriteString("\n~~~")
+	}
 
 	section("## Guia do Revisor", p.Guia)
 	diagram("### Diagrama de sequência", p.DiagramaSequencia)
@@ -401,6 +417,7 @@ func assembleReviewMarkdown(p reviewPayload) string {
 	section("### Riscos", p.Riscos)
 	section("### Testes sugeridos", p.Testes)
 	section("### Conclusão", p.Conclusao)
+	promptBlock("### 🔧 Prompt para corrigir (cole numa IA)", p.PromptCorrecao)
 
 	return sanitizeMarkdown(b.String())
 }
@@ -408,7 +425,7 @@ func assembleReviewMarkdown(p reviewPayload) string {
 func (p reviewPayload) hasStructuredContent() bool {
 	return p.Guia != "" || p.DiagramaSequencia != "" || p.DiagramaClasses != "" ||
 		p.Alteracoes != "" || p.PontosAtencao != "" || p.Sugestoes != "" ||
-		p.Riscos != "" || p.Testes != "" || p.Conclusao != ""
+		p.Riscos != "" || p.Testes != "" || p.Conclusao != "" || p.PromptCorrecao != ""
 }
 
 // stripOuterCodeFence removes a single OUTER code-fence wrapper (``` or ~~~,

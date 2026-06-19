@@ -121,6 +121,7 @@ Retorne EXCLUSIVAMENTE um único objeto JSON válido (sem markdown, sem crases, 
   "riscos": "Markdown em lista: breaking changes, impacto em performance, regressões possíveis.",
   "testes": "Markdown em lista: cenários que deveriam ter cobertura de teste.",
   "conclusao": "Veredicto: ✅ Aprovado | ⚠️ Aprovado com ressalvas | ❌ Solicitar alterações — com justificativa breve.",
+  "prompt_correcao": "Prompt pronto para colar num assistente de IA de código (ex.: Claude Code/Cursor) que corrija os problemas. Em modo imperativo, liste os pontos acionáveis (pontos de atenção + sugestões + riscos), cada um com o arquivo e, quando houver, a linha, e peça para rodar os testes após corrigir. Texto puro, SEM crases. Use \"\" se o MR não precisar de correções.",
   "inline_comments": [
     {
       "path": "caminho/do/arquivo.ext",
@@ -136,6 +137,7 @@ Regras de formatação (OBRIGATÓRIAS):
 - Os campos "diagrama_sequencia" e "diagrama_classes" contêm SOMENTE a sintaxe Mermaid (sem a palavra 'mermaid', sem cercas). Deixe "" quando não houver diagrama relevante.
 - Escape quebras de linha dentro das strings JSON como \n.
 - Use "" para qualquer seção que não se aplique a este MR.
+- "prompt_correcao" é texto puro (sem cercas, sem crases); o sistema o coloca num bloco de código copiável. Use "" quando não houver nada a corrigir.
 
 Regras para "inline_comments":
 - Inclua no máximo %d comentários.

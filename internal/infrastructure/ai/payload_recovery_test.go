@@ -58,6 +58,17 @@ func TestParseReviewPayload_TruncatedFallsBackToRaw(t *testing.T) {
 	}
 }
 
+func TestParseReviewPayload_AppendsCorrectionPrompt(t *testing.T) {
+	payload := `{"guia":"x","prompt_correcao":"Corrija A1 em foo.go linha 10.","conclusao":"OK"}`
+	body, _ := parseReviewPayload(payload)
+	if !strings.Contains(body, "### 🔧 Prompt para corrigir (cole numa IA)") {
+		t.Fatalf("missing correction-prompt header:\n%s", body)
+	}
+	if !strings.Contains(body, "~~~text\nCorrija A1 em foo.go linha 10.\n~~~") {
+		t.Fatalf("correction prompt not wrapped in a copyable block:\n%s", body)
+	}
+}
+
 func TestExtractJSONObject(t *testing.T) {
 	cases := []struct {
 		name, in, want string
