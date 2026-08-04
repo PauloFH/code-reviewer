@@ -135,6 +135,29 @@ func (h *APIHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// Secrets are redacted on read (see redactClient), so the dashboard never
+	// holds the real token/secret. Preserve the stored values when the update
+	// omits them (empty) or echoes back the redaction sentinel, otherwise
+	// editing any other field would wipe the credentials.
+	if isRedactedOrEmpty(c.Token) || isRedactedOrEmpty(c.WebhookSecret) {
+		existing, err := h.clientSvc.GetClient(oldName)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if isRedactedOrEmpty(c.Token) {
+			c.Token = existing.Token
+		}
+		if isRedactedOrEmpty(c.WebhookSecret) {
+			c.WebhookSecret = existing.WebhookSecret
+		}
+	}
+
 	updated, err := h.clientSvc.UpdateClient(oldName, c)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -154,10 +177,20 @@ func (h *APIHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// redactedSecret is the placeholder returned in place of real credentials on
+// read. UpdateClient treats an incoming value equal to it as "unchanged".
+const redactedSecret = "***"
+
 func redactClient(c domain.Client) domain.Client {
-	c.Token = "***"
-	c.WebhookSecret = "***"
+	c.Token = redactedSecret
+	c.WebhookSecret = redactedSecret
 	return c
+}
+
+// isRedactedOrEmpty reports whether an incoming secret should be treated as
+// "keep the stored value" rather than a real new secret.
+func isRedactedOrEmpty(s string) bool {
+	return s == "" || s == redactedSecret
 }
 
 func redactClients(clients []domain.Client) []domain.Client {
