@@ -5,8 +5,7 @@ import "time"
 // ReviewRepository tracks which MRs have already been reviewed per client,
 // guaranteeing idempotency across service restarts.
 type ReviewRepository interface {
-	AlreadyReviewed(clientName, projectRef string, mrIID int64, username string) (bool, error)
-	MarkAsReviewed(clientName, projectRef string, mrIID, mrID int64, username string) error
+	ClaimReview(clientName, projectRef string, mrIID, mrID int64, username string) (bool, error)
 	ClearReview(clientName, projectRef string, mrIID int64) error
 }
 

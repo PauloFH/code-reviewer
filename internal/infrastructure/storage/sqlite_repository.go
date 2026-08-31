@@ -97,30 +97,21 @@ func runMigrations(db *sql.DB) error {
 // domain.ReviewRepository
 // ──────────────────────────────────────────────────────────────────────────────
 
-func (r *SQLiteRepository) AlreadyReviewed(clientName, projectRef string, mrIID int64, username string) (bool, error) {
-	var count int
-	err := r.db.QueryRow(`
-		SELECT COUNT(1) FROM reviewed_merge_requests
-		WHERE client_name = ? AND project_ref = ? AND mr_iid = ? AND reviewed_user = ?`,
-		clientName, projectRef, mrIID, username,
-	).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("checking reviewed status: %w", err)
-	}
-	return count > 0, nil
-}
-
-func (r *SQLiteRepository) MarkAsReviewed(clientName, projectRef string, mrIID, mrID int64, username string) error {
-	_, err := r.db.Exec(`
+func (r *SQLiteRepository) ClaimReview(clientName, projectRef string, mrIID, mrID int64, username string) (bool, error) {
+	result, err := r.db.Exec(`
 		INSERT OR IGNORE INTO reviewed_merge_requests
 			(client_name, project_ref, mr_iid, mr_id, reviewed_user, reviewed_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		clientName, projectRef, mrIID, mrID, username, time.Now().UTC(),
 	)
 	if err != nil {
-		return fmt.Errorf("marking as reviewed: %w", err)
+		return false, fmt.Errorf("claiming review: %w", err)
 	}
-	return nil
+	claimed, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("checking review claim: %w", err)
+	}
+	return claimed == 1, nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
