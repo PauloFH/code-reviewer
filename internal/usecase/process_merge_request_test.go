@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,18 +46,26 @@ func (m *mockEventRepo) GetDailyCosts(_ string, _ int) ([]domain.DailyCostPoint,
 }
 
 type mockClient struct {
-	name           string
-	username       string
-	mr             *domain.MergeRequest
-	mrErr          error
-	diff           string
-	diffErr        error
-	noteErr        error
-	noteCalled     bool
-	noteCount      int
-	noteMu         sync.Mutex
-	inlineErr      error
-	inlineComments []domain.InlineComment
+	name     string
+	username string
+	mr       *domain.MergeRequest
+	mrErr    error
+	diff     string
+	diffErr  error
+	noteErr  error
+	// diffErrUntilCall/noteErrUntilCall, when >0, make the corresponding error
+	// fire only for calls up to that count, succeeding afterwards — used to
+	// exercise retry-then-succeed. Zero means "always fail while the *Err
+	// field is set", matching the original unconditional-failure behavior.
+	diffErrUntilCall int
+	noteErrUntilCall int
+	diffCallCount    int
+	noteCalled       bool
+	noteCount        int
+	noteBodies       []string
+	noteMu           sync.Mutex
+	inlineErr        error
+	inlineComments   []domain.InlineComment
 }
 
 func (m *mockClient) Platform() domain.PlatformType          { return domain.PlatformGitLab }
@@ -70,14 +79,22 @@ func (m *mockClient) GetMergeRequest(_ string, _ int64) (*domain.MergeRequest, e
 	return m.mr, m.mrErr
 }
 func (m *mockClient) GetMergeRequestDiff(_ string, _ int64) (string, error) {
-	return m.diff, m.diffErr
+	m.diffCallCount++
+	if m.diffErr != nil && (m.diffErrUntilCall == 0 || m.diffCallCount <= m.diffErrUntilCall) {
+		return "", m.diffErr
+	}
+	return m.diff, nil
 }
-func (m *mockClient) CreateMergeRequestNote(_ string, _ int64, _ string) error {
+func (m *mockClient) CreateMergeRequestNote(_ string, _ int64, body string) error {
 	m.noteMu.Lock()
 	defer m.noteMu.Unlock()
 	m.noteCalled = true
 	m.noteCount++
-	return m.noteErr
+	m.noteBodies = append(m.noteBodies, body)
+	if m.noteErr != nil && (m.noteErrUntilCall == 0 || m.noteCount <= m.noteErrUntilCall) {
+		return m.noteErr
+	}
+	return nil
 }
 func (m *mockClient) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRequest, c domain.InlineComment) error {
 	m.inlineComments = append(m.inlineComments, c)
@@ -132,12 +149,18 @@ func (m *mockUserRepoUC) UserExists(_ string) (bool, error)                     
 type mockAI struct {
 	result    *domain.ReviewResult
 	err       error
+	errUntil  int // when >0, err fires only for calls up to this count
+	callCount int
 	lastInput domain.ReviewInput
 }
 
 func (m *mockAI) ReviewDiff(in domain.ReviewInput) (*domain.ReviewResult, error) {
 	m.lastInput = in
-	return m.result, m.err
+	m.callCount++
+	if m.err != nil && (m.errUntil == 0 || m.callCount <= m.errUntil) {
+		return nil, m.err
+	}
+	return m.result, nil
 }
 
 type blockingAI struct {
@@ -241,7 +264,7 @@ func newUsecaseWithProfiles(client *mockClient, repo *mockRepository, ai domain.
 	if client != nil {
 		reg.client = client
 	}
-	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, profiles, nil, ai, nil, 3.0, 15.0, discardLogger())
+	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, profiles, nil, ai, nil, 3.0, 15.0, RetryConfig{MaxAttempts: 1}, discardLogger())
 }
 
 // ---------- tests ----------
@@ -461,8 +484,8 @@ func TestExecute_AIError_ReturnsError(t *testing.T) {
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error when AI reviewer fails")
 	}
-	if client.noteCalled {
-		t.Error("expected no comment when AI fails")
+	if !client.noteCalled {
+		t.Error("expected a failure notice comment when AI fails after exhausting retries")
 	}
 }
 
@@ -522,7 +545,7 @@ func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
 func TestExecute_UnknownClient_ReturnsError(t *testing.T) {
 	// Registry is empty — client lookup will fail.
 	reg := &mockRegistry{}
-	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockProfileRepo{}, nil, &mockAI{}, nil, 3.0, 15.0, discardLogger())
+	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockProfileRepo{}, nil, &mockAI{}, nil, 3.0, 15.0, RetryConfig{MaxAttempts: 1}, discardLogger())
 
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error for unknown client name")
@@ -655,5 +678,111 @@ func TestExecute_CommandPresetOverridesScope(t *testing.T) {
 	}
 	if ai.lastInput.Profile == nil || !ai.lastInput.Profile.IncludeRelated || !ai.lastInput.Profile.Agentic {
 		t.Fatalf("expected /review full to override to related+agentic, got %+v", ai.lastInput.Profile)
+	}
+}
+
+// ---------- retry tests ----------
+
+const testRetryDelay = time.Millisecond
+
+func TestExecute_DiffTransientError_RetriesThenSucceeds(t *testing.T) {
+	client := &mockClient{
+		name:             "test-client",
+		username:         "alice",
+		mr:               happyMR("alice"),
+		diff:             "--- a/x.go\n+x",
+		diffErr:          errors.New("temporary network blip"),
+		diffErrUntilCall: 2, // fails twice, succeeds on the 3rd attempt
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "LGTM"}}
+	uc := newUsecase(client, repo, ai)
+	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
+
+	if err := uc.Execute(baseEvent()); err != nil {
+		t.Fatalf("expected retry to recover from transient diff error, got %v", err)
+	}
+	if client.diffCallCount != 3 {
+		t.Fatalf("expected 3 diff fetch attempts, got %d", client.diffCallCount)
+	}
+	if client.noteCount != 1 {
+		t.Fatalf("expected exactly 1 comment posted (the review), got %d", client.noteCount)
+	}
+}
+
+func TestExecute_DiffError_ExhaustsRetries_PostsFailureNotice(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       happyMR("alice"),
+		diffErr:  errors.New("diff endpoint always down"),
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{}
+	uc := newUsecase(client, repo, ai)
+	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
+
+	if err := uc.Execute(baseEvent()); err == nil {
+		t.Fatal("expected error when diff fetch exhausts retries")
+	}
+	if client.diffCallCount != 3 {
+		t.Fatalf("expected 3 diff fetch attempts, got %d", client.diffCallCount)
+	}
+	if client.noteCount != 1 {
+		t.Fatalf("expected 1 failure notice comment posted, got %d", client.noteCount)
+	}
+	if len(client.noteBodies) != 1 || !strings.Contains(client.noteBodies[0], "/review") {
+		t.Fatalf("expected failure notice inviting a manual /review retry, got %+v", client.noteBodies)
+	}
+	if !repo.cleared {
+		t.Error("expected the review claim to be released so a manual /review can retry")
+	}
+}
+
+func TestExecute_AIError_ExhaustsRetries_PostsFailureNotice(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       happyMR("alice"),
+		diff:     "--- a/x.go\n+x",
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{err: errors.New("AI API always times out")}
+	uc := newUsecase(client, repo, ai)
+	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
+
+	if err := uc.Execute(baseEvent()); err == nil {
+		t.Fatal("expected error when AI reviewer exhausts retries")
+	}
+	if ai.callCount != 3 {
+		t.Fatalf("expected 3 AI review attempts, got %d", ai.callCount)
+	}
+	if client.noteCount != 1 {
+		t.Fatalf("expected 1 failure notice comment posted, got %d", client.noteCount)
+	}
+}
+
+func TestExecute_CreateNoteError_ExhaustsRetries_AttemptsFailureNoticeToo(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       happyMR("alice"),
+		diff:     "--- a/x.go\n+x",
+		noteErr:  errors.New("cannot post comment"),
+	}
+	repo := &mockRepository{}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
+	uc := newUsecase(client, repo, ai)
+	uc.retry = RetryConfig{MaxAttempts: 2, BaseDelay: testRetryDelay}
+
+	if err := uc.Execute(baseEvent()); err == nil {
+		t.Fatal("expected error when posting the review exhausts retries")
+	}
+	// 2 attempts to post the review + 1 best-effort attempt at the failure notice.
+	if client.noteCount != 3 {
+		t.Fatalf("expected 3 CreateMergeRequestNote calls (2 retries + 1 notice attempt), got %d", client.noteCount)
+	}
+	if !repo.cleared {
+		t.Error("expected the review claim to be released when posting comment fails")
 	}
 }

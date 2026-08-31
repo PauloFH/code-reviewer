@@ -10,6 +10,17 @@ A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo
 
 Credenciais são cifradas em repouso (AES-256-GCM). Se nenhuma `AIConfig` for resolvida, o serviço cai no **fallback configurado por env** (`gemini` ou `chat_completions`), preservando o comportamento legado.
 
+## Retentativas
+
+O `WebhookHandler` responde `200` ao webhook assim que o evento é parseado e processa a MR numa
+goroutine em background (`internal/transport/http/handler.go`). Dentro do pipeline
+(`internal/usecase/process_merge_request.go`), as chamadas de rede (buscar MR/diff na plataforma,
+enviar à IA, postar o comentário) são retentadas com backoff exponencial (`RETRY_MAX_ATTEMPTS`,
+default 3; `RETRY_BASE_DELAY_SECONDS`, default 2). Se todas as tentativas de um passo falharem, o
+serviço posta um comentário no MR explicando o erro e pedindo para comentar `/review` mais tarde —
+a claim de idempotência já é liberada nesse caso, então o `/review` não é bloqueado como duplicata.
+Essa retentativa é em memória (não sobrevive a um restart do processo no meio da janela de retry).
+
 ## Modos de revisão (perfis)
 
 A revisão é composta por **camadas combináveis**, definidas por um `ReviewProfile` resolvido por escopo (global → client → projeto, igual a prompts/AIConfig). Sem perfil resolvido, o default é `diff`-only (comportamento legado):
