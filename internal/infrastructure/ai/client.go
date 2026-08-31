@@ -20,6 +20,13 @@ const (
 // defaultMaxTokens caps the AI response length for providers that require it.
 const defaultMaxTokens = 4096
 
+// lastTurnMinTokens is the floor applied to the agentic loop's forced last
+// turn (tools disabled, must answer in text): the full structured JSON
+// payload (guia + 2 diagrams + tables + lists + prompt_correcao +
+// inline_comments) needs more headroom than defaultMaxTokens to avoid being
+// cut off mid-object, with no further turn left to retry.
+const lastTurnMinTokens = 8192
+
 // transport executes a single review round-trip against one provider.
 type transport interface {
 	review(sysPrompt, userPrompt string) (*domain.ReviewResult, error)

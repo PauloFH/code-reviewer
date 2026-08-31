@@ -123,6 +123,11 @@ func (d *anthropicAgenticDriver) step(results []toolResult, nudge string, allowT
 	tools := d.tools
 	if !allowTools {
 		tools = []anthropicTool{}
+		// This is the forced final turn: no further chance to retry if the
+		// JSON payload gets cut off, so guarantee enough headroom.
+		if maxTokens < lastTurnMinTokens {
+			maxTokens = lastTurnMinTokens
+		}
 	}
 
 	reqBody, err := json.Marshal(anthropicBlockRequest{

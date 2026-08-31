@@ -101,8 +101,16 @@ func (d *chatCompletionsAgenticDriver) step(results []toolResult, nudge string, 
 	}
 
 	tools := d.tools
+	maxTokens := d.maxTokens
 	if !allowTools {
 		tools = []chatTool{}
+		// This is the forced final turn: no further chance to retry if the
+		// JSON payload gets cut off, so guarantee enough headroom. A zero
+		// maxTokens (field omitted) already means "no explicit cap", so it
+		// is left alone — only an explicit, too-low cap is raised.
+		if maxTokens > 0 && maxTokens < lastTurnMinTokens {
+			maxTokens = lastTurnMinTokens
+		}
 	}
 
 	reqBody, err := json.Marshal(chatAgenticRequest{
@@ -110,7 +118,7 @@ func (d *chatCompletionsAgenticDriver) step(results []toolResult, nudge string, 
 		Messages:    d.messages,
 		Tools:       tools,
 		Temperature: 0.2,
-		MaxTokens:   d.maxTokens,
+		MaxTokens:   maxTokens,
 	})
 	if err != nil {
 		return agenticStep{}, fmt.Errorf("ai: marshalling agentic request: %w", err)

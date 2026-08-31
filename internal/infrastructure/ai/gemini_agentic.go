@@ -112,15 +112,23 @@ func (d *geminiAgenticDriver) step(results []toolResult, nudge string, allowTool
 	}
 
 	tools := d.tools
+	maxTokens := d.maxTokens
 	if !allowTools {
 		tools = nil
+		// This is the forced final turn: no further chance to retry if the
+		// JSON payload gets cut off, so guarantee enough headroom. A zero
+		// maxTokens (field omitted) already means "no explicit cap", so it
+		// is left alone — only an explicit, too-low cap is raised.
+		if maxTokens > 0 && maxTokens < lastTurnMinTokens {
+			maxTokens = lastTurnMinTokens
+		}
 	}
 
 	reqBody, err := json.Marshal(geminiAgRequest{
 		SystemInstruction: d.system,
 		Contents:          d.contents,
 		Tools:             tools,
-		GenerationConfig:  geminiGenerationConfig{Temperature: 0.2, MaxOutputTokens: d.maxTokens},
+		GenerationConfig:  geminiGenerationConfig{Temperature: 0.2, MaxOutputTokens: maxTokens},
 	})
 	if err != nil {
 		return agenticStep{}, fmt.Errorf("ai: marshalling agentic request: %w", err)

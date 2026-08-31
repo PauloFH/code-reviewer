@@ -24,11 +24,11 @@ const wrapUpWarningIterations = 2
 // actually a review.
 const minValidReviewBodyChars = 20
 
-const wrapUpNudge = "Você está perto do limite de iterações desta revisão. Comece a concluir: faça só as leituras estritamente necessárias e prepare-se para responder com a revisão final completa em uma única mensagem, no formato JSON especificado, sem mais chamadas de ferramentas."
+const wrapUpNudge = "Você está perto do limite de iterações desta revisão. Comece a concluir: faça só as leituras estritamente necessárias e prepare-se para responder com a revisão final completa em uma única mensagem, no formato JSON especificado, sem mais chamadas de ferramentas. Quando responder, a mensagem deve conter EXCLUSIVAMENTE o objeto JSON — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
 
-const lastTurnNudge = "Este é o seu último turno possível — não há mais chamadas de ferramentas disponíveis. Responda AGORA com a revisão final completa, no formato JSON especificado, com base em tudo que você já observou do repositório."
+const lastTurnNudge = "Este é o seu último turno possível — não há mais chamadas de ferramentas disponíveis. Responda AGORA com a revisão final completa, no formato JSON especificado, com base em tudo que você já observou do repositório. A mensagem deve conter EXCLUSIVAMENTE o objeto JSON, começando direto em '{' — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
 
-const correctionNudge = "A resposta anterior não pôde ser interpretada como uma revisão válida (vazia ou incompleta). Responda novamente, desta vez com a revisão final completa no formato JSON especificado."
+const correctionNudge = "A resposta anterior não pôde ser interpretada como uma revisão válida (vazia ou incompleta). Responda novamente, desta vez com a revisão final completa no formato JSON especificado. A mensagem deve conter EXCLUSIVAMENTE o objeto JSON, começando direto em '{' — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
 
 // toolSpec is a provider-agnostic tool definition (JSON schema for the input).
 type toolSpec struct {
