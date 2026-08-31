@@ -72,6 +72,7 @@ func runMigrations(db *sql.DB) error {
 		{5, migration005},
 		{6, migration006},
 		{7, migration007},
+		{8, migration008},
 	}
 
 	for _, m := range pending {
@@ -112,6 +113,26 @@ func (r *SQLiteRepository) ClaimReview(clientName, projectRef string, mrIID, mrI
 		return false, fmt.Errorf("checking review claim: %w", err)
 	}
 	return claimed == 1, nil
+}
+
+func (r *SQLiteRepository) GetReviewHistory(clientName, projectRef string, mrIID int64, username string) (*domain.ReviewHistory, error) {
+	var history domain.ReviewHistory
+	err := r.db.QueryRow(`SELECT review_head_sha, review_body FROM reviewed_merge_requests WHERE client_name=? AND project_ref=? AND mr_iid=? AND reviewed_user=?`, clientName, projectRef, mrIID, username).Scan(&history.HeadSHA, &history.Body)
+	if err == sql.ErrNoRows || history.Body == "" {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting review history: %w", err)
+	}
+	return &history, nil
+}
+
+func (r *SQLiteRepository) CompleteReview(clientName, projectRef string, mrIID int64, username, headSHA, body string) error {
+	_, err := r.db.Exec(`UPDATE reviewed_merge_requests SET review_head_sha=?, review_body=? WHERE client_name=? AND project_ref=? AND mr_iid=? AND reviewed_user=?`, headSHA, body, clientName, projectRef, mrIID, username)
+	if err != nil {
+		return fmt.Errorf("saving review history: %w", err)
+	}
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

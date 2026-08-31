@@ -39,7 +39,7 @@ func (m *mockEventRepo) ListEvents(_ domain.ReviewEventFilter) ([]domain.ReviewE
 	return nil, nil
 }
 func (m *mockEventRepo) CountEvents(_ domain.ReviewEventFilter) (int64, error) { return 0, nil }
-func (m *mockEventRepo) GetStats(_, _, _ string) (*domain.ReviewStats, error) { return nil, nil }
+func (m *mockEventRepo) GetStats(_, _, _ string) (*domain.ReviewStats, error)  { return nil, nil }
 func (m *mockEventRepo) GetDailyCosts(_ string, _ int) ([]domain.DailyCostPoint, error) {
 	return nil, nil
 }
@@ -90,6 +90,7 @@ type mockRepository struct {
 	claimErr   error
 	marked     bool
 	cleared    bool
+	history    *domain.ReviewHistory
 	mu         sync.Mutex
 }
 
@@ -105,6 +106,10 @@ func (m *mockRepository) ClaimReview(_, _ string, _, _ int64, _ string) (bool, e
 	m.marked = true
 	return true, m.claimErr
 }
+func (m *mockRepository) GetReviewHistory(_, _ string, _ int64, _ string) (*domain.ReviewHistory, error) {
+	return m.history, nil
+}
+func (m *mockRepository) CompleteReview(_, _ string, _ int64, _, _, _ string) error { return nil }
 func (m *mockRepository) ClearReview(_, _ string, _ int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -152,17 +157,17 @@ type mockProfileRepo struct {
 	err      error
 }
 
-func (m *mockProfileRepo) ListProfiles() ([]domain.ReviewProfile, error)          { return nil, nil }
-func (m *mockProfileRepo) GetProfile(_ int64) (*domain.ReviewProfile, error)       { return nil, nil }
+func (m *mockProfileRepo) ListProfiles() ([]domain.ReviewProfile, error)     { return nil, nil }
+func (m *mockProfileRepo) GetProfile(_ int64) (*domain.ReviewProfile, error) { return nil, nil }
 func (m *mockProfileRepo) CreateProfile(p domain.ReviewProfile) (*domain.ReviewProfile, error) {
 	return &p, nil
 }
 func (m *mockProfileRepo) UpdateProfile(_ int64, p domain.ReviewProfile) (*domain.ReviewProfile, error) {
 	return &p, nil
 }
-func (m *mockProfileRepo) DeleteProfile(_ int64) error                                { return nil }
+func (m *mockProfileRepo) DeleteProfile(_ int64) error                                 { return nil }
 func (m *mockProfileRepo) SetProfileAssignment(_ domain.ReviewProfileAssignment) error { return nil }
-func (m *mockProfileRepo) RemoveProfileAssignment(_, _, _ string) error               { return nil }
+func (m *mockProfileRepo) RemoveProfileAssignment(_, _, _ string) error                { return nil }
 func (m *mockProfileRepo) ListProfileAssignments() ([]domain.ReviewProfileAssignment, error) {
 	return nil, nil
 }
@@ -204,10 +209,10 @@ func newUsecase(client *mockClient, repo *mockRepository, ai domain.AIReviewer) 
 // stubWorkspace is a no-op CodeWorkspace for wiring tests.
 type stubWorkspace struct{}
 
-func (stubWorkspace) ReadFile(string) ([]byte, error)              { return nil, nil }
-func (stubWorkspace) ListDir(string) ([]domain.DirEntry, error)   { return nil, nil }
+func (stubWorkspace) ReadFile(string) ([]byte, error)               { return nil, nil }
+func (stubWorkspace) ListDir(string) ([]domain.DirEntry, error)     { return nil, nil }
 func (stubWorkspace) Grep(string, string) ([]domain.GrepHit, error) { return nil, nil }
-func (stubWorkspace) Root() string                                 { return "/stub" }
+func (stubWorkspace) Root() string                                  { return "/stub" }
 
 type mockRepoFetcher struct {
 	ws      domain.CodeWorkspace
@@ -329,6 +334,32 @@ func TestExecute_ConcurrentWebhooksPostOnlyOneReview(t *testing.T) {
 
 	if client.noteCount != 1 {
 		t.Fatalf("duplicate webhook processing posted %d reviews; want 1", client.noteCount)
+	}
+}
+
+func TestExecute_ReanalyzePassesPreviousReviewAndJustification(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       &domain.MergeRequest{ID: 1, IID: 1, ProjectRef: "42", AuthorUsername: "carol", Reviewers: []string{"alice"}},
+		diff:     "--- a/main.go\n+++ b/main.go\n+// new change",
+	}
+	repo := &mockRepository{history: &domain.ReviewHistory{HeadSHA: "old", Body: "A1: validar setor obrigatório."}}
+	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
+	uc := newUsecase(client, repo, ai)
+	event := baseEvent()
+	event.IsReanalyze = true
+	event.CommentAuthor = "carol"
+	event.ReviewJustification = "setor vazio é permitido neste fluxo"
+
+	if err := uc.Execute(event); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if ai.lastInput.PreviousReview != repo.history.Body {
+		t.Fatalf("PreviousReview = %q", ai.lastInput.PreviousReview)
+	}
+	if ai.lastInput.ReviewJustification != event.ReviewJustification {
+		t.Fatalf("ReviewJustification = %q", ai.lastInput.ReviewJustification)
 	}
 }
 

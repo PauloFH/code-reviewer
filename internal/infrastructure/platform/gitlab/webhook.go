@@ -92,6 +92,20 @@ func (c *Client) parseNoteWebhook(w domain.RawWebhook) (*domain.WebhookEvent, er
 	}
 
 	note := strings.TrimSpace(payload.ObjectAttributes.Note)
+	if strings.HasPrefix(strings.ToLower(note), "#revisar") {
+		suffix := note[len("#revisar"):]
+		justification := strings.TrimSpace(suffix)
+		if justification == "" || suffix != strings.TrimLeft(suffix, " \t\r\n") {
+			projectRef := payload.Project.PathWithNamespace
+			if projectRef == "" {
+				projectRef = fmt.Sprintf("%d", payload.Project.ID)
+			}
+			return &domain.WebhookEvent{
+				ClientName: c.name, ProjectRef: projectRef, MRIID: payload.MergeRequest.IID, MRID: payload.MergeRequest.ID,
+				Action: "note", IsReanalyze: true, CommentAuthor: payload.User.Username, ReviewJustification: justification,
+			}, nil
+		}
+	}
 	fields := strings.Fields(note)
 	if len(fields) == 0 || fields[0] != "/review" {
 		return nil, fmt.Errorf("gitlab: note is not /review command, ignoring")

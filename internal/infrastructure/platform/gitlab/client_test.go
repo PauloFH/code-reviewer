@@ -79,3 +79,21 @@ func TestRepoSourceWithoutReposPathHasNoLocal(t *testing.T) {
 		t.Fatalf("LocalPath should be empty without reposPath, got %q", src.LocalPath)
 	}
 }
+
+func TestGetMergeRequestDiffSince(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("from") != "old" || r.URL.Query().Get("to") != "new" {
+			t.Fatalf("unexpected compare query: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"diffs":[{"old_path":"a.go","new_path":"a.go","diff":"+new"}]}`))
+	}))
+	defer srv.Close()
+
+	diff, err := New("test", srv.URL, "tok", "wh", "bot", 30*time.Second, "").GetMergeRequestDiffSince("group/repo", "old", "new")
+	if err != nil {
+		t.Fatalf("GetMergeRequestDiffSince: %v", err)
+	}
+	if !strings.Contains(diff, "+++ b/a.go") || !strings.Contains(diff, "+new") {
+		t.Fatalf("unexpected diff: %q", diff)
+	}
+}

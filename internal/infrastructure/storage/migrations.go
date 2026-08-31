@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS reviewed_merge_requests (
     UNIQUE(client_name, project_ref, mr_iid, reviewed_user)
 );`
 
+const migration008 = `
+ALTER TABLE reviewed_merge_requests ADD COLUMN review_head_sha TEXT NOT NULL DEFAULT '';
+ALTER TABLE reviewed_merge_requests ADD COLUMN review_body TEXT NOT NULL DEFAULT '';`
+
 // migration002 adds the clients table and the review_events event log.
 const migration002 = `
 CREATE TABLE IF NOT EXISTS clients (

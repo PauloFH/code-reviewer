@@ -24,13 +24,14 @@ type RawWebhook struct {
 
 // WebhookEvent is the normalised representation of an incoming platform event.
 type WebhookEvent struct {
-	ClientName    string
-	ProjectRef    string // numeric string (GitLab) or "owner/repo" (GitHub/Gitea)
-	MRIID         int64
-	MRID          int64
-	Action        string
-	IsReanalyze   bool
-	CommentAuthor string
+	ClientName          string
+	ProjectRef          string // numeric string (GitLab) or "owner/repo" (GitHub/Gitea)
+	MRIID               int64
+	MRID                int64
+	Action              string
+	IsReanalyze         bool
+	CommentAuthor       string
+	ReviewJustification string
 	// RequestedProfile is the preset token after a "/review <preset>" command
 	// (e.g. "deep", "full"). Empty means no override was requested.
 	RequestedProfile string
@@ -53,6 +54,10 @@ type PlatformClient interface {
 	GetMergeRequestDiff(projectRef string, mrIID int64) (string, error)
 	CreateMergeRequestNote(projectRef string, mrIID int64, body string) error
 	CreateMergeRequestInlineComment(projectRef string, mr *MergeRequest, comment InlineComment) error
+}
+
+type IncrementalDiffProvider interface {
+	GetMergeRequestDiffSince(projectRef, fromSHA, toSHA string) (string, error)
 }
 
 // ClientRegistry holds all registered platform clients.

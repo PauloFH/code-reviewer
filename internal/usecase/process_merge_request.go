@@ -125,10 +125,23 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		}
 	}
 
+	previousReview := ""
+	previousHeadSHA := ""
 	// Re-analyze: clear idempotency record
 	if event.IsReanalyze {
+		var previous *domain.ReviewHistory
+		if event.ReviewJustification != "" {
+			previous, err = uc.repository.GetReviewHistory(event.ClientName, event.ProjectRef, event.MRIID, username)
+			if err != nil {
+				log.Warn("failed to load previous review", slog.String("error", err.Error()))
+			}
+		}
 		if err := uc.repository.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
 			log.Error("failed to clear review record", slog.String("error", err.Error()))
+		}
+		if previous != nil {
+			previousReview = previous.Body
+			previousHeadSHA = previous.HeadSHA
 		}
 	}
 
@@ -160,6 +173,15 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
 		return fmt.Errorf("fetching diff: %w", err)
 	}
+	if previousHeadSHA != "" && previousHeadSHA != mr.HeadSHA {
+		if provider, ok := client.(domain.IncrementalDiffProvider); ok {
+			if incremental, err := provider.GetMergeRequestDiffSince(event.ProjectRef, previousHeadSHA, mr.HeadSHA); err != nil {
+				log.Warn("failed to fetch incremental diff", slog.String("error", err.Error()))
+			} else {
+				diff = incremental
+			}
+		}
+	}
 
 	profile := uc.resolveProfile(log, event)
 
@@ -187,13 +209,15 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	log.Info("sending diff to AI reviewer", slog.String("profile", profile.Name))
 
 	result, err := uc.reviewer.ReviewDiff(domain.ReviewInput{
-		MergeRequest: mr,
-		Diff:         diff,
-		ClientName:   event.ClientName,
-		ProjectRef:   event.ProjectRef,
-		Profile:      &profile,
-		Related:      related,
-		Workspace:    workspace,
+		MergeRequest:        mr,
+		Diff:                diff,
+		ClientName:          event.ClientName,
+		ProjectRef:          event.ProjectRef,
+		Profile:             &profile,
+		Related:             related,
+		Workspace:           workspace,
+		PreviousReview:      previousReview,
+		ReviewJustification: event.ReviewJustification,
 	})
 	if err != nil {
 		log.Error("AI reviewer returned error", slog.String("error", err.Error()))
@@ -207,6 +231,9 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		return fmt.Errorf("posting comment: %w", err)
 	}
 	reviewPosted = true
+	if err := uc.repository.CompleteReview(event.ClientName, event.ProjectRef, event.MRIID, username, mr.HeadSHA, result.Body); err != nil {
+		log.Error("failed to save review history", slog.String("error", err.Error()))
+	}
 
 	log.Info("review comment posted",
 		slog.String("mr_url", mr.WebURL),

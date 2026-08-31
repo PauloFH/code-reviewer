@@ -6,6 +6,8 @@ import "time"
 // guaranteeing idempotency across service restarts.
 type ReviewRepository interface {
 	ClaimReview(clientName, projectRef string, mrIID, mrID int64, username string) (bool, error)
+	GetReviewHistory(clientName, projectRef string, mrIID int64, username string) (*ReviewHistory, error)
+	CompleteReview(clientName, projectRef string, mrIID int64, username, headSHA, body string) error
 	ClearReview(clientName, projectRef string, mrIID int64) error
 }
 
