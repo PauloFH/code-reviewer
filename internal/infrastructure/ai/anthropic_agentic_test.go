@@ -40,7 +40,7 @@ func TestAnthropicAgenticDriverToolThenFinal(t *testing.T) {
 			t.Errorf("second request missing tool_result for tu_1: %s", body)
 		}
 		_, _ = w.Write([]byte(`{
-			"content":[{"type":"text","text":"{\"review_markdown\":\"ok agentic\",\"inline_comments\":[]}"}],
+			"content":[{"type":"text","text":"{\"review_markdown\":\"ok agentic, revisão concluída sem pendências\",\"inline_comments\":[]}"}],
 			"stop_reason":"end_turn",
 			"usage":{"input_tokens":50,"output_tokens":10}
 		}`))
@@ -65,10 +65,53 @@ func TestAnthropicAgenticDriverToolThenFinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loop: %v", err)
 	}
-	if res.Body != "ok agentic" {
+	if res.Body != "ok agentic, revisão concluída sem pendências" {
 		t.Fatalf("body = %q", res.Body)
 	}
 	if res.Usage.TotalTokens != 180 { // 120 + 60
 		t.Fatalf("usage = %d, want 180", res.Usage.TotalTokens)
+	}
+}
+
+func TestAnthropicAgenticDriverLastTurnDisablesTools(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]any
+		_ = json.Unmarshal(body, &req)
+		if tools, ok := req["tools"].([]any); !ok || len(tools) != 0 {
+			t.Errorf("expected empty tools on the forced last turn, got: %s", body)
+		}
+		if !strings.Contains(string(body), "último turno") {
+			t.Errorf("expected the last-turn nudge in the request: %s", body)
+		}
+		_, _ = w.Write([]byte(`{
+			"content":[{"type":"text","text":"{\"review_markdown\":\"revisão forçada no último turno\",\"inline_comments\":[]}"}],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":5}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		transportKind: providerAnthropic,
+		mode:          domain.AIModeAPI,
+		baseURL:       srv.URL,
+		token:         "k",
+		model:         "claude-sonnet-4-5",
+		http:          &http.Client{Timeout: 10 * time.Second},
+	}
+	driver, err := c.agenticDriver("sys", "user prompt", readToolSpecs())
+	if err != nil {
+		t.Fatalf("agenticDriver: %v", err)
+	}
+	exec := newToolExecutor(&fakeWorkspace{}, nil)
+
+	// maxIter=1: the only turn available is the forced, tools-disabled one.
+	res, err := runAgenticLoop(driver, exec, 1)
+	if err != nil {
+		t.Fatalf("loop: %v", err)
+	}
+	if res.Body != "revisão forçada no último turno" {
+		t.Fatalf("body = %q", res.Body)
 	}
 }

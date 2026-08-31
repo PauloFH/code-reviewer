@@ -32,7 +32,7 @@ func TestGeminiAgenticToolThenFinal(t *testing.T) {
 			t.Errorf("second request missing functionResponse: %s", body)
 		}
 		_, _ = w.Write([]byte(`{
-			"candidates":[{"content":{"role":"model","parts":[{"text":"{\"review_markdown\":\"ok gemini\",\"inline_comments\":[]}"}]},"finishReason":"STOP"}],
+			"candidates":[{"content":{"role":"model","parts":[{"text":"{\"review_markdown\":\"ok gemini, revisão concluída sem pendências\",\"inline_comments\":[]}"}]},"finishReason":"STOP"}],
 			"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":10,"totalTokenCount":60}
 		}`))
 	}))
@@ -56,10 +56,49 @@ func TestGeminiAgenticToolThenFinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loop: %v", err)
 	}
-	if res.Body != "ok gemini" {
+	if res.Body != "ok gemini, revisão concluída sem pendências" {
 		t.Fatalf("body = %q", res.Body)
 	}
 	if res.Usage.TotalTokens != 180 {
 		t.Fatalf("usage = %d, want 180", res.Usage.TotalTokens)
+	}
+}
+
+func TestGeminiAgenticDriverLastTurnDisablesTools(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "functionDeclarations") {
+			t.Errorf("expected no tool declarations on the forced last turn: %s", body)
+		}
+		if !strings.Contains(string(body), "último turno") {
+			t.Errorf("expected the last-turn nudge in the request: %s", body)
+		}
+		_, _ = w.Write([]byte(`{
+			"candidates":[{"content":{"role":"model","parts":[{"text":"{\"review_markdown\":\"revisão forçada no último turno\",\"inline_comments\":[]}"}]},"finishReason":"STOP"}],
+			"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		transportKind: providerGemini,
+		mode:          domain.AIModeAPI,
+		baseURL:       srv.URL,
+		token:         "k",
+		model:         "gemini-flash-latest",
+		http:          &http.Client{Timeout: 10 * time.Second},
+	}
+	driver, err := c.agenticDriver("sys", "user prompt", readToolSpecs())
+	if err != nil {
+		t.Fatalf("agenticDriver: %v", err)
+	}
+	exec := newToolExecutor(&fakeWorkspace{}, nil)
+
+	res, err := runAgenticLoop(driver, exec, 1)
+	if err != nil {
+		t.Fatalf("loop: %v", err)
+	}
+	if res.Body != "revisão forçada no último turno" {
+		t.Fatalf("body = %q", res.Body)
 	}
 }

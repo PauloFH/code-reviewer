@@ -14,6 +14,22 @@ const maxToolOutputBytes = 16_000
 // does not specify a limit.
 const defaultAgenticMaxIterations = 12
 
+// wrapUpWarningIterations is how many iterations before the hard cutoff the
+// model gets a "you're running low on budget" nudge.
+const wrapUpWarningIterations = 2
+
+// minValidReviewBodyChars is the floor a parsed review body must clear to be
+// accepted without a corrective retry — catches empty/near-empty "final"
+// answers (e.g. a stray "OK" or a truncated JSON fragment) that aren't
+// actually a review.
+const minValidReviewBodyChars = 20
+
+const wrapUpNudge = "Você está perto do limite de iterações desta revisão. Comece a concluir: faça só as leituras estritamente necessárias e prepare-se para responder com a revisão final completa em uma única mensagem, no formato JSON especificado, sem mais chamadas de ferramentas."
+
+const lastTurnNudge = "Este é o seu último turno possível — não há mais chamadas de ferramentas disponíveis. Responda AGORA com a revisão final completa, no formato JSON especificado, com base em tudo que você já observou do repositório."
+
+const correctionNudge = "A resposta anterior não pôde ser interpretada como uma revisão válida (vazia ou incompleta). Responda novamente, desta vez com a revisão final completa no formato JSON especificado."
+
 // toolSpec is a provider-agnostic tool definition (JSON schema for the input).
 type toolSpec struct {
 	Name        string
@@ -183,20 +199,50 @@ type agenticStep struct {
 
 // agenticDriver owns the provider-specific conversation. step sends accumulated
 // tool results (nil on the first call) and returns the model's next move.
+// nudge, when non-empty, is appended as an extra instruction in the same
+// turn (alongside tool results, or alone if there are none). allowTools
+// false omits the tool definitions from the request, so the model cannot
+// request another tool call and must answer in text — used to force
+// termination on the last available turn.
 type agenticDriver interface {
-	step(results []toolResult) (agenticStep, error)
+	step(results []toolResult, nudge string, allowTools bool) (agenticStep, error)
 }
 
 // runAgenticLoop drives a tool-use conversation to a final review.
+//
+// Two safeguards keep it from exhausting maxIter without a usable result:
+//   - As the budget runs low, the model gets a nudge to wrap up (see
+//     wrapUpWarningIterations), and on the true last turn tools are disabled
+//     entirely so the model can only answer in text — guaranteeing the loop
+//     terminates with a final answer instead of the "exceeded iterations"
+//     error (which the usecase layer would otherwise retry from scratch,
+//     burning the full iteration budget again for nothing).
+//   - A "final" answer that looks empty/degenerate (see
+//     minValidReviewBodyChars) is not accepted outright: the model gets one
+//     corrective nudge asking it to redo the final answer properly before
+//     whatever it returns is accepted.
 func runAgenticLoop(driver agenticDriver, exec *toolExecutor, maxIter int) (*domain.ReviewResult, error) {
 	if maxIter <= 0 {
 		maxIter = defaultAgenticMaxIterations
 	}
 	var usage domain.TokenUsage
 	var results []toolResult
+	nudge := ""
+	correctionUsed := false
 
 	for i := 0; i < maxIter; i++ {
-		st, err := driver.step(results)
+		remaining := maxIter - i
+		allowTools := true
+		switch {
+		case remaining == 1:
+			nudge = lastTurnNudge
+			allowTools = false
+		case remaining <= wrapUpWarningIterations && nudge == "":
+			nudge = wrapUpNudge
+		}
+
+		st, err := driver.step(results, nudge, allowTools)
+		nudge = ""
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +252,15 @@ func runAgenticLoop(driver agenticDriver, exec *toolExecutor, maxIter int) (*dom
 
 		if strings.TrimSpace(st.Final) != "" {
 			body, comments := parseReviewPayload(st.Final)
-			return &domain.ReviewResult{Body: body, InlineComments: comments, Usage: usage}, nil
+			// Accept unconditionally once there's no turn left to ask for a
+			// redo, or once a corrective retry has already been spent.
+			if len(strings.TrimSpace(body)) >= minValidReviewBodyChars || remaining == 1 || correctionUsed {
+				return &domain.ReviewResult{Body: body, InlineComments: comments, Usage: usage}, nil
+			}
+			correctionUsed = true
+			nudge = correctionNudge
+			results = nil
+			continue
 		}
 		if len(st.Calls) == 0 {
 			return nil, fmt.Errorf("ai: agentic model returned neither tool calls nor a final answer")

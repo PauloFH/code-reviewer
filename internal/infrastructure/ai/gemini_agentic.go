@@ -93,7 +93,7 @@ func newGeminiAgenticDriver(c *Client, sysPrompt, userPrompt string, tools []too
 	}
 }
 
-func (d *geminiAgenticDriver) step(results []toolResult) (agenticStep, error) {
+func (d *geminiAgenticDriver) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
 	if len(results) > 0 {
 		parts := make([]geminiAgPart, 0, len(results))
 		for _, r := range results {
@@ -105,11 +105,21 @@ func (d *geminiAgenticDriver) step(results []toolResult) (agenticStep, error) {
 		// Gemini expects tool results in a content with role "function".
 		d.contents = append(d.contents, geminiAgContent{Role: "function", Parts: parts})
 	}
+	if nudge != "" {
+		// Separate turn (not mixed into the function-response content) so the
+		// nudge reads as an instruction rather than part of a tool's output.
+		d.contents = append(d.contents, geminiAgContent{Role: "user", Parts: []geminiAgPart{{Text: nudge}}})
+	}
+
+	tools := d.tools
+	if !allowTools {
+		tools = nil
+	}
 
 	reqBody, err := json.Marshal(geminiAgRequest{
 		SystemInstruction: d.system,
 		Contents:          d.contents,
-		Tools:             d.tools,
+		Tools:             tools,
 		GenerationConfig:  geminiGenerationConfig{Temperature: 0.2, MaxOutputTokens: d.maxTokens},
 	})
 	if err != nil {

@@ -101,12 +101,16 @@ func newAnthropicAgenticDriver(c *Client, sysPrompt, userPrompt string, tools []
 	}
 }
 
-func (d *anthropicAgenticDriver) step(results []toolResult) (agenticStep, error) {
-	// Append previous tool results as a user message of tool_result blocks.
-	if len(results) > 0 {
-		blocks := make([]anthropicBlock, 0, len(results))
+func (d *anthropicAgenticDriver) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
+	// Append previous tool results (if any) plus an optional nudge as a
+	// single user message of content blocks.
+	if len(results) > 0 || nudge != "" {
+		blocks := make([]anthropicBlock, 0, len(results)+1)
 		for _, r := range results {
 			blocks = append(blocks, anthropicBlock{Type: "tool_result", ToolUseID: r.ID, Content: r.Output})
+		}
+		if nudge != "" {
+			blocks = append(blocks, anthropicBlock{Type: "text", Text: nudge})
 		}
 		d.messages = append(d.messages, anthropicBlockMessage{Role: "user", Content: blocks})
 	}
@@ -116,11 +120,16 @@ func (d *anthropicAgenticDriver) step(results []toolResult) (agenticStep, error)
 		maxTokens = defaultMaxTokens
 	}
 
+	tools := d.tools
+	if !allowTools {
+		tools = []anthropicTool{}
+	}
+
 	reqBody, err := json.Marshal(anthropicBlockRequest{
 		Model:     d.model,
 		MaxTokens: maxTokens,
 		System:    d.system,
-		Tools:     d.tools,
+		Tools:     tools,
 		Messages:  d.messages,
 	})
 	if err != nil {

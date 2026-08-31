@@ -92,15 +92,23 @@ func newChatCompletionsAgenticDriver(c *Client, sysPrompt, userPrompt string, to
 	}
 }
 
-func (d *chatCompletionsAgenticDriver) step(results []toolResult) (agenticStep, error) {
+func (d *chatCompletionsAgenticDriver) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
 	for _, r := range results {
 		d.messages = append(d.messages, chatMsg{Role: "tool", ToolCallID: r.ID, Content: r.Output})
+	}
+	if nudge != "" {
+		d.messages = append(d.messages, chatMsg{Role: "user", Content: nudge})
+	}
+
+	tools := d.tools
+	if !allowTools {
+		tools = []chatTool{}
 	}
 
 	reqBody, err := json.Marshal(chatAgenticRequest{
 		Model:       d.model,
 		Messages:    d.messages,
-		Tools:       d.tools,
+		Tools:       tools,
 		Temperature: 0.2,
 		MaxTokens:   d.maxTokens,
 	})
