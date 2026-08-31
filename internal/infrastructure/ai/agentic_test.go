@@ -119,7 +119,7 @@ func TestToolSpecsFor(t *testing.T) {
 func TestRunAgenticLoopExecutesRunTool(t *testing.T) {
 	driver := &scriptedDriver{steps: []agenticStep{
 		{Calls: []toolCall{{ID: "r", Name: "run", Input: map[string]any{"command": "go test ./..."}}}},
-		{Final: `{"review_markdown":"testes ok","inline_comments":[]}`},
+		{Final: `{"review_markdown":"testes ok, tudo revisado sem problemas","inline_comments":[]}`},
 	}}
 	sb := &fakeSandbox{out: "PASS\n", code: 0}
 	res, err := runAgenticLoop(driver, newToolExecutor(&fakeWorkspace{}, sb), 12)
@@ -129,7 +129,7 @@ func TestRunAgenticLoopExecutesRunTool(t *testing.T) {
 	if !sb.called {
 		t.Fatal("expected sandbox to be invoked via run tool")
 	}
-	if res.Body != "testes ok" {
+	if res.Body != "testes ok, tudo revisado sem problemas" {
 		t.Fatalf("body = %q", res.Body)
 	}
 }
@@ -147,15 +147,20 @@ func TestToolSpecsCoverReadTools(t *testing.T) {
 }
 
 // scriptedDriver returns a predefined sequence of steps, recording the tool
-// results it receives so tests can assert the loop fed them back.
+// results, nudges and tool availability it receives so tests can assert the
+// loop fed them back correctly.
 type scriptedDriver struct {
-	steps    []agenticStep
-	idx      int
-	gotInput [][]toolResult
+	steps        []agenticStep
+	idx          int
+	gotInput     [][]toolResult
+	gotNudges    []string
+	gotAllowTool []bool
 }
 
-func (d *scriptedDriver) step(results []toolResult) (agenticStep, error) {
+func (d *scriptedDriver) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
 	d.gotInput = append(d.gotInput, results)
+	d.gotNudges = append(d.gotNudges, nudge)
+	d.gotAllowTool = append(d.gotAllowTool, allowTools)
 	st := d.steps[d.idx]
 	d.idx++
 	return st, nil
@@ -164,7 +169,7 @@ func (d *scriptedDriver) step(results []toolResult) (agenticStep, error) {
 func TestRunAgenticLoopExecutesToolsThenFinal(t *testing.T) {
 	driver := &scriptedDriver{steps: []agenticStep{
 		{Calls: []toolCall{{ID: "a", Name: "read_file", Input: map[string]any{"path": "main.go"}}}, Usage: domain.TokenUsage{TotalTokens: 10}},
-		{Final: `{"review_markdown":"tudo certo","inline_comments":[]}`, Usage: domain.TokenUsage{TotalTokens: 5}},
+		{Final: `{"review_markdown":"tudo certo, revisão concluída sem pendências","inline_comments":[]}`, Usage: domain.TokenUsage{TotalTokens: 5}},
 	}}
 	exec := newToolExecutor(&fakeWorkspace{files: map[string]string{"main.go": "package main\n"}}, nil)
 
@@ -172,7 +177,7 @@ func TestRunAgenticLoopExecutesToolsThenFinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runAgenticLoop: %v", err)
 	}
-	if res.Body != "tudo certo" {
+	if res.Body != "tudo certo, revisão concluída sem pendências" {
 		t.Fatalf("body = %q", res.Body)
 	}
 	if res.Usage.TotalTokens != 15 {
@@ -192,6 +197,90 @@ func TestRunAgenticLoopExceedsIterations(t *testing.T) {
 
 	if _, err := runAgenticLoop(driver, exec, 2); err == nil {
 		t.Fatal("expected error when loop exceeds max iterations")
+	}
+}
+
+func TestRunAgenticLoopWarnsBeforeCutoffAndForcesLastTurn(t *testing.T) {
+	// A driver that keeps requesting tools no matter what — the loop must
+	// still terminate with a real answer once tools are withdrawn on the
+	// last turn, instead of erroring out with "exceeded iterations".
+	driver := &scriptedDriver{steps: []agenticStep{
+		{Calls: []toolCall{{ID: "1", Name: "list_dir", Input: map[string]any{"path": "."}}}},
+		{Calls: []toolCall{{ID: "2", Name: "list_dir", Input: map[string]any{"path": "."}}}},
+		// Last turn: tools are withdrawn, so a real driver could not return
+		// Calls here — it must answer in text. The scripted step reflects that.
+		{Final: `{"review_markdown":"revisão finalizada por falta de orçamento de iterações","inline_comments":[]}`},
+	}}
+	exec := newToolExecutor(&fakeWorkspace{}, nil)
+
+	res, err := runAgenticLoop(driver, exec, 3)
+	if err != nil {
+		t.Fatalf("expected the loop to terminate via the forced last turn, got error: %v", err)
+	}
+	if res.Body == "" {
+		t.Fatal("expected a non-empty body from the forced final turn")
+	}
+
+	if len(driver.gotAllowTool) != 3 {
+		t.Fatalf("expected 3 driver calls, got %d", len(driver.gotAllowTool))
+	}
+	if driver.gotAllowTool[0] != true || driver.gotAllowTool[1] != true {
+		t.Fatalf("tools should stay available before the last turn: %v", driver.gotAllowTool)
+	}
+	if driver.gotAllowTool[2] != false {
+		t.Fatal("expected tools to be withdrawn on the last turn")
+	}
+	if driver.gotNudges[1] == "" {
+		t.Error("expected a wrap-up nudge one turn before the cutoff")
+	}
+	if driver.gotNudges[2] == "" {
+		t.Error("expected a last-turn nudge forcing a final answer")
+	}
+	if driver.gotNudges[0] != "" {
+		t.Errorf("did not expect a nudge yet on the first turn: %q", driver.gotNudges[0])
+	}
+}
+
+func TestRunAgenticLoopRetriesOnceOnDegenerateFinalAnswer(t *testing.T) {
+	driver := &scriptedDriver{steps: []agenticStep{
+		{Final: "ok"}, // too short to be a real review — must trigger a corrective retry
+		{Final: `{"review_markdown":"revisão completa após a correção solicitada","inline_comments":[]}`},
+	}}
+	exec := newToolExecutor(&fakeWorkspace{}, nil)
+
+	res, err := runAgenticLoop(driver, exec, 12)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Body != "revisão completa após a correção solicitada" {
+		t.Fatalf("body = %q", res.Body)
+	}
+	if len(driver.gotNudges) != 2 || driver.gotNudges[1] != correctionNudge {
+		t.Fatalf("expected a correction nudge on the retry, got %+v", driver.gotNudges)
+	}
+	// The corrective retry carries no tool results — nothing was called.
+	if len(driver.gotInput[1]) != 0 {
+		t.Fatalf("expected no tool results on the corrective retry, got %+v", driver.gotInput[1])
+	}
+}
+
+func TestRunAgenticLoopAcceptsDegenerateAnswerOnLastTurn(t *testing.T) {
+	// Only one iteration available: even a too-short answer must be accepted
+	// immediately, since there is no turn left to ask for a redo.
+	driver := &scriptedDriver{steps: []agenticStep{
+		{Final: "ok"},
+	}}
+	exec := newToolExecutor(&fakeWorkspace{}, nil)
+
+	res, err := runAgenticLoop(driver, exec, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Body != "ok" {
+		t.Fatalf("body = %q", res.Body)
+	}
+	if len(driver.gotInput) != 1 {
+		t.Fatalf("expected exactly 1 driver call, got %d", len(driver.gotInput))
 	}
 }
 

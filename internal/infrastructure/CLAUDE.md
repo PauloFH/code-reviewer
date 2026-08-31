@@ -43,6 +43,35 @@ Resolve a configuração de IA e despacha o review para o transporte do provider
 
 Para mudar a lista de arquivos ignorados, edite `irrelevantPatterns` em `prompt.go`.
 
+**`agentic.go`** — `runAgenticLoop(driver, exec, maxIter)` conduz o loop de tool-use até uma revisão
+final. Duas salvaguardas contra estourar `maxIter` sem produzir nada aproveitável:
+- **Aviso + finalização forçada**: faltando `wrapUpWarningIterations` (2) iterações, a IA recebe um
+  nudge (`wrapUpNudge`) pedindo para concluir. No último turno possível, as tools são **omitidas da
+  requisição** (`allowTools=false`) — a IA não consegue mais pedir tool call, só responder em texto
+  (`lastTurnNudge`) — garantindo que o loop sempre termine com uma resposta em vez do erro "exceeded
+  N iterations" (que a camada de usecase retentaria do zero, reprocessando o orçamento inteiro de
+  novo, sem chance de dar certo).
+- **Validador de resposta**: uma resposta final com corpo abaixo de `minValidReviewBodyChars` (20)
+  é tratada como degenerada — a IA ganha **uma** retentativa corretiva (`correctionNudge`, sem
+  resultados de tool anexados) antes de aceitar o que vier, exceto no último turno (aí aceita
+  incondicionalmente, pois não há mais chance de pedir de novo).
+- `agenticDriver.step(results, nudge, allowTools)` é implementado por `anthropic_agentic.go`,
+  `chat_completions_agentic.go` e `gemini_agentic.go`; cada um decide como embutir `nudge` na
+  conversa (bloco de texto extra no mesmo turno de tool_result, ou mensagem/content separado) e
+  como omitir as tools da requisição quando `allowTools=false`.
+
+### `sandbox/`
+Implementa `ai.Sandbox` (a tool `run` da camada `execution`) via container Docker efêmero.
+
+**`docker.go`** — `buildDockerArgs` monta o `docker run`: `--network=none`, `--read-only`,
+`--cap-drop=ALL`, sem env do host. O `/tmp` é montado via `--tmpfs` com `size=<memory>` — precisa
+do modificador **`exec`** explícito (`rw,exec,nosuid,size=...`), porque o default do Docker é
+`noexec`, o que quebra `go test`/`go build` (compilam um binário em `/tmp` e o executam). `HOME=/tmp`
+redireciona os diretórios de cache que a maioria das toolchains usa por padrão (`go build` cache,
+`npm`, `pip`, ...) para longe da raiz somente-leitura — sem isso, o primeiro write falha com
+`mkdir /root/.cache: read-only file system`. Sem essas duas correções, praticamente nenhum comando
+real de build/teste roda na sandbox.
+
 ### `storage/`
 Implementa `domain.ReviewRepository`, `ClientRepository`, `ReviewEventRepository`, `PromptRepository` e `AIConfigRepository` usando SQLite.
 
