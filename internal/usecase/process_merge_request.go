@@ -132,16 +132,25 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		}
 	}
 
-	already, err := uc.repository.AlreadyReviewed(event.ClientName, event.ProjectRef, event.MRIID, username)
+	claimed, err := uc.repository.ClaimReview(event.ClientName, event.ProjectRef, event.MRIID, mr.ID, username)
 	if err != nil {
-		log.Error("error checking idempotency", slog.String("error", err.Error()))
-		return fmt.Errorf("checking idempotency: %w", err)
+		log.Error("error claiming review", slog.String("error", err.Error()))
+		return fmt.Errorf("claiming review: %w", err)
 	}
-	if already {
-		log.Info("MR already reviewed, skipping duplicate", slog.String("username", username))
+	if !claimed {
+		log.Info("MR already claimed, skipping duplicate", slog.String("username", username))
 		uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "already reviewed", nil, start)
 		return nil
 	}
+	reviewPosted := false
+	defer func() {
+		if reviewPosted {
+			return
+		}
+		if err := uc.repository.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
+			log.Error("failed to release review claim", slog.String("error", err.Error()))
+		}
+	}()
 
 	log.Info("fetching diff")
 
@@ -197,6 +206,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), result, start)
 		return fmt.Errorf("posting comment: %w", err)
 	}
+	reviewPosted = true
 
 	log.Info("review comment posted",
 		slog.String("mr_url", mr.WebURL),
@@ -204,12 +214,6 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	)
 
 	uc.postInlineComments(log, client, event.ProjectRef, mr, diff, result.InlineComments)
-
-	// Best-effort idempotency record.
-	if err := uc.repository.MarkAsReviewed(event.ClientName, event.ProjectRef, event.MRIID, mr.ID, username); err != nil {
-		log.Error("error persisting review record — duplicate comments possible on retry",
-			slog.String("error", err.Error()))
-	}
 
 	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result, start)
 

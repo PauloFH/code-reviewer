@@ -4,7 +4,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
@@ -51,6 +53,8 @@ type mockClient struct {
 	diffErr        error
 	noteErr        error
 	noteCalled     bool
+	noteCount      int
+	noteMu         sync.Mutex
 	inlineErr      error
 	inlineComments []domain.InlineComment
 }
@@ -69,7 +73,10 @@ func (m *mockClient) GetMergeRequestDiff(_ string, _ int64) (string, error) {
 	return m.diff, m.diffErr
 }
 func (m *mockClient) CreateMergeRequestNote(_ string, _ int64, _ string) error {
+	m.noteMu.Lock()
+	defer m.noteMu.Unlock()
 	m.noteCalled = true
+	m.noteCount++
 	return m.noteErr
 }
 func (m *mockClient) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRequest, c domain.InlineComment) error {
@@ -80,18 +87,29 @@ func (m *mockClient) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRe
 type mockRepository struct {
 	already    bool
 	alreadyErr error
-	markErr    error
+	claimErr   error
 	marked     bool
+	cleared    bool
+	mu         sync.Mutex
 }
 
-func (m *mockRepository) AlreadyReviewed(_, _ string, _ int64, _ string) (bool, error) {
-	return m.already, m.alreadyErr
-}
-func (m *mockRepository) MarkAsReviewed(_, _ string, _, _ int64, _ string) error {
+func (m *mockRepository) ClaimReview(_, _ string, _, _ int64, _ string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.alreadyErr != nil {
+		return false, m.alreadyErr
+	}
+	if m.already || m.marked {
+		return false, nil
+	}
 	m.marked = true
-	return m.markErr
+	return true, m.claimErr
 }
 func (m *mockRepository) ClearReview(_, _ string, _ int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.marked = false
+	m.cleared = true
 	return nil
 }
 
@@ -115,6 +133,18 @@ type mockAI struct {
 func (m *mockAI) ReviewDiff(in domain.ReviewInput) (*domain.ReviewResult, error) {
 	m.lastInput = in
 	return m.result, m.err
+}
+
+type blockingAI struct {
+	reached chan struct{}
+	release <-chan struct{}
+	result  *domain.ReviewResult
+}
+
+func (m *blockingAI) ReviewDiff(domain.ReviewInput) (*domain.ReviewResult, error) {
+	m.reached <- struct{}{}
+	<-m.release
+	return m.result, nil
 }
 
 type mockProfileRepo struct {
@@ -167,7 +197,7 @@ func baseEvent() *domain.WebhookEvent {
 	}
 }
 
-func newUsecase(client *mockClient, repo *mockRepository, ai *mockAI) *ProcessMergeRequest {
+func newUsecase(client *mockClient, repo *mockRepository, ai domain.AIReviewer) *ProcessMergeRequest {
 	return newUsecaseWithProfiles(client, repo, ai, &mockProfileRepo{})
 }
 
@@ -201,7 +231,7 @@ func (m *mockAgenticClient) RepoSource(_ string) (domain.RepoSource, error) {
 	return domain.RepoSource{RemoteURL: "https://oauth2:t@h/x.git"}, nil
 }
 
-func newUsecaseWithProfiles(client *mockClient, repo *mockRepository, ai *mockAI, profiles domain.ReviewProfileRepository) *ProcessMergeRequest {
+func newUsecaseWithProfiles(client *mockClient, repo *mockRepository, ai domain.AIReviewer, profiles domain.ReviewProfileRepository) *ProcessMergeRequest {
 	reg := &mockRegistry{}
 	if client != nil {
 		reg.client = client
@@ -265,6 +295,40 @@ func TestExecute_Idempotency_MarksAfterPosting(t *testing.T) {
 	}
 	if !repo.marked {
 		t.Error("expected MarkAsReviewed to be called after successful review")
+	}
+}
+
+func TestExecute_ConcurrentWebhooksPostOnlyOneReview(t *testing.T) {
+	client := &mockClient{
+		name:     "test-client",
+		username: "alice",
+		mr:       happyMR("alice"),
+		diff:     "--- a/main.go\n+++ b/main.go\n+// fix",
+	}
+	repo := &mockRepository{}
+	release := make(chan struct{})
+	ai := &blockingAI{reached: make(chan struct{}, 2), release: release, result: &domain.ReviewResult{Body: "LGTM"}}
+	uc := newUsecaseWithProfiles(client, repo, ai, &mockProfileRepo{})
+
+	errs := make(chan error, 2)
+	go func() { errs <- uc.Execute(baseEvent()) }()
+	<-ai.reached
+	go func() { errs <- uc.Execute(baseEvent()) }()
+	select {
+	case err := <-errs:
+		if err != nil {
+			t.Fatalf("duplicate webhook failed: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("duplicate webhook reached the AI reviewer instead of being skipped")
+	}
+	close(release)
+	if err := <-errs; err != nil {
+		t.Fatalf("first webhook failed: %v", err)
+	}
+
+	if client.noteCount != 1 {
+		t.Fatalf("duplicate webhook processing posted %d reviews; want 1", client.noteCount)
 	}
 }
 
@@ -386,25 +450,27 @@ func TestExecute_CreateNoteError_ReturnsError(t *testing.T) {
 	if err := uc.Execute(baseEvent()); err == nil {
 		t.Error("expected error when CreateMergeRequestNote fails")
 	}
-	if repo.marked {
-		t.Error("expected MarkAsReviewed NOT to be called when posting comment fails")
+	if !repo.cleared {
+		t.Error("expected the review claim to be released when posting comment fails")
 	}
 }
 
-func TestExecute_MarkAsReviewedError_StillReturnsNil(t *testing.T) {
-	// Comment was posted successfully — a mark failure should only log, not error.
+func TestExecute_ClaimReviewError_ReturnsError(t *testing.T) {
 	client := &mockClient{
 		name:     "test-client",
 		username: "alice",
 		mr:       happyMR("alice"),
 		diff:     "--- a/x.go\n+x",
 	}
-	repo := &mockRepository{markErr: errors.New("db locked")}
+	repo := &mockRepository{claimErr: errors.New("db locked")}
 	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
 	uc := newUsecase(client, repo, ai)
 
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Errorf("expected nil after successful post (mark failure is best-effort), got %v", err)
+	if err := uc.Execute(baseEvent()); err == nil {
+		t.Error("expected error when claiming review fails")
+	}
+	if client.noteCalled {
+		t.Error("expected no comment when claiming review fails")
 	}
 }
 
@@ -418,7 +484,7 @@ func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
 	uc := newUsecase(client, repo, &mockAI{})
 
 	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when AlreadyReviewed fails")
+		t.Error("expected error when ClaimReview fails")
 	}
 }
 

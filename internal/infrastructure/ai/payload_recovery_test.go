@@ -58,6 +58,18 @@ func TestParseReviewPayload_TruncatedFallsBackToRaw(t *testing.T) {
 	}
 }
 
+func TestParseReviewPayload_TruncatedStructuredPayloadUsesCompletedFields(t *testing.T) {
+	truncated := validStructuredPayload[:len(validStructuredPayload)-120]
+	body, _ := parseReviewPayload(truncated)
+
+	if strings.HasPrefix(strings.TrimSpace(body), "{") {
+		t.Fatalf("posted raw truncated JSON instead of recovered markdown:\n%s", body)
+	}
+	if !strings.Contains(body, "## Guia do Revisor") {
+		t.Fatalf("did not recover the completed structured fields:\n%s", body)
+	}
+}
+
 func TestParseReviewPayload_AppendsCorrectionPrompt(t *testing.T) {
 	payload := `{"guia":"x","prompt_correcao":"Corrija A1 em foo.go linha 10.","conclusao":"OK"}`
 	body, _ := parseReviewPayload(payload)

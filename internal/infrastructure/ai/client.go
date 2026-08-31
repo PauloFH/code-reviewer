@@ -314,7 +314,46 @@ func decodeReviewPayload(trimmed string) (reviewPayload, bool) {
 			return p, true
 		}
 	}
+	if p, ok := recoverTruncatedReviewPayload(trimmed); ok {
+		return p, true
+	}
 	return reviewPayload{}, false
+}
+
+func recoverTruncatedReviewPayload(s string) (reviewPayload, bool) {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return reviewPayload{}, false
+	}
+	s = s[start:]
+	depth := 0
+	inStr := false
+	escaped := false
+	var recovered reviewPayload
+	ok := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case inStr && escaped:
+			escaped = false
+		case inStr && c == '\\':
+			escaped = true
+		case inStr && c == '"':
+			inStr = false
+		case inStr:
+		case c == '"':
+			inStr = true
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+		case c == ',' && depth == 1:
+			var candidate reviewPayload
+			if err := json.Unmarshal([]byte(s[:i]+"}"), &candidate); err == nil && candidate.hasStructuredContent() {
+				recovered, ok = candidate, true
+			}
+		}
+	}
+	return recovered, ok
 }
 
 // extractJSONObject returns the first complete, balanced {…} object in s,
