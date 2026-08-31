@@ -5,8 +5,8 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
+  go-quality:
+    runs-on: linux-x64
     env:
       # The Go module git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go is
       # private: GOPRIVATE tells Go to skip the public proxy/checksum DB for it.
@@ -22,10 +22,6 @@ jobs:
           # current so govulncheck passes.
           go-version: '1.25.x'
           check-latest: true
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
 
       # Authenticate to the private module host so `go` can fetch the SDK.
       # Requires a Gitea secret CI_GIT_TOKEN with read access to the SDK repo.
@@ -61,11 +57,43 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      # Go tests
+  go-test-arm:
+    runs-on: arm64
+    env:
+      GOPRIVATE: git.pauloholanda.com.br/*
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+
+      - name: Configure private module access
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+        run: |
+          if [ -z "$CI_GIT_TOKEN" ]; then
+            echo "::error::secret CI_GIT_TOKEN is empty or not set"
+            exit 1
+          fi
+          git config --global url."https://${CI_GIT_TOKEN}@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"
+
       - name: Go tests
         run: go test ./...
 
-      # Frontend
+      - name: Go build
+        run: CGO_ENABLED=1 go build -o /dev/null ./cmd/server
+
+  frontend:
+    runs-on: linux-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Frontend install
         run: cd web && npm ci
 
@@ -75,15 +103,11 @@ jobs:
       - name: Frontend type-check
         run: cd web && npm run type-check
 
-      # Build verification
-      - name: Go build
-        run: CGO_ENABLED=1 go build -o /dev/null ./cmd/server
-
       - name: Frontend build
         run: cd web && npm run build
 
   deploy:
-    needs: lint-and-test
+    needs: [go-quality, go-test-arm, frontend]
     runs-on: deploy-code-reviewer
     steps:
       - name: Deploy
