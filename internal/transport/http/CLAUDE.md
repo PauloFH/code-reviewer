@@ -81,7 +81,17 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 - `logging` — loga method, path, status e duração
 
 ### `handler.go`
-- `WebhookHandler.Handle` — parseia webhook via `PlatformClient.ParseWebhook` e chama o usecase
+- `WebhookHandler.Handle` — parseia webhook via `PlatformClient.ParseWebhook` e dispara o usecase
+  **numa goroutine em background**, respondendo `200` ao webhook assim que o evento é parseado e
+  despachado — não espera o usecase terminar. Isso evita que o backoff das retentativas do usecase
+  (ver `usecase/CLAUDE.md`) segure a conexão do webhook até o timeout da plataforma; falhas finais
+  (após o usecase esgotar as tentativas) viram comentário no MR em vez de erro HTTP, então não há
+  mais necessidade de a plataforma reentregar o webhook em caso de erro.
+- `WebhookHandler.Shutdown(ctx)` — espera (via `sync.WaitGroup`) todo processamento de webhook em
+  voo (incluindo suas retentativas) terminar, até `ctx` expirar; chamado pelo `main.go` depois de
+  `srv.Shutdown` para não derrubar uma revisão em andamento durante um deploy.
+- `NewRouter(...)` retorna `(http.Handler, *WebhookHandler)` — o segundo valor é só para o `main.go`
+  poder chamar `Shutdown` no graceful shutdown.
 
 ### `context.go`
 - `withRawWebhook` / `rawWebhookFromCtx` — armazenam `rawWebhookCarrier` no contexto HTTP

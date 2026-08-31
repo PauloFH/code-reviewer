@@ -23,6 +23,13 @@ type SandboxConfig struct {
 	TimeoutSeconds int
 }
 
+// RetryConfig tunes how transient failures in external calls (platform API,
+// AI reviewer) are retried before the review pipeline gives up on a step.
+type RetryConfig struct {
+	MaxAttempts      int
+	BaseDelaySeconds int
+}
+
 type Config struct {
 	App               AppConfig
 	AI                AIConfig
@@ -31,6 +38,7 @@ type Config struct {
 	Dashboard         DashboardConfig
 	Agentic           AgenticConfig
 	Sandbox           SandboxConfig
+	Retry             RetryConfig
 	ClientsConfigPath string
 	// AIConfigEncKey is the base64-encoded 32-byte master key used to encrypt
 	// frontend-managed AI credentials at rest. Required only when such configs
@@ -133,6 +141,10 @@ func Load() (*Config, error) {
 			CPUs:           getEnv("SANDBOX_CPUS", "2"),
 			Memory:         getEnv("SANDBOX_MEMORY", "2g"),
 			TimeoutSeconds: getEnvInt("SANDBOX_TIMEOUT_SECONDS", 120),
+		},
+		Retry: RetryConfig{
+			MaxAttempts:      getEnvInt("RETRY_MAX_ATTEMPTS", 3),
+			BaseDelaySeconds: getEnvInt("RETRY_BASE_DELAY_SECONDS", 2),
 		},
 		ClientsConfigPath: getEnv("CLIENTS_CONFIG_PATH", "./clients.json"),
 		AIConfigEncKey:    getEnv("AI_CONFIG_ENC_KEY", ""),

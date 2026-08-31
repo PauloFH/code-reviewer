@@ -168,6 +168,10 @@ func main() {
 	uc := usecase.NewProcessMergeRequest(
 		registry, repo, repo, repo, repo, agenticFetcher, reviewer, broadcaster,
 		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
+		usecase.RetryConfig{
+			MaxAttempts: cfg.Retry.MaxAttempts,
+			BaseDelay:   time.Duration(cfg.Retry.BaseDelaySeconds) * time.Second,
+		},
 		log,
 	)
 
@@ -186,7 +190,7 @@ func main() {
 	aiConfigHandler := transport.NewAIConfigHandler(repo, claudeOAuthAdapter{inner: claudeOAuth}, reviewer)
 	userHandler := transport.NewUserHandler(repo)
 
-	router := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, reviewProfileHandler, aiConfigHandler, userHandler, broadcaster, log)
+	router, webhookHandler := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, reviewProfileHandler, aiConfigHandler, userHandler, broadcaster, log)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
@@ -216,6 +220,10 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error("forced shutdown", slog.String("error", err.Error()))
 	}
+	// Webhook processing (including its own retries) runs in background
+	// goroutines detached from the HTTP request — wait for them too so a
+	// deploy does not silently drop an in-flight review.
+	webhookHandler.Shutdown(ctx)
 }
 
 // claudeOAuthAdapter adapts *ai.ClaudeOAuth to the transport.ClaudeOAuthFlow

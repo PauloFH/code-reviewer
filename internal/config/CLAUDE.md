@@ -17,6 +17,8 @@ Lê toda a configuração do serviço e a expõe em structs tipadas. Nenhuma out
 
 `AI_CONFIG_ENC_KEY` (base64 de 32 bytes) é lida em `Config.AIConfigEncKey` e usada para cifrar as credenciais de IA gravadas pelo frontend. Opcional no boot, mas obrigatória se houver configs persistidas com segredo (senão o boot falha ao lê-las). Deve permanecer estável entre execuções.
 
+`RETRY_MAX_ATTEMPTS` (default `3`) e `RETRY_BASE_DELAY_SECONDS` (default `2`) alimentam `Config.Retry`, repassado ao `usecase.NewProcessMergeRequest` como `usecase.RetryConfig`. Controlam quantas vezes e com que backoff exponencial as chamadas de rede do pipeline de revisão (buscar MR/diff, IA, postar comentário) são retentadas antes de desistir. Ver `usecase/CLAUDE.md`.
+
 ### `clients.go`
 - `ClientConfig` — struct de uma entrada do `clients.json`
 - `LoadClients(path)` — lê e valida o arquivo JSON de clientes

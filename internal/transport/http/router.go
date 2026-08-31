@@ -43,7 +43,7 @@ func NewRouter(
 	users *UserHandler,
 	broadcaster *EventBroadcaster,
 	log *slog.Logger,
-) http.Handler {
+) (http.Handler, *WebhookHandler) {
 	adapter := &registryAdapter{inner: registry}
 	webhookHandler := NewWebhookHandler(uc, adapter, log)
 
@@ -254,7 +254,7 @@ func NewRouter(
 	// ── SPA catch-all ─────────────────────────────────────────────────────────
 	mux.Handle("/", frontendHandler())
 
-	return logging(log)(mux)
+	return logging(log)(mux), webhookHandler
 }
 
 // chain applies middlewares right-to-left so the first middleware in the list

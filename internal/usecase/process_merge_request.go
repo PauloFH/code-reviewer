@@ -45,6 +45,7 @@ type ProcessMergeRequest struct {
 	publisher      EventPublisher
 	pricePerMInput float64
 	pricePerMOut   float64
+	retry          RetryConfig
 	log            *slog.Logger
 }
 
@@ -58,6 +59,7 @@ func NewProcessMergeRequest(
 	reviewer domain.AIReviewer,
 	publisher EventPublisher,
 	pricePerMInput, pricePerMOut float64,
+	retry RetryConfig,
 	log *slog.Logger,
 ) *ProcessMergeRequest {
 	return &ProcessMergeRequest{
@@ -72,6 +74,7 @@ func NewProcessMergeRequest(
 		publisher:      publisher,
 		pricePerMInput: pricePerMInput,
 		pricePerMOut:   pricePerMOut,
+		retry:          retry,
 		log:            log,
 	}
 }
@@ -99,7 +102,12 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	username := client.WatchedUsername()
 
-	mr, err := client.GetMergeRequest(event.ProjectRef, event.MRIID)
+	var mr *domain.MergeRequest
+	err := uc.retry.run(log, "fetching MR", func() error {
+		var fetchErr error
+		mr, fetchErr = client.GetMergeRequest(event.ProjectRef, event.MRIID)
+		return fetchErr
+	})
 	if err != nil {
 		log.Error("error fetching merge request from platform", slog.String("error", err.Error()))
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
@@ -167,10 +175,16 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	log.Info("fetching diff")
 
-	diff, err := client.GetMergeRequestDiff(event.ProjectRef, event.MRIID)
+	var diff string
+	err = uc.retry.run(log, "fetching diff", func() error {
+		var fetchErr error
+		diff, fetchErr = client.GetMergeRequestDiff(event.ProjectRef, event.MRIID)
+		return fetchErr
+	})
 	if err != nil {
 		log.Error("error fetching diff from platform", slog.String("error", err.Error()))
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
+		uc.notifyFailure(log, client, event, "buscar o diff", err)
 		return fmt.Errorf("fetching diff: %w", err)
 	}
 	if previousHeadSHA != "" && previousHeadSHA != mr.HeadSHA {
@@ -208,26 +222,35 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	log.Info("sending diff to AI reviewer", slog.String("profile", profile.Name))
 
-	result, err := uc.reviewer.ReviewDiff(domain.ReviewInput{
-		MergeRequest:        mr,
-		Diff:                diff,
-		ClientName:          event.ClientName,
-		ProjectRef:          event.ProjectRef,
-		Profile:             &profile,
-		Related:             related,
-		Workspace:           workspace,
-		PreviousReview:      previousReview,
-		ReviewJustification: event.ReviewJustification,
+	var result *domain.ReviewResult
+	err = uc.retry.run(log, "generating review", func() error {
+		var reviewErr error
+		result, reviewErr = uc.reviewer.ReviewDiff(domain.ReviewInput{
+			MergeRequest:        mr,
+			Diff:                diff,
+			ClientName:          event.ClientName,
+			ProjectRef:          event.ProjectRef,
+			Profile:             &profile,
+			Related:             related,
+			Workspace:           workspace,
+			PreviousReview:      previousReview,
+			ReviewJustification: event.ReviewJustification,
+		})
+		return reviewErr
 	})
 	if err != nil {
 		log.Error("AI reviewer returned error", slog.String("error", err.Error()))
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
+		uc.notifyFailure(log, client, event, "gerar a revisão com IA", err)
 		return fmt.Errorf("generating review: %w", err)
 	}
 
-	if err := client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, result.Body); err != nil {
+	if err := uc.retry.run(log, "posting comment", func() error {
+		return client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, result.Body)
+	}); err != nil {
 		log.Error("error posting comment to platform", slog.String("error", err.Error()))
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), result, start)
+		uc.notifyFailure(log, client, event, "publicar o comentário de revisão", err)
 		return fmt.Errorf("posting comment: %w", err)
 	}
 	reviewPosted = true
@@ -245,6 +268,25 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result, start)
 
 	return nil
+}
+
+// notifyFailure posts a best-effort comment on the MR explaining that the
+// automatic review could not be completed after the configured retries were
+// exhausted at the given stage, and inviting a manual "/review" retry later.
+// Failures posting the notice itself are only logged — the caller already has
+// an error to return.
+func (uc *ProcessMergeRequest) notifyFailure(log *slog.Logger, client domain.PlatformClient, event *domain.WebhookEvent, stage string, cause error) {
+	attempts := uc.retry.MaxAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	body := fmt.Sprintf(
+		"⚠️ Não foi possível concluir a revisão automática (%s) após %d tentativa(s): %s\n\nComente `/review` para tentar novamente mais tarde.",
+		stage, attempts, cause.Error(),
+	)
+	if err := client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, body); err != nil {
+		log.Error("failed to post failure notice to MR", slog.String("error", err.Error()))
+	}
 }
 
 func (uc *ProcessMergeRequest) postInlineComments(
