@@ -86,6 +86,13 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 	if input.Related != nil {
 		related = renderRelatedContext(input.Related)
 	}
+	reanalysis := ""
+	if input.PreviousReview != "" {
+		reanalysis += "\n## Revisão anterior\n\n" + input.PreviousReview + "\n"
+	}
+	if input.ReviewJustification != "" {
+		reanalysis += "\n## Justificativa do solicitante\n\n" + input.ReviewJustification + "\n"
+	}
 
 	extraGuidance := ""
 	if outputTemplate != "" {
@@ -102,6 +109,7 @@ func buildPrompt(input domain.ReviewInput, outputTemplate string) string {
 
 ## Diff
 
+%s
 %s
 %s
 
@@ -153,6 +161,7 @@ Regras para "inline_comments":
 		mr.Description,
 		diff,
 		related,
+		reanalysis,
 		maxInlineComments,
 		extraGuidance,
 	)

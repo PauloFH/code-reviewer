@@ -14,7 +14,9 @@ type ReviewInput struct {
 	Related *RelatedContext
 	// Workspace is the checked-out working tree for agentic review.
 	// Nil when the agentic layer is disabled.
-	Workspace CodeWorkspace
+	Workspace           CodeWorkspace
+	PreviousReview      string
+	ReviewJustification string
 }
 
 // TokenUsage holds token consumption data returned by the AI API.
@@ -41,6 +43,11 @@ type ReviewResult struct {
 	// Zero means "unknown" — the caller should fall back to its own defaults.
 	PricePerMInputTokens  float64
 	PricePerMOutputTokens float64
+}
+
+type ReviewHistory struct {
+	HeadSHA string
+	Body    string
 }
 
 type ReviewedMergeRequest struct {

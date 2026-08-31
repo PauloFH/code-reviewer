@@ -135,6 +135,25 @@ func (c *Client) GetMergeRequestDiff(projectRef string, mrIID int64) (string, er
 	return sb.String(), nil
 }
 
+func (c *Client) GetMergeRequestDiffSince(projectRef, fromSHA, toSHA string) (string, error) {
+	endpoint := fmt.Sprintf("%s/api/v4/projects/%s/repository/compare?from=%s&to=%s", c.baseURL, encodeProjectRef(projectRef), url.QueryEscape(fromSHA), url.QueryEscape(toSHA))
+	var raw struct {
+		Diffs []struct {
+			OldPath string `json:"old_path"`
+			NewPath string `json:"new_path"`
+			Diff    string `json:"diff"`
+		} `json:"diffs"`
+	}
+	if err := c.get(endpoint, &raw); err != nil {
+		return "", fmt.Errorf("gitlab GetMergeRequestDiffSince: %w", err)
+	}
+	var out strings.Builder
+	for _, diff := range raw.Diffs {
+		fmt.Fprintf(&out, "--- a/%s\n+++ b/%s\n%s\n", diff.OldPath, diff.NewPath, diff.Diff)
+	}
+	return out.String(), nil
+}
+
 func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body string) error {
 	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/notes", c.baseURL, encodeProjectRef(projectRef), mrIID)
 	payload := map[string]string{"body": body}
@@ -270,6 +289,7 @@ func (c *Client) GetMergeRequestDiscussions(projectRef string, mrIID int64) ([]d
 
 // Compile-time check: GitLab supports the optional related-context capability.
 var _ domain.RelatedContextProvider = (*Client)(nil)
+var _ domain.IncrementalDiffProvider = (*Client)(nil)
 
 // ---------- RepoLocator ----------
 

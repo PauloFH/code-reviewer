@@ -138,3 +138,18 @@ func TestBuildPromptWithoutRelatedContextOmitsBlock(t *testing.T) {
 		t.Error("expected no related block when Related is nil")
 	}
 }
+
+func TestBuildPromptIncludesReanalysisContext(t *testing.T) {
+	input := domain.ReviewInput{
+		MergeRequest:        &domain.MergeRequest{Title: "feat", ProjectRef: "42"},
+		Diff:                "--- a/x.go\n+++ b/x.go\n+novo código",
+		PreviousReview:      "A1: validar setor obrigatório.",
+		ReviewJustification: "setor vazio é permitido para exames externos",
+	}
+	out := buildPrompt(input, "")
+	for _, want := range []string{"Revisão anterior", "A1: validar", "Justificativa", "exames externos"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}

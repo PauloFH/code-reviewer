@@ -148,6 +148,22 @@ func TestParseWebhook_ReviewCommandWithPreset(t *testing.T) {
 	}
 }
 
+func TestParseWebhook_HashRevisarCarriesJustification(t *testing.T) {
+	c := newTestClient()
+	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("#revisar o setor nulo é esperado neste fluxo"))
+
+	event, err := c.ParseWebhook(w)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !event.IsReanalyze {
+		t.Fatal("expected #revisar to trigger a reanalysis")
+	}
+	if event.ReviewJustification != "o setor nulo é esperado neste fluxo" {
+		t.Fatalf("ReviewJustification = %q", event.ReviewJustification)
+	}
+}
+
 func TestParseWebhook_NonReviewNoteIgnored(t *testing.T) {
 	c := newTestClient()
 	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("just a comment"))
