@@ -126,7 +126,10 @@ jobs:
       - name: Update checkout and build frontend
         run: |
           cd /opt/code-reviewer
-          git pull
+          # O servidor espelha o main: histórico reescrito e dist/index.html
+          # regerado pelo build fariam um `git pull` falhar.
+          git fetch origin main
+          git reset --hard origin/main
           cd web
           npm ci
           npm run build
