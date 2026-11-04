@@ -25,3 +25,7 @@ design/
 # Artefatos de agentes
 .superpowers/
 .playwright-mcp/
+
+# Arquivos locais
+.cloudflare/
+exemplo.txt
