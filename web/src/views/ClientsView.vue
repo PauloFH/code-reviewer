@@ -4,23 +4,16 @@
     <div class="page-head">
       <div>
         <div class="page-eyebrow">Integrações</div>
-        <h1 class="page-title">Clients</h1>
-        <div class="page-sub">Hosts conectados ao Code Reviewer. Cada cliente expõe seus projetos para revisão automatizada.</div>
+        <h1 class="page-title">Clientes</h1>
+        <div class="page-sub">Hosts conectados ao Mergeye. Cada cliente expõe seus projetos para revisão automatizada.</div>
       </div>
       <div class="page-actions">
         <button class="btn" @click="syncClients">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
-            <path d="M21 3v5h-5"/>
-            <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
-            <path d="M3 21v-5h5"/>
-          </svg>
+          <AppIcon name="refresh" :size="13" />
           Sincronizar
         </button>
         <button class="btn primary" @click="openCreate">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
+          <AppIcon name="plus" :size="13" />
           Novo cliente
         </button>
       </div>
@@ -34,7 +27,7 @@
       </div>
 
       <div v-if="loading" class="loading-row">
-        <span class="spinner" /> Loading…
+        <span class="spinner" /> Carregando…
       </div>
       <div v-else-if="clients.length === 0" class="empty-state">
         <div class="empty-title">Nenhum cliente configurado</div>
@@ -45,27 +38,24 @@
           <div class="client-name">
             <div class="client-mark">{{ getPlatformInitials(c.platform) }}</div>
             <div>
-              <div style="font-weight: 500;">{{ c.name }}</div>
+              <div class="client-nome">{{ c.name }}</div>
               <div class="client-meta">{{ c.base_url }} · {{ c.username }}</div>
             </div>
           </div>
-          <div style="text-align: right;">
-            <div class="num-emph">{{ clientStats[c.name]?.reviews || 0 }}</div>
-            <div class="client-meta">reviews</div>
+          <div class="client-num">
+            <div class="num-emph">{{ formatCount(clientStats[c.name]?.reviews || 0) }}</div>
+            <div class="client-meta">revisões</div>
           </div>
-          <div style="text-align: right;">
-            <div class="num-emph">${{ (clientStats[c.name]?.cost || 0).toFixed(4) }}</div>
-            <div class="client-meta">cost</div>
+          <div class="client-num">
+            <div class="num-emph">{{ formatUsd(clientStats[c.name]?.cost || 0) }}</div>
+            <div class="client-meta">custo</div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div class="client-acoes">
             <span class="pill ok">
-              <span class="dot"></span>connected
+              <span class="dot"></span>conectado
             </span>
-            <button class="btn sm ghost" title="Configurações" @click="openEdit(c)">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
-              </svg>
+            <button class="btn sm ghost" title="Configurações" aria-label="Configurações" @click="openEdit(c)">
+              <AppIcon name="settings" :size="12" />
             </button>
           </div>
         </div>
@@ -74,10 +64,8 @@
 
     <!-- Footer hint -->
     <div class="foothint">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5zM19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>
-      </svg>
-      Conecte outros hosts (GitHub, Bitbucket, Azure DevOps) para revisar MRs em múltiplas plataformas a partir do mesmo dashboard.
+      <AppIcon name="merge" :size="14" />
+      Cada cliente pode ser GitLab, GitHub ou Gitea, então um só painel revisa MRs e PRs de plataformas diferentes.
     </div>
 
     <!-- Create/Edit modal -->
@@ -94,9 +82,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import ClientForm from '@/components/ClientForm.vue'
+import AppIcon from '@/components/AppIcon.vue'
 import { useToastStore } from '@/stores/toast'
 import { listClients, createClient, updateClient, type Client, type ClientInput } from '@/api/clients'
 import { getStats } from '@/api/events'
+import { formatCount, formatUsd } from '@/brand/format'
 
 const toast = useToastStore()
 
@@ -133,7 +123,7 @@ async function load() {
       // ignore stats error
     }
   } catch {
-    toast.push('Failed to load clients', 'error')
+    toast.push('Falha ao carregar clientes', 'error')
   } finally {
     loading.value = false
   }
@@ -160,15 +150,15 @@ async function handleSaved(data: ClientInput & { _oldName?: string }) {
     if (data._oldName) {
       const { _oldName, ...rest } = data
       await updateClient(_oldName, rest)
-      toast.push('Client updated', 'success')
+      toast.push('Cliente atualizado', 'success')
     } else {
       await createClient(data)
-      toast.push('Client created', 'success')
+      toast.push('Cliente criado', 'success')
     }
     showForm.value = false
     await load()
   } catch (e: unknown) {
-    const msg = (e as { response?: { data?: string } })?.response?.data || 'An error occurred'
+    const msg = (e as { response?: { data?: string } })?.response?.data || 'Ocorreu um erro'
     formRef.value?.setError(msg)
     formRef.value?.setSaving(false)
   }
@@ -194,5 +184,55 @@ onMounted(load)
 .empty-state {
   padding: 56px 32px;
   text-align: center;
+}
+
+/* Ações do cabeçalho quebram de linha em vez de sair da tela. */
+.page-head,
+.page-actions {
+  flex-wrap: wrap;
+}
+
+.client-row {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.client-nome {
+  font-weight: 500;
+}
+
+.client-num {
+  text-align: right;
+}
+
+.client-acoes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Em tela estreita: nome e URL em cima; números e selo embaixo. */
+@media (max-width: 640px) {
+  .client-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 12px 20px;
+  }
+
+  .client-name {
+    grid-column: 1 / -1;
+  }
+
+  .client-num {
+    text-align: left;
+  }
+
+  .client-acoes {
+    justify-content: flex-end;
+  }
+}
+
+/* URLs longas quebram em vez de empurrar a linha. */
+.client-name > div:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

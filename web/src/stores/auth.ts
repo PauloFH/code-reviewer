@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { loginAPI, getMeAPI } from '@/api/auth'
+import { readStorage, writeStorage, removeStorage } from '@/brand/storage'
 
 export interface UserInfo {
   id: number
@@ -9,7 +10,7 @@ export interface UserInfo {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('jwt'))
+  const token = ref<string | null>(readStorage('jwt'))
   const user = ref<UserInfo | null>(null)
   const userLoaded = ref(false)
 
@@ -22,7 +23,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(username: string, password: string) {
     const t = await loginAPI(username, password)
     token.value = t
-    localStorage.setItem('jwt', t)
+    writeStorage('jwt', t)
     await fetchMe()
   }
 
@@ -46,7 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null
     user.value = null
     userLoaded.value = true
-    localStorage.removeItem('jwt')
+    removeStorage('jwt')
   }
 
   const initPromise = token.value ? fetchMe() : Promise.resolve().then(() => { userLoaded.value = true })

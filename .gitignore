@@ -22,3 +22,6 @@ web/dist/
 .omc
 **/.omc/
 design/
+# Artefatos de agentes
+.superpowers/
+.playwright-mcp/

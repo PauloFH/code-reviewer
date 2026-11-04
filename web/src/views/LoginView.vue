@@ -1,22 +1,19 @@
 <template>
   <div class="login-wrap">
+    <BackgroundMotion :intensity="1.6" />
     <div class="login-card">
-      <!-- Brand -->
       <div class="brand">
-        <div class="brand-mark">CR</div>
-        <div class="brand-info">
-          <div class="brand-name">Code Reviewer</div>
-          <div class="brand-sub">v 2.4</div>
-        </div>
+        <BrandLogo variant="horizontal" class="brand-logo" />
       </div>
 
       <form @submit.prevent="handleLogin">
-        <h1>Sign in</h1>
-        <p v-if="error" class="error">{{ error }}</p>
+        <h1>Entrar</h1>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <div class="field">
-          <label>Username</label>
+          <label for="login-username">Usuário</label>
           <input
+            id="login-username"
             v-model="username"
             type="text"
             autocomplete="username"
@@ -26,8 +23,9 @@
         </div>
 
         <div class="field">
-          <label>Password</label>
+          <label for="login-password">Senha</label>
           <input
+            id="login-password"
             v-model="password"
             type="password"
             autocomplete="current-password"
@@ -38,7 +36,7 @@
 
         <button type="submit" :disabled="loading" class="btn primary">
           <span v-if="loading" class="spinner" />
-          {{ loading ? 'Signing in…' : 'Sign in' }}
+          {{ loading ? 'Entrando…' : 'Entrar' }}
         </button>
       </form>
     </div>
@@ -49,6 +47,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import BrandLogo from '@/components/BrandLogo.vue'
+import BackgroundMotion from '@/components/BackgroundMotion.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -65,7 +65,7 @@ async function handleLogin() {
     await auth.login(username.value, password.value)
     router.push('/dashboard')
   } catch {
-    error.value = 'Invalid credentials'
+    error.value = 'Credenciais inválidas'
   } finally {
     loading.value = false
   }
@@ -74,6 +74,7 @@ async function handleLogin() {
 
 <style scoped>
 .login-wrap {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -83,7 +84,9 @@ async function handleLogin() {
 }
 
 .login-card {
-  background: var(--panel);
+  position: relative;
+  z-index: 1;
+  background: var(--panel-solid);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: 2rem;
@@ -92,44 +95,14 @@ async function handleLogin() {
 }
 
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--hairline);
   margin-bottom: 1.5rem;
 }
 
-.brand-mark {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--text);
-  background: linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%);
-}
-
-.brand-info {
-  flex: 1;
-}
-
-.brand-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.brand-sub {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.brand-logo {
+  width: 180px;
+  margin: 0 auto;
 }
 
 h1 {
@@ -137,7 +110,7 @@ h1 {
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--text);
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
 form {
@@ -153,11 +126,8 @@ form {
 }
 
 .field label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input {
@@ -191,8 +161,9 @@ form {
   color: var(--danger);
   font-size: 13px;
   padding: 8px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: var(--bg-2);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
+  overflow-wrap: anywhere;
 }
 </style>

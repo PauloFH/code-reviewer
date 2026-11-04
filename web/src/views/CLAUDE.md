@@ -4,9 +4,9 @@
 
 Página pública de login (`/login`).
 
-- Formulário com `username` e `password`.
+- Formulário "Entrar" com usuário e senha; logo (`BrandLogo`) e fundo animado (`BackgroundMotion`) no tema salvo.
 - Chama `auth.login(username, password)` no submit.
-- Mostra spinner no botão durante a chamada e mensagem de erro inline em falha.
+- Mostra spinner no botão durante a chamada e a mensagem "Credenciais inválidas" inline em falha.
 - Redireciona para `/dashboard` em caso de sucesso via `router.push`.
 - Se já autenticado ao montar, redireciona imediatamente para `/dashboard`.
 
@@ -14,20 +14,21 @@ Página pública de login (`/login`).
 
 ## DashboardView.vue
 
-Visão geral do sistema (`/dashboard`).
+Painel (`/dashboard`): visão geral do sistema.
 
-**Dados carregados em `onMounted`:**
-- `getStats()` → `ReviewStats` — passado para `StatsCards` e `ClientStats`.
+**Estado:** `period` (`24h` | `7d` | `30d` | `90d`, padrão `7d`; vira `days` do `CostChart`), `filterClient` (filtra gráfico e indicadores), `connected` (vem do `LiveFeed`).
+
+**Dados:** `getStats()` em `onMounted`, ao trocar período/cliente e no botão "Atualizar"; `listClients()` alimenta o seletor.
 
 **Composição:**
 ```
-StatsCards  — 5 cards de métricas globais
-ClientStats — tabela breakdown por cliente (oculto se by_client vazio)
-CostChart   — gráfico de custo diário 30 dias
-LiveFeed    — SSE em tempo real
+StatsCards  — 5 indicadores globais
+CostChart   — "Custo diário" (período e cliente escolhidos)
+ClientStats — "Por cliente" (estado vazio "Sem dados ainda." quando by_client é vazio)
+LiveFeed    — "Ao vivo": SSE com todos os status, selo conectado/desconectado
 ```
 
-Todos os dados do Dashboard são independentes — nenhum componente filho espera dados do outro.
+Instalação nova (sem dados): indicadores em zero, gráfico e listas vazios e legíveis, sem `NaN`.
 
 ---
 
@@ -37,7 +38,7 @@ Histórico paginado de reviews (`/events`).
 
 **Estado:**
 - `events: ReviewEvent[]`, `total: number`, `page: number`, `loading: boolean`
-- `filterClient`, `filterSince`, `filterUntil` — inputs controlados
+- `filterSearch`, `filterClient`, `filterStatus`, `filterSince`, `filterUntil` — inputs controlados
 - `pageSize = 25` (fixo)
 
 **Fluxo:**
@@ -55,13 +56,12 @@ Histórico paginado de reviews (`/events`).
 
 ## ClientsView.vue
 
-CRUD de clients de plataforma (`/clients`).
+Lista e edição de clients de plataforma (`/clients`). Não há exclusão pela interface: `deleteClient` existe em `@/api/clients`, mas nenhuma view o chama.
 
 **Estado:**
 - `clients: Client[]` — lista carregada do servidor
 - `showForm: boolean` — controla visibilidade do modal `ClientForm`
 - `editingClient: Client | null` — `null` = criação; `Client` = edição
-- `deleteTarget: string` — nome do client a deletar; `''` = nenhum
 - `formRef` — ref para a instância de `ClientForm` (para chamar `setSaving`/`setError`)
 
 **Fluxo de criação/edição:**
@@ -71,10 +71,7 @@ CRUD de clients de plataforma (`/clients`).
 4. Sucesso → `showForm = false`, `load()`, toast success
 5. Erro → `setError(msg)`, `setSaving(false)` — form permanece aberto com mensagem
 
-**Fluxo de exclusão:**
-1. Botão Delete → `deleteTarget = c.name` → modal de confirmação aparece
-2. `doDelete()` chama `deleteClient(deleteTarget)`, toast, `load()`
-3. Cancelar ou clicar fora → `deleteTarget = ''`
+O botão "Sincronizar" apenas recarrega a lista (`load()`) e mostra um toast; as métricas por cliente vêm de `getStats()`.
 
 Toasts usam `useToastStore` — sucesso e erro aparecem no canto via `ToastContainer`.
 

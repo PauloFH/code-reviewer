@@ -1,5 +1,5 @@
 <template>
-  <Modal :title="initial ? 'Editar Configuração' : 'Nova Configuração de IA'" max-width="520px" @close="$emit('close')">
+  <Modal :title="initial ? 'Editar configuração' : 'Nova configuração de IA'" max-width="520px" @close="$emit('close')">
     <p v-if="error" class="error">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
@@ -60,11 +60,11 @@
 
       <div class="field-row">
         <div class="field">
-          <label>Máx tokens saída <span class="opt">(0 = padrão)</span></label>
+          <label>Máx. de tokens de saída <span class="opt">(0 = padrão)</span></label>
           <input v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
         </div>
         <div class="field">
-          <label>Timeout (seg)</label>
+          <label>Timeout (segundos)</label>
           <input v-model.number="form.timeout_seconds" type="number" min="1" />
         </div>
       </div>
@@ -245,12 +245,9 @@ defineExpose({
 }
 
 .field label {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input,
@@ -281,10 +278,8 @@ select:disabled {
 }
 
 .opt {
-  color: var(--muted-2);
+  color: var(--muted);
   font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
 }
 
 .hint {
@@ -319,7 +314,7 @@ select:disabled {
 }
 
 .dot.ok { background: var(--ok); }
-.dot.off { background: var(--muted); }
+.dot.off { background: var(--skip); }
 
 .oauth-error {
   margin: 0;
@@ -339,8 +334,8 @@ select:disabled {
   color: var(--danger);
   font-size: 12.5px;
   padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius);
 }
 </style>

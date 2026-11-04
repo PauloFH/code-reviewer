@@ -1,5 +1,5 @@
 <template>
-  <Modal :title="isEdit ? 'Editar Perfil de Revisão' : 'Novo Perfil de Revisão'" max-width="500px" @close="$emit('close')">
+  <Modal :title="isEdit ? 'Editar perfil de revisão' : 'Novo perfil de revisão'" max-width="500px" @close="$emit('close')">
     <p v-if="error" class="error">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
@@ -90,16 +90,12 @@ defineExpose({
 }
 
 .field label {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
-.field input[type="text"],
-.field input[type="number"],
+.field input:not([type="checkbox"]),
 .field select {
   padding: 8px 12px;
   background: var(--bg-2);
@@ -111,8 +107,7 @@ defineExpose({
   transition: border-color 0.1s;
 }
 
-.field input[type="text"]:focus,
-.field input[type="number"]:focus,
+.field input:not([type="checkbox"]):focus,
 .field select:focus {
   outline: none;
   border-color: var(--accent);
@@ -139,9 +134,6 @@ defineExpose({
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
-  font-family: inherit;
-  text-transform: none;
-  letter-spacing: normal;
   font-weight: normal;
 }
 
@@ -157,8 +149,8 @@ defineExpose({
   color: var(--danger);
   font-size: 12.5px;
   padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius);
   margin-bottom: 16px;
 }
