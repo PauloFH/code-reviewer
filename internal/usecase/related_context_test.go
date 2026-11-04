@@ -66,6 +66,7 @@ func TestCollectAssemblesAndDedups(t *testing.T) {
 
 	if rc == nil {
 		t.Fatal("expected non-nil related context")
+		return // o staticcheck do CI não reconhece t.Fatal como fim do fluxo (SA5011)
 	}
 	if len(rc.Issues) != 1 || rc.Issues[0].IID != 7 { // #7 from closes and desc → deduped to 1
 		t.Fatalf("issues = %+v, want single #7", rc.Issues)

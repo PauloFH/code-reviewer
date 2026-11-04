@@ -101,6 +101,7 @@ func TestResolveConfigScopes(t *testing.T) {
 			}
 			if got == nil {
 				t.Fatalf("ResolveConfig returned nil; wanted %q", tc.wantName)
+				return // o staticcheck do CI não reconhece t.Fatal como fim do fluxo (SA5011)
 			}
 			if got.Name != tc.wantName {
 				t.Fatalf("resolved %q, wanted %q", got.Name, tc.wantName)
