@@ -1,0 +1,53 @@
+{
+  "order": 1,
+  "url": "https://reviewer.pauloholanda.com.br",
+  "image": "capa.png",
+  "stack": [
+    "Go",
+    "AI",
+    "SQLite",
+    "Docker"
+  ],
+  "i18n": {
+    "pt": {
+      "name": "Mergeye (Code Reviewer)",
+      "summary": "Monitora MRs e PRs no GitLab, GitHub e Gitea e publica uma revisão gerada por IA direto no diff.",
+      "highlights": [
+        "Várias plataformas ao mesmo tempo, com um cliente independente para cada uma (Strategy Pattern).",
+        "Uma revisão por MR: reenvios de webhook e novos commits não geram outra.",
+        "Comentários inline no GitLab e no GitHub e dashboard de acompanhamento."
+      ],
+      "imageAlt": "Comentário de revisão gerado por IA em um diff"
+    },
+    "en": {
+      "name": "Mergeye (Code Reviewer)",
+      "summary": "Monitors MRs and PRs on GitLab, GitHub and Gitea and posts an AI-generated review straight on the diff.",
+      "highlights": [
+        "Multiple platforms at the same time, with an independent client for each one (Strategy Pattern).",
+        "One review per MR: webhook retries and new commits do not trigger another.",
+        "Inline comments on GitLab and GitHub, plus a tracking dashboard."
+      ],
+      "imageAlt": "AI-generated review comment on a diff"
+    },
+    "es": {
+      "name": "Mergeye (Code Reviewer)",
+      "summary": "Monitorea MRs y PRs en GitLab, GitHub y Gitea y publica una revisión generada por IA directamente en el diff.",
+      "highlights": [
+        "Varias plataformas al mismo tiempo, con un cliente independiente para cada una (Strategy Pattern).",
+        "Una revisión por MR: los reenvíos de webhook y los nuevos commits no generan otra.",
+        "Comentarios inline en GitLab y GitHub, y un dashboard de seguimiento."
+      ],
+      "imageAlt": "Comentario de revisión generado por IA en un diff"
+    },
+    "ja": {
+      "name": "Mergeye (Code Reviewer)",
+      "summary": "GitLab、GitHub、Gitea の MR と PR を監視し、AI が生成したレビューを diff に直接投稿します。",
+      "highlights": [
+        "複数のプラットフォームを同時に扱い、それぞれに独立したクライアントを用意しています（Strategy パターン）。",
+        "MR ごとにレビューは 1 件のみ。Webhook の再送や新しいコミットがあっても、重複して作成されません。",
+        "GitLab と GitHub ではインラインコメントを投稿し、進捗を確認できるダッシュボードも備えています。"
+      ],
+      "imageAlt": "diff に付いた AI 生成のレビューコメント"
+    }
+  }
+}
