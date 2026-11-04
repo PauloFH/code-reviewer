@@ -102,6 +102,7 @@ async function handleLogin() {
 
 .brand-logo {
   width: 180px;
+  margin: 0 auto;
 }
 
 h1 {
