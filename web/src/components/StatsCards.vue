@@ -1,43 +1,57 @@
 <template>
-  <div class="kpis">
+  <section class="kpis" aria-label="Indicadores">
     <div class="kpi">
-      <div class="kpi-label">Total Reviews</div>
-      <div class="kpi-value mono">{{ fmt(stats.total_reviews) }}</div>
-      <div class="kpi-foot">all time</div>
+      <div class="kpi-label">Revisões no total</div>
+      <div class="kpi-value">{{ formatCount(stats.total_reviews) }}</div>
+      <div class="kpi-foot">desde o início</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Reviews (30d)</div>
-      <div class="kpi-value mono">{{ fmt(stats.reviews_last_30d) }}</div>
+      <div class="kpi-label">Revisões em 30 dias</div>
+      <div class="kpi-value">{{ formatCount(stats.reviews_last_30d) }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Total Tokens</div>
-      <div class="kpi-value mono">{{ fmtK(stats.total_tokens) }}</div>
+      <div class="kpi-label">Tokens no total</div>
+      <div class="kpi-value">{{ formatCount(stats.total_tokens) }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Total Cost</div>
-      <div class="kpi-value mono">${{ stats.total_cost_usd.toFixed(5) }}</div>
+      <div class="kpi-label">Custo total</div>
+      <div class="kpi-value">{{ formatUsd(stats.total_cost_usd) }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Cost (30d)</div>
-      <div class="kpi-value mono">${{ stats.cost_last_30d.toFixed(5) }}</div>
+      <div class="kpi-label">Custo em 30 dias</div>
+      <div class="kpi-value">{{ formatUsd(stats.cost_last_30d) }}</div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
 import type { ReviewStats } from '@/api/events'
+import { formatCount, formatUsd } from '@/brand/format'
 
 defineProps<{ stats: ReviewStats }>()
-
-function fmt(n: number) {
-  return new Intl.NumberFormat().format(n)
-}
-
-function fmtK(n: number) {
-  return n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-}
 </script>
 
 <style scoped>
-/* StatsCards uses global .kpis and .kpi classes from tokens.css */
+.kpis {
+  border-radius: 0;
+}
+
+.kpi {
+  padding: 16px 16px 19px;
+}
+
+.kpi-value {
+  margin-top: 8px;
+  font-family: var(--font-sans);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.kpi-foot {
+  margin-top: 4px;
+}
 </style>

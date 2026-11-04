@@ -1,90 +1,81 @@
 <template>
   <div class="page">
-    <!-- Page head -->
     <div class="page-head">
       <div>
-        <div class="page-eyebrow">Overview · {{ today }}</div>
-        <h1 class="page-title">Dashboard</h1>
-        <div class="page-sub">Atividade de revisão automatizada — todos os clientes e projetos conectados.</div>
+        <div class="page-eyebrow">visão geral · {{ today }}</div>
+        <h1 class="page-title">Painel</h1>
+        <div class="page-sub">Atividade de revisão automatizada em todos os clientes e projetos conectados.</div>
       </div>
       <div class="page-actions">
-        <div class="seg">
-          <button :class="{ on: period === '24h' }" @click="setPeriod('24h')">24h</button>
-          <button :class="{ on: period === '7d' }" @click="setPeriod('7d')">7d</button>
-          <button :class="{ on: period === '30d' }" @click="setPeriod('30d')">30d</button>
-          <button :class="{ on: period === '90d' }" @click="setPeriod('90d')">90d</button>
+        <div class="seg" role="group" aria-label="Período">
+          <button
+            v-for="p in periods"
+            :key="p"
+            type="button"
+            :class="{ on: period === p }"
+            :aria-pressed="period === p"
+            @click="setPeriod(p)"
+          >
+            {{ p }}
+          </button>
         </div>
-        <button class="btn" @click="loadStats">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
-            <path d="M21 3v5h-5"/>
-            <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
-            <path d="M3 21v-5h5"/>
-          </svg>
+        <button class="btn" type="button" @click="loadStats">
+          <AppIcon name="refresh" :size="13" />
           Atualizar
         </button>
       </div>
     </div>
 
-    <!-- KPI Row -->
     <div v-if="loadingStats" class="loading-row">
-      <span class="spinner" /> Loading stats…
+      <span class="spinner" /> Carregando indicadores…
     </div>
     <template v-else-if="stats">
       <StatsCards :stats="stats" />
 
-      <!-- Charts grid -->
-      <div class="grid-3-1">
-        <div class="card">
+      <div class="grade">
+        <section class="card">
           <div class="card-head">
             <div>
-              <div class="card-title">Daily cost</div>
-              <div class="card-sub">USD · últimos {{ period === '24h' ? '1 dia' : period === '7d' ? '7 dias' : period === '30d' ? '30 dias' : '90 dias' }}</div>
+              <h2 class="card-title">Custo diário</h2>
+              <div class="card-sub">em dólar · {{ periodLabel }}</div>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <select v-model="filterClient" class="client-select" @change="loadStats">
-                <option value="">todos os clientes</option>
-                <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
-              </select>
-              <span class="card-sub" style="display: flex; align-items: center; gap: 8px;">
-                <span class="legend-dot"></span>cost
-              </span>
-            </div>
+            <select v-model="filterClient" class="client-select" aria-label="Filtrar por cliente" @change="loadStats">
+              <option value="">todos os clientes</option>
+              <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
+            </select>
           </div>
           <div class="card-body chart-wrap">
             <CostChart :client="filterClient || undefined" :days="periodDays" />
           </div>
-        </div>
+        </section>
 
-        <div class="card">
+        <section class="card">
           <div class="card-head">
             <div>
-              <div class="card-title">By client</div>
-              <div class="card-sub">share of total cost</div>
+              <h2 class="card-title">Por cliente</h2>
+              <div class="card-sub">parte do custo total</div>
             </div>
           </div>
-          <div class="card-body flush" style="padding: 0;">
+          <div class="card-body flush">
             <ClientStats :stats="stats.by_client" />
-            <div v-if="!stats.by_client.length" style="padding: 14px 22px; font-size: 12px; color: var(--muted);">
-              Apenas 1 cliente conectado. <router-link to="/clients" style="color: var(--accent);">Adicionar cliente →</router-link>
+            <div v-if="!stats.by_client.length" class="vazio">
+              Sem dados ainda.
+              <router-link to="/clients">Adicionar cliente →</router-link>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      <!-- Live Feed -->
-      <div class="card" style="margin-top: 32px;">
+      <section class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Live feed</div>
+            <h2 class="card-title">Ao vivo</h2>
             <div class="card-sub">eventos recebidos em tempo real</div>
           </div>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <span class="pill ok"><span class="dot pulse"></span>live</span>
-          </div>
+          <span class="vivo" :class="{ off: !connected }">{{ connected ? 'conectado' : 'desconectado' }}</span>
         </div>
-        <LiveFeed />
-      </div>
+        <LiveFeed @connection="connected = $event" />
+      </section>
     </template>
   </div>
 </template>
@@ -97,10 +88,13 @@ import CostChart from '@/components/CostChart.vue'
 import LiveFeed from '@/components/LiveFeed.vue'
 import { getStats, type ReviewStats } from '@/api/events'
 import { listClients } from '@/api/clients'
+import AppIcon from '@/components/AppIcon.vue'
 
 const stats = ref<ReviewStats | null>(null)
 const loadingStats = ref(false)
+const periods = ['24h', '7d', '30d', '90d']
 const period = ref('7d')
+const connected = ref(false)
 const filterClient = ref('')
 const clients = ref<string[]>([])
 
@@ -109,9 +103,11 @@ const periodDays = computed(() => {
   return map[period.value] || 7
 })
 
-const today = computed(() => {
-  return new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
-})
+const periodLabel = computed(() =>
+  periodDays.value === 1 ? 'último dia' : `últimos ${periodDays.value} dias`,
+)
+
+const today = new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
 
 function setPeriod(p: string) {
   period.value = p
@@ -146,6 +142,55 @@ onMounted(() => {
 .page {
   display: flex;
   flex-direction: column;
+  gap: 24px;
+}
+
+.page-head {
+  flex-wrap: wrap;
+  padding-bottom: 0;
+  margin-bottom: 2px;
+  border-bottom: 0;
+}
+
+.page-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.page-title {
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.page-actions {
+  flex-wrap: wrap;
+}
+
+.seg {
+  padding: 0;
+  background: var(--panel);
+  border-radius: var(--radius);
+}
+
+.seg button {
+  padding: 7px 11px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  border-radius: 0;
+}
+
+.seg button.on {
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: none;
+}
+
+.btn {
+  padding: 8px 13px;
+  font-size: 13.5px;
+  border-radius: var(--radius);
 }
 
 .loading-row {
@@ -157,34 +202,106 @@ onMounted(() => {
   padding: 24px 0;
 }
 
-.chart-wrap {
-  position: relative;
-  padding: 8px 14px 4px;
+.grade {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 20px;
 }
 
-.legend-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: inline-block;
-  margin-right: 5px;
-  vertical-align: middle;
+.card {
+  border-radius: 0;
+}
+
+.card-head {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.card-sub {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+}
+
+.chart-wrap {
+  padding: 16px;
+}
+
+.vazio {
+  padding: 18px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.vazio a {
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+.vivo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ok);
+}
+
+.vivo::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  animation: pulso 1.6s ease-in-out infinite;
+}
+
+.vivo.off {
+  color: var(--muted);
+}
+
+.vivo.off::before {
+  animation: none;
+}
+
+@keyframes pulso {
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .client-select {
-  padding: 4px 8px;
-  background: var(--bg-2);
+  padding: 5px 8px;
+  background: var(--bg);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  color: var(--text-2);
-  font-size: 12px;
+  color: var(--text);
+  font-size: 13px;
   font-family: var(--font-sans);
   cursor: pointer;
+  max-width: 100%;
 }
 
-.client-select:focus {
-  outline: none;
-  border-color: var(--accent);
+.client-select:focus-visible {
+  outline: 2px solid var(--merge-mid);
+  outline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+  .grade {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vivo::before {
+    animation: none;
+  }
 }
 </style>
