@@ -91,6 +91,8 @@ function meta(e: ReviewEvent) {
 .feed {
   max-height: 400px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
 }
 
 .feed-empty {

@@ -132,8 +132,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   background: var(--bg-2);
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 18px 14px;
+  gap: 14px;
+  padding: 14px 14px;
   position: fixed;
   top: 0;
   bottom: 0;
@@ -151,7 +151,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 }
 
 .brand-logo {
-  width: 190px;
+  width: 150px;
+  min-width: 0; /* deixa a logo encolher no flex para o botão de fechar caber na barra */
 }
 
 .close-btn {
@@ -161,6 +162,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   color: var(--muted);
   cursor: pointer;
   padding: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .close-btn:hover {
@@ -172,7 +175,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   overflow-y: auto;
 }
 
@@ -184,8 +187,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 .nav-label {
   font-size: 12px;
+  line-height: 1.3;
   color: var(--muted);
-  padding: 0 8px 3px;
+  padding: 0 8px 2px;
 }
 
 .nav-item {
@@ -193,7 +197,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 4px 8px;
+  line-height: 1.3;
   border-radius: 2px;
   color: var(--text);
   text-decoration: none;

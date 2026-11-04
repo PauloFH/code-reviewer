@@ -235,14 +235,20 @@ onMounted(() => {
 }
 
 .vazio {
-  padding: 18px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  padding: 48px 32px;
   font-size: 13px;
+  font-family: var(--font-mono);
   color: var(--muted);
+  text-align: center;
 }
 
 .vazio a {
   color: var(--accent);
-  margin-left: 6px;
 }
 
 .vivo {

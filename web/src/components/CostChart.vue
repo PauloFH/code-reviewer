@@ -57,7 +57,6 @@ const colors = computed(() => {
     ok: v('--ok'),
     text: v('--text'),
     muted: v('--muted'),
-    grid: v('--hairline'),
     panel: v('--panel-solid'),
     border: v('--hairline-strong'),
     mono: v('--font-mono'),
@@ -108,7 +107,9 @@ const chartData = computed(() => {
         borderWidth: 3,
         fill: true,
         tension: 0,
-        pointRadius: 0,
+        // com um único ponto (24h) não há linha para desenhar; o ponto precisa aparecer
+        pointRadius: points.value.length === 1 ? 4 : 0,
+        pointBackgroundColor: c.mid,
         pointHoverRadius: 4,
         pointHoverBackgroundColor: c.mid,
         pointHoverBorderColor: c.text,
@@ -125,6 +126,7 @@ const chartOptions = computed(() => {
   return {
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 8, right: 8 } },
     animation: reducedMotion ? (false as const) : undefined,
     interaction: { mode: 'index' as const, intersect: false },
     plugins: {
@@ -146,16 +148,11 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: {
-        ticks: { color: c.muted, maxTicksLimit: 8, font },
-        grid: { color: c.grid },
-        border: { color: c.grid },
+        ticks: { color: c.muted, maxTicksLimit: 6, maxRotation: 0, font },
+        grid: { display: false },
+        border: { display: false },
       },
-      y: {
-        beginAtZero: true,
-        ticks: { color: c.muted, font, callback: (v: unknown) => formatUsd(Number(v)) },
-        grid: { color: c.grid },
-        border: { color: c.grid },
-      },
+      y: { beginAtZero: true, display: false },
     },
   }
 })

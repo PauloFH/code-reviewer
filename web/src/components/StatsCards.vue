@@ -43,12 +43,12 @@ defineProps<{ stats: ReviewStats }>()
 .kpi-value {
   margin-top: 8px;
   font-family: var(--font-sans);
-  font-size: 32px;
+  font-size: clamp(22px, 7vw, 32px);
+  white-space: nowrap;
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
 .kpi-foot {
