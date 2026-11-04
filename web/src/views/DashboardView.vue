@@ -49,7 +49,7 @@
           </div>
         </section>
 
-        <section class="card">
+        <section class="card por-cliente">
           <div class="card-head">
             <div>
               <h2 class="card-title">Por cliente</h2>
@@ -234,7 +234,20 @@ onMounted(() => {
   padding: 16px;
 }
 
+.por-cliente {
+  display: flex;
+  flex-direction: column;
+}
+
+/* O corpo ocupa a altura do cartão (que acompanha o Custo diário), para centralizar o vazio na vertical. */
+.por-cliente .card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 .vazio {
+  flex: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -148,6 +148,7 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: {
+        offset: points.value.length === 1, // ponto único centralizado em vez de colado à borda
         ticks: { color: c.muted, maxTicksLimit: 6, maxRotation: 0, font },
         grid: { display: false },
         border: { display: false },

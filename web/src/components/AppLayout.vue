@@ -222,6 +222,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 .nav-kbd {
   font: 11px var(--font-mono);
   color: var(--muted);
+  border: 0; /* só a letra, sem a caixa do tokens.css */
+  padding: 0;
 }
 
 .nav-item.router-link-active .nav-kbd {
