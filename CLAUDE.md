@@ -135,6 +135,8 @@ mkdir -p data
 go run ./cmd/server
 ```
 
+Go >= 1.26.10. A lib `git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go` é privada: use `GOPRIVATE=git.pauloholanda.com.br/*` e credencial de leitura no Git. O build Docker exige o segredo `git_token` (`docker compose up --build` lê `CI_GIT_TOKEN` do ambiente do host).
+
 ## Rotas disponíveis
 
 | Método | Rota | Descrição |

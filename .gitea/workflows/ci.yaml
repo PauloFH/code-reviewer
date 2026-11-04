@@ -16,11 +16,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # Latest patch of the 1.25 series (go.mod requires >= 1.25.0).
-          # check-latest forces fetching the newest 1.25.x instead of reusing an
-          # older cached patch on the runner, keeping stdlib security fixes
-          # current so govulncheck passes.
-          go-version: '1.25.x'
+          # Latest patch of the 1.26 series (>= 1.26.10 fixes GO-2026-6617 in
+          # net/http and GO-2026-6809 in crypto/x509). check-latest forces fetching the newest 1.26.x instead of
+          # reusing an older cached patch on the runner, keeping stdlib security
+          # fixes current so govulncheck passes.
+          go-version: '1.26.x'
           check-latest: true
 
       # Authenticate to the private module host so `go` can fetch the SDK.
@@ -66,7 +66,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
 
       - name: Configure private module access
@@ -109,17 +109,45 @@ jobs:
   deploy:
     needs: [go-quality, go-test-arm, frontend]
     runs-on: deploy-code-reviewer
+    env:
+      GOPRIVATE: git.pauloholanda.com.br/*
     steps:
-      - name: Deploy
+      # Falha cedo, antes de alterar o checkout do servidor.
+      - name: Check deploy token
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
         run: |
-          # act_runner runs steps in a non-login shell, so the host's profile
-          # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
-          export PATH="/usr/local/go/bin:$PATH"
+          if [ -z "$CI_GIT_TOKEN" ]; then
+            echo "::error::secret CI_GIT_TOKEN is empty or not set"
+            exit 1
+          fi
+
+      # Sem o token: git pull e npm ci (scripts de terceiros) não o recebem.
+      - name: Update checkout and build frontend
+        run: |
           cd /opt/code-reviewer
           git pull
           cd web
           npm ci
           npm run build
+
+      # Só este passo recebe o token. Helper de credencial escopado ao host do
+      # Gitea (com reset, para um `credential.helper=store` não o gravar): o
+      # token não vai para linha de comando/ps nem para `git config --global`.
+      - name: Build binary
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+        run: |
+          # act_runner runs steps in a non-login shell, so the host's profile
+          # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
+          export PATH="/usr/local/go/bin:$PATH"
           cd /opt/code-reviewer
+          GIT_CONFIG_COUNT=2 \
+          GIT_CONFIG_KEY_0='credential.https://git.pauloholanda.com.br.helper' \
+          GIT_CONFIG_VALUE_0='' \
+          GIT_CONFIG_KEY_1='credential.https://git.pauloholanda.com.br.helper' \
+          GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$CI_GIT_TOKEN"; }; f' \
           CGO_ENABLED=1 go build -ldflags="-s -w" -o code-reviewer ./cmd/server
-          sudo systemctl restart code-reviewer
+
+      - name: Restart service
+        run: sudo systemctl restart code-reviewer

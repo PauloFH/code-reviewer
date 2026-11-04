@@ -14,15 +14,34 @@ RUN npm run build
 # ─────────────────────────────────────────────
 # Stage 2: build the Go binary
 # ─────────────────────────────────────────────
-FROM golang:1.25-alpine AS go-builder
+# Tag fixa: a imagem define GOTOOLCHAIN=local, então a linha `toolchain` do go.mod
+# não baixa Go novo; uma tag flutuante em cache poderia compilar com stdlib vulnerável.
+FROM golang:1.26.10-alpine AS go-builder
 
-# CGO is required by go-sqlite3
-RUN apk add --no-cache gcc musl-dev
+# CGO is required by go-sqlite3; git is required to fetch the private SDK module
+RUN apk add --no-cache gcc musl-dev git
+
+# The SDK lives on the private Gitea: skip the public proxy/checksum DB for it
+ENV GOPRIVATE=git.pauloholanda.com.br/*
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+# The token comes from a BuildKit secret (docker build --secret id=git_token,...),
+# mounted only for this command. A credential helper scoped to the Gitea host
+# (reset first, so no `store` helper can persist it) reads the file when git asks:
+# the token is never in a command line/ps, file, ENV, ARG or image layer.
+RUN --mount=type=secret,id=git_token \
+    if [ ! -s /run/secrets/git_token ]; then \
+      echo "ERROR: secret 'git_token' ausente ou vazio. Use: docker build --secret id=git_token,env=CI_GIT_TOKEN . (ou docker compose build com CI_GIT_TOKEN exportado)" >&2; \
+      exit 1; \
+    fi; \
+    GIT_CONFIG_COUNT=2 \
+    GIT_CONFIG_KEY_0='credential.https://git.pauloholanda.com.br.helper' \
+    GIT_CONFIG_VALUE_0='' \
+    GIT_CONFIG_KEY_1='credential.https://git.pauloholanda.com.br.helper' \
+    GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$(cat /run/secrets/git_token)"; }; f' \
+    go mod download
 
 COPY . .
 # Copy the compiled frontend into the embed path
