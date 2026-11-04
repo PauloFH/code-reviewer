@@ -129,5 +129,5 @@ Modal de atribuição de uma config a um escopo (global/client/projeto), espelha
 - **`AppIcon.vue`** — único componente com `<svg`. Props `name` e `size`; ícones de traço reto, sem arredondar. Para um ícone novo, adicione-o aqui.
 - **`BrandLogo.vue`** — logo PNG de `assets/brand/`, versão escura ou clara pelo tema. Prop `variant`: `horizontal` | `simbolo`.
 - **`BackgroundMotion.vue`** — fundo animado em canvas (raias vermelha e verde, branch sendo puxada). Prop `intensity`. Lê as cores dos tokens a cada quadro, então acompanha o tema; com `prefers-reduced-motion` desenha um quadro estático.
-- **`Modal.vue`** — casca de modal em `Teleport`. Props `title` e `maxWidth`; emite `close`; slot padrão e slot `footer`. Os formulários (`ClientForm`, `PromptForm`, ...) são montados dentro dele.
+- **`Modal.vue`** — casca de modal em `Teleport`. Props `title` e `maxWidth`; emite `close`; slot padrão e slot `footer`. Ao montar, foca o `.modal` (`tabindex="-1"`) e, ao desmontar, devolve o foco ao elemento anterior; Esc e trap de Tab não existem. Os formulários (`ClientForm`, `PromptForm`, ...) são montados dentro dele.
 - **`ConfirmModal.vue`** — confirmação de exclusão sobre `Modal`. Props `name`, `warning?`, `loading?`; emite `close` e `confirm`. Usado por Prompts, Modelos e Perfis de revisão.

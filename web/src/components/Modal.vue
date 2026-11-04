@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="modal-overlay" @click.self="$emit('close')">
-      <div class="modal" role="dialog" aria-modal="true" :aria-label="title" :style="{ maxWidth: maxWidth }">
+      <div ref="modalEl" class="modal" tabindex="-1" role="dialog" aria-modal="true" :aria-label="title" :style="{ maxWidth: maxWidth }">
         <div class="modal-header">
           <h2 class="modal-title">{{ title }}</h2>
           <button class="icon-btn" type="button" title="Fechar" aria-label="Fechar" @click="$emit('close')">
@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 
 defineProps<{
@@ -28,6 +29,17 @@ defineProps<{
 }>()
 
 defineEmits<{ close: [] }>()
+
+const modalEl = ref<HTMLElement | null>(null)
+let previous: Element | null = null
+
+onMounted(() => {
+  previous = document.activeElement
+  modalEl.value?.focus()
+})
+onUnmounted(() => {
+  if (previous instanceof HTMLElement) previous.focus()
+})
 </script>
 
 <style scoped>
@@ -42,6 +54,10 @@ defineEmits<{ close: [] }>()
   justify-content: center;
   z-index: 200;
   padding: 24px 16px;
+}
+
+.modal:focus {
+  outline: none;
 }
 
 .modal {

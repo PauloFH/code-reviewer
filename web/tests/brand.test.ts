@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { statusMark } from '../src/brand/status.ts'
 import { formatUsd, formatCount, formatRelative, formatRole } from '../src/brand/format.ts'
+import { createEventAdmitter } from '../src/brand/feed.ts'
 import { NAV_SHORTCUTS, isEditableTarget } from '../src/brand/shortcuts.ts'
 
 test('statusMark: sinal, rótulo e tom por situação', () => {
@@ -52,4 +53,21 @@ test('formatRole: só `padrao` ganha acento; os demais ficam como vêm', () => {
   assert.equal(formatRole('padrao'), 'padrão')
   assert.equal(formatRole('super'), 'super')
   assert.equal(formatRole('gestor'), 'gestor')
+})
+
+test('feed: eventos SSE com id 0 ganham ids locais distintos; id real repetido é duplicado', () => {
+  const admit = createEventAdmitter()
+  const feed: { id: number }[] = []
+  const a = { id: 0 }
+  const b = { id: 0 }
+  assert.equal(admit(feed, a), true)
+  feed.unshift(a)
+  assert.equal(admit(feed, b), true)
+  feed.unshift(b)
+  assert.notEqual(a.id, b.id)
+  assert.ok(a.id < 0 && b.id < 0)
+  const real = { id: 7 }
+  assert.equal(admit(feed, real), true)
+  feed.unshift(real)
+  assert.equal(admit(feed, { id: 7 }), false)
 })

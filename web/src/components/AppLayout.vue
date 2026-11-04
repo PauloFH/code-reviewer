@@ -77,8 +77,6 @@
         <router-view />
       </main>
     </div>
-
-    <ToastContainer />
   </div>
 </template>
 
@@ -92,7 +90,6 @@ import { formatRole } from '@/brand/format'
 import AppIcon from '@/components/AppIcon.vue'
 import BackgroundMotion from '@/components/BackgroundMotion.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
-import ToastContainer from '@/components/ToastContainer.vue'
 
 const auth = useAuthStore()
 const router = useRouter()

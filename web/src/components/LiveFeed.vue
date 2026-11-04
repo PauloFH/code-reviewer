@@ -13,7 +13,7 @@
         <a v-if="e.mr_url" class="titulo" :href="e.mr_url" target="_blank" rel="noopener">{{ title(e) }}</a>
         <span v-else class="titulo">{{ title(e) }}</span>
         <div class="meta">{{ meta(e) }}</div>
-        <div v-if="e.error_message" class="erro">{{ e.error_message }}</div>
+        <div v-if="e.error_message" class="erro" :class="{ falha: e.status === 'error' }">{{ e.error_message }}</div>
       </div>
       <span class="quando">{{ formatRelative(e.reviewed_at) }}</span>
     </div>
@@ -26,6 +26,7 @@ import { createEventSource, listEvents, type ReviewEvent } from '@/api/events'
 import { useAuthStore } from '@/stores/auth'
 import AppIcon from '@/components/AppIcon.vue'
 import { statusMark } from '@/brand/status'
+import { createEventAdmitter } from '@/brand/feed'
 import { formatCount, formatRelative, formatUsd } from '@/brand/format'
 
 const props = defineProps<{ client?: string }>()
@@ -35,6 +36,7 @@ const feed = ref<ReviewEvent[]>([])
 // Só eventos que chegam por SSE ganham a passada de marca-texto; a carga inicial não.
 const novos = ref(new Set<number>())
 
+const admit = createEventAdmitter()
 let es: EventSource | null = null
 // Desmontar durante o await de loadRecent não pode deixar uma conexão SSE aberta.
 let disposed = false
@@ -65,7 +67,7 @@ function startSSE() {
     try {
       const e: ReviewEvent = JSON.parse(ev.data)
       if (props.client && e.client_name !== props.client) return
-      if (feed.value.some((x) => x.id === e.id)) return
+      if (!admit(feed.value, e)) return
       novos.value.add(e.id)
       feed.value.unshift(e)
       if (feed.value.length > 50) feed.value.pop()
@@ -171,8 +173,12 @@ a.titulo:hover {
 .erro {
   margin-top: 3px;
   font: 12px var(--font-mono);
-  color: var(--danger);
+  color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.erro.falha {
+  color: var(--danger);
 }
 
 .quando {

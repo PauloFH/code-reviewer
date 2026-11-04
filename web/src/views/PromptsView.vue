@@ -300,10 +300,6 @@ function fmtDate(s: string) {
   width: 110px;
 }
 
-.row-actions:focus-within {
-  opacity: 1;
-}
-
 .prompt-icon {
   flex-shrink: 0;
   width: 28px;

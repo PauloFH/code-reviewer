@@ -348,8 +348,15 @@ body {
   transition: opacity 0.15s;
 }
 
-.table tr:hover .row-actions {
+.table tr:hover .row-actions,
+.table tr:focus-within .row-actions {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .table .row-actions {
+    opacity: 1;
+  }
 }
 
 /* ── Page head ──────────────────────────────── */
@@ -513,6 +520,10 @@ body {
   color: inherit;
   font: inherit;
   min-width: 100px;
+}
+
+.filterbar .field:focus-within {
+  border-color: var(--accent);
 }
 
 .filterbar .field label {

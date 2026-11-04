@@ -164,7 +164,7 @@ function exportCSV() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `code-reviewer-events-${new Date().toISOString().slice(0, 10)}.csv`
+  link.download = `mergeye-events-${new Date().toISOString().slice(0, 10)}.csv`
   link.click()
   URL.revokeObjectURL(url)
 }

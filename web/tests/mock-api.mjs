@@ -84,7 +84,7 @@ if (!EMPTY) {
   setInterval(() => {
     if (!sseClients.size) return
     const base = events[Math.floor(Math.random() * events.length)]
-    const e = { ...base, id: nextId++, reviewed_at: new Date().toISOString() }
+    const e = { ...base, id: 0, reviewed_at: new Date().toISOString() }
     for (const res of sseClients) res.write(`data: ${JSON.stringify(e)}\n\n`)
   }, 20_000)
 }

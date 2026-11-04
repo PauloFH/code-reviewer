@@ -369,10 +369,6 @@ function providerLabel(provider: string) {
   width: 110px;
 }
 
-.row-actions:focus-within {
-  opacity: 1;
-}
-
 .cred {
   display: inline-flex;
   align-items: center;
