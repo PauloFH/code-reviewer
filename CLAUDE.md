@@ -139,6 +139,8 @@ go run ./cmd/server
 
 Go >= 1.26.10. A lib `git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go` é privada: use `GOPRIVATE=git.pauloholanda.com.br/*` e credencial de leitura no Git. O build Docker exige o segredo `git_token` (`docker compose up --build` lê `CI_GIT_TOKEN` do ambiente do host).
 
+CI e deploy rodam no GitHub Actions (`.github/workflows/ci.yaml`): push no `main` testa em runners hospedados e, se passar, chama por SSH o `deploy/code-reviewer-deploy.sh`, instalado no servidor como comando forçado da chave. Preparação do servidor em `docs/deployment.md`.
+
 ## Rotas disponíveis
 
 | Método | Rota | Descrição |

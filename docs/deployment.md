@@ -208,6 +208,7 @@ mkdir -p /opt/code-reviewer/data
 ## 10. Serviço systemd
 
 ```bash
+sudo adduser --system --group --home /var/lib/cr-app --shell /usr/sbin/nologin cr-app
 sudo nano /etc/systemd/system/code-reviewer.service
 ```
 
@@ -218,7 +219,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+# Usuário sem sudo. `.env`, `clients.json` e `data/` precisam ser dele (ver "Deploy automático pelo GitHub Actions").
+User=cr-app
 WorkingDirectory=/opt/code-reviewer
 EnvironmentFile=/opt/code-reviewer/.env
 ExecStart=/opt/code-reviewer/code-reviewer
@@ -408,23 +410,147 @@ du -sh /opt/code-reviewer/data/
 sudo systemctl restart code-reviewer
 ```
 
-### Atualizar o binário
+### Deploy automático pelo GitHub Actions
+
+Cada push no `main` do GitHub roda o CI em runners hospedados e, se tudo passar, conecta ao servidor por SSH. A chave do CI só consegue executar `/usr/local/bin/code-reviewer-deploy`, que recebe o SHA testado, recusa o que não estiver no `main`, compila e reinicia o serviço. Go e Node precisam continuar instalados no servidor (não aplique a seção 14), e a porta SSH precisa aceitar conexões da internet: use o IP direto ou um host que não passe pelo proxy do Cloudflare.
+
+São dois usuários sem `sudo` geral e sem senha:
+
+| Usuário | Papel | Dono de | Pode |
+|---|---|---|---|
+| `cr-deploy` | Deploy, entra só pela chave do CI | Código e binário | Reiniciar este serviço |
+| `cr-app` | Roda o serviço, sem login | `.env`, `clients.json`, `data/` | Ler o código e o binário |
+
+**No servidor**, como `ubuntu`, confira primeiro o que o serviço usa hoje:
 
 ```bash
+sudo systemctl cat code-reviewer                    # confira User, WorkingDirectory e EnvironmentFile
+grep -E '^(DATABASE_PATH|WORKSPACE_DIR|CLIENTS_CONFIG_PATH|GITLAB_REPOS_PATH|SANDBOX_IMAGE)=' /opt/code-reviewer/.env
+grep -hE '^(AllowUsers|AllowGroups)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/* 2>/dev/null   # se aparecer algo, inclua cr-deploy
+/usr/local/go/bin/go version                        # precisa ser >= 1.26.10 ou conseguir baixar a toolchain
+command -v npm
+```
+
+Antes de continuar, resolva o que o `grep` do `.env` mostrar:
+
+- **Caminho fora de `data/`** (`DATABASE_PATH`, `WORKSPACE_DIR`) ou **`CLIENTS_CONFIG_PATH`**: dê acesso a `cr-app` nesses caminhos também.
+- **`GITLAB_REPOS_PATH`**: `cr-app` precisa de leitura no `@hashed`; sem isso, a revisão agêntica cai para o clone pela rede.
+- **`SANDBOX_IMAGE`**: a camada `execution` usa Docker, e o grupo `docker` equivale a root. Não adicione `cr-app` a esse grupo sem aceitar esse risco; sem o grupo, remova `SANDBOX_IMAGE` do `.env`, ou a IA pode ler o erro de acesso ao Docker como teste falho.
+
+Depois, crie os usuários e troque o usuário do serviço (o serviço fica parado por alguns segundos):
+
+```bash
+sudo adduser --disabled-password --gecos '' cr-deploy
+sudo adduser --system --group --home /var/lib/cr-app --shell /usr/sbin/nologin cr-app
+
+# cr-deploy só pode reiniciar este serviço
+echo 'cr-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart code-reviewer' > /tmp/cr-sudoers
+sudo visudo -cf /tmp/cr-sudoers && sudo install -o root -g root -m 440 /tmp/cr-sudoers /etc/sudoers.d/code-reviewer-deploy
+rm -f /tmp/cr-sudoers
+
+# O drop-in muda só o usuário e preserva o resto do unit
+sudo install -d -m 755 /etc/systemd/system/code-reviewer.service.d
+printf '[Service]\nUser=cr-app\nGroup=cr-app\n' \
+  | sudo install -o root -g root -m 644 /dev/stdin /etc/systemd/system/code-reviewer.service.d/10-usuario.conf
+
+sudo systemctl stop code-reviewer
 cd /opt/code-reviewer
-git pull
+sudo find . -mindepth 1 -maxdepth 1 ! -name .env ! -name clients.json ! -name data -exec chown -R cr-deploy:cr-deploy {} +
+sudo chown cr-deploy:cr-deploy .
+sudo chmod 755 . code-reviewer
+sudo chown -R cr-app:cr-app data
+sudo chmod -R u=rwX,go= data
+sudo chown cr-app:cr-app .env clients.json
+sudo chmod 600 .env clients.json
+sudo systemctl daemon-reload
+sudo systemctl start code-reviewer
+systemctl show -p User,ActiveState code-reviewer    # User=cr-app, ActiveState=active
+curl -fsS http://localhost:8080/healthz             # use o APP_PORT do .env, se for outro
+sudo journalctl -u code-reviewer -n 30 --no-pager
+cd -
+```
 
-# Reinstalar Node temporariamente para rebuild do frontend
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-source /etc/profile.d/go.sh
+Para voltar atrás se o serviço não subir:
 
-cd web && npm ci && npm run build && cd ..
-CGO_ENABLED=1 go build -ldflags="-s -w" -o code-reviewer ./cmd/server
-sudo systemctl restart code-reviewer
+```bash
+sudo rm /etc/systemd/system/code-reviewer.service.d/10-usuario.conf
+sudo chown -R ubuntu:ubuntu /opt/code-reviewer
+sudo systemctl daemon-reload && sudo systemctl restart code-reviewer
+```
 
-# Remover Node novamente
-sudo apt remove -y nodejs && sudo apt autoremove -y
+Com o serviço de pé, aponte o repositório para o GitHub e instale o script:
+
+```bash
+
+# O repositório passa a ser o do GitHub (público, sem credencial)
+sudo -u cr-deploy git -C /opt/code-reviewer remote set-url origin https://github.com/PauloFH/code-reviewer.git
+sudo -u cr-deploy git -C /opt/code-reviewer fetch origin
+
+# Instala o script fora do checkout (troque <ref> pela branch; depois do merge, é main)
+sudo -u cr-deploy git -C /opt/code-reviewer show origin/<ref>:deploy/code-reviewer-deploy.sh \
+  | sudo install -o root -g root -m 755 /dev/stdin /usr/local/bin/code-reviewer-deploy
+
+# Token de leitura do SDK no Gitea, legível só por cr-deploy
+sudo install -d -o root -g root -m 755 /etc/code-reviewer
+read -rs TOKEN && printf '%s' "$TOKEN" \
+  | sudo install -o cr-deploy -g cr-deploy -m 600 /dev/stdin /etc/code-reviewer/git-token
+unset TOKEN
+```
+
+**Na sua máquina**, gere a chave, cadastre os segredos e copie a chave pública:
+
+```bash
+HOST=<host-ssh-do-servidor>; PORT=22; R=PauloFH/code-reviewer
+D=$(mktemp -d)
+ssh-keygen -t ed25519 -N '' -C github-actions-deploy -f "$D/key"
+gh secret set DEPLOY_SSH_KEY -R "$R" < "$D/key"
+gh secret set DEPLOY_TARGET -R "$R" -b "cr-deploy@$HOST"
+gh variable set DEPLOY_PORT -R "$R" -b "$PORT"
+ssh-keyscan -t ed25519 -p "$PORT" "$HOST" > "$D/known_hosts"
+ssh-keygen -lf "$D/known_hosts"                     # confira com: sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+gh secret set DEPLOY_KNOWN_HOSTS -R "$R" < "$D/known_hosts"
+gh secret set CI_GIT_TOKEN -R "$R"                  # token de leitura do SDK; o valor é pedido no terminal
+gh api -X PUT "repos/$R/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors
+cat "$D/key.pub"
+```
+
+**De volta ao servidor**, autorize a chave só para o comando de deploy (cole a chave pública quando o `read` esperar). O arquivo é de root para `cr-deploy` não poder acrescentar outra chave:
+
+```bash
+read -r PUB
+sudo install -d -m 755 /etc/ssh/authorized_keys.d
+printf 'restrict,command="/usr/local/bin/code-reviewer-deploy" %s\n' "$PUB" \
+  | sudo install -o root -g root -m 644 /dev/stdin /etc/ssh/authorized_keys.d/cr-deploy
+printf 'Match User cr-deploy\n  AuthorizedKeysFile /etc/ssh/authorized_keys.d/cr-deploy\n' \
+  | sudo install -o root -g root -m 644 /dev/stdin /etc/ssh/sshd_config.d/10-cr-deploy.conf
+sudo sshd -t && sudo systemctl reload ssh
+unset PUB
+```
+
+Se `APP_PORT` não for 8080, use `command="HEALTH_URL=http://localhost:<porta>/healthz /usr/local/bin/code-reviewer-deploy"`.
+
+Depois, apague a chave local com `rm -rf "$D"`. O script é de root e não se atualiza pelo deploy: se `deploy/code-reviewer-deploy.sh` mudar, reinstale-o com o comando acima. Para voltar a uma versão anterior, use `git revert` no `main`: o script recusa commits superados.
+
+**Teste antes do corte**, ainda no servidor. O primeiro build é mais lento porque os caches de `cr-deploy` estão vazios, e o SHA precisa ser o do `main` no GitHub:
+
+```bash
+sudo -u cr-deploy /usr/local/go/bin/go version
+sudo -u cr-deploy npm --version
+SHA=$(sudo -u cr-deploy git -C /opt/code-reviewer ls-remote origin refs/heads/main | cut -f1)
+sudo -u cr-deploy env SSH_ORIGINAL_COMMAND="$SHA" /usr/local/bin/code-reviewer-deploy
+```
+
+**Corte:** desligue o Actions no Gitea antes de enviar o workflow novo. Sem `.gitea/workflows`, o Gitea usaria `.github/workflows`. Em **Settings → Repository → Actions** no Gitea, desmarque Actions; depois, apague o segredo `CI_GIT_TOKEN` de lá e desregistre o runner de deploy.
+
+Limite: um commit malicioso no `main` ainda roda como `cr-deploy` durante o build e como `cr-app` depois do reinício. Assim ele alcança o token de leitura do SDK, o `.env` e o banco, mas não o `sudo` geral nem os arquivos de `ubuntu`. Depois de um commit assim, `git revert` não basta: troque os segredos e revise esses dois usuários, porque ele pode ter deixado persistência, como em `~/.bashrc`.
+
+### Atualizar o binário manualmente
+
+Sem o CI, rode o mesmo script para o commit atual do `main`:
+
+```bash
+SHA=$(sudo -u cr-deploy git -C /opt/code-reviewer ls-remote origin refs/heads/main | cut -f1)
+sudo -u cr-deploy env SSH_ORIGINAL_COMMAND="$SHA" /usr/local/bin/code-reviewer-deploy
 ```
 
 ---

@@ -4,9 +4,17 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+# Um push novo cancela a execução anterior; assim um CI antigo não termina depois do novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go-quality:
-    runs-on: linux-x64
+    runs-on: ubuntu-latest
     env:
       # The Go module git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go is
       # private: GOPRIVATE tells Go to skip the public proxy/checksum DB for it.
@@ -22,9 +30,11 @@ jobs:
           # fixes current so govulncheck passes.
           go-version: '1.26.x'
           check-latest: true
+          # O cache conteria o código do SDK privado, e PRs de fork leem o cache do branch base.
+          cache: false
 
       # Authenticate to the private module host so `go` can fetch the SDK.
-      # Requires a Gitea secret CI_GIT_TOKEN with read access to the SDK repo.
+      # Requires a secret CI_GIT_TOKEN with read access to the SDK repo on Gitea.
       - name: Configure private module access
         env:
           CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
@@ -50,6 +60,7 @@ jobs:
         with:
           version: v1.64.8
           install-mode: goinstall
+          skip-cache: true
 
       # Go vulnerability check
       - name: govulncheck
@@ -57,8 +68,11 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+      - name: Deploy script test
+        run: bash deploy/deploy_test.sh
+
   go-test-arm:
-    runs-on: arm64
+    runs-on: ubuntu-24.04-arm
     env:
       GOPRIVATE: git.pauloholanda.com.br/*
     steps:
@@ -68,6 +82,7 @@ jobs:
         with:
           go-version: '1.26.x'
           check-latest: true
+          cache: false
 
       - name: Configure private module access
         env:
@@ -86,7 +101,7 @@ jobs:
         run: CGO_ENABLED=1 go build -o /dev/null ./cmd/server
 
   frontend:
-    runs-on: linux-x64
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -108,49 +123,27 @@ jobs:
 
   deploy:
     needs: [go-quality, go-test-arm, frontend]
-    runs-on: deploy-code-reviewer
-    env:
-      GOPRIVATE: git.pauloholanda.com.br/*
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      # Falha cedo, antes de alterar o checkout do servidor.
-      - name: Check deploy token
+      # A chave só executa deploy/code-reviewer-deploy.sh (forced command); ver docs/deployment.md.
+      - name: Deploy via SSH
         env:
-          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
         run: |
-          if [ -z "$CI_GIT_TOKEN" ]; then
-            echo "::error::secret CI_GIT_TOKEN is empty or not set"
-            exit 1
-          fi
-
-      # Sem o token: git pull e npm ci (scripts de terceiros) não o recebem.
-      - name: Update checkout and build frontend
-        run: |
-          cd /opt/code-reviewer
-          # O servidor espelha o main: histórico reescrito e dist/index.html
-          # regerado pelo build fariam um `git pull` falhar.
-          git fetch origin main
-          git reset --hard origin/main
-          cd web
-          npm ci
-          npm run build
-
-      # Só este passo recebe o token. Helper de credencial escopado ao host do
-      # Gitea (com reset, para um `credential.helper=store` não o gravar): o
-      # token não vai para linha de comando/ps nem para `git config --global`.
-      - name: Build binary
-        env:
-          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
-        run: |
-          # act_runner runs steps in a non-login shell, so the host's profile
-          # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
-          export PATH="/usr/local/go/bin:$PATH"
-          cd /opt/code-reviewer
-          GIT_CONFIG_COUNT=2 \
-          GIT_CONFIG_KEY_0='credential.https://git.pauloholanda.com.br.helper' \
-          GIT_CONFIG_VALUE_0='' \
-          GIT_CONFIG_KEY_1='credential.https://git.pauloholanda.com.br.helper' \
-          GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$CI_GIT_TOKEN"; }; f' \
-          CGO_ENABLED=1 go build -ldflags="-s -w" -o code-reviewer ./cmd/server
-
-      - name: Restart service
-        run: sudo systemctl restart code-reviewer
+          for name in DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_TARGET DEPLOY_PORT; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty or not set"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/deploy_key" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ServerAliveInterval=30 \
+            "$DEPLOY_TARGET" "$GITHUB_SHA"
