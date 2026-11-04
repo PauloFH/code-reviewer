@@ -25,7 +25,6 @@
 - Mensagens de erro vindas do backend aparecem como chegam.
 - O nome visível é **Mergeye**, com essa grafia.
 - Fontes: Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), pelo Google Fonts, como já é feito hoje.
-- Todo commit termina com a linha `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 **Glossário de textos:** Dashboard → Painel; Events → Revisões; Clients → Clientes; Users → Usuários; Workspace → Operação; Overview → visão geral; Sign in → Entrar; Username → Usuário; Password → Senha; Total Reviews → Revisões no total; Reviews (30d) → Revisões em 30 dias; Total Tokens → Tokens no total; Total Cost → Custo total; Cost (30d) → Custo em 30 dias; all time → desde o início; Live feed → Ao vivo; live → conectado; Disconnected → desconectado; Waiting for reviews… → Aguardando revisões…; Daily cost → Custo diário; By client → Por cliente; share of total cost → parte do custo total; Time → Horário; Client → Cliente; MR → MR; Status → Situação; Cost → Custo; Duration → Duração; Cancel → Cancelar; Watch Username → Usuário monitorado; Loading stats… → Carregando indicadores…; No data yet → Sem dados ainda.
 
