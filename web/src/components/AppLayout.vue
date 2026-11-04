@@ -180,6 +180,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   gap: 10px;
   overflow-y: auto;
   min-height: 0;
+  padding-bottom: 2px; /* o item ativo girado (-0,5deg) excede ~0,86px e geraria rolagem */
   scrollbar-width: thin;
   scrollbar-color: var(--hairline-strong) transparent;
 }
