@@ -2,6 +2,8 @@
 
 ## O que é este projeto
 
+**Mergeye** é o nome visível do produto (painel, README e telas). O repositório, o módulo Go, o binário e a imagem Docker continuam `code-reviewer`.
+
 Serviço HTTP em Go que recebe webhooks de plataformas Git (GitLab, GitHub, Gitea), detecta quando um usuário configurado foi marcado como reviewer/assignee em um MR/PR, busca o diff via API, envia para uma IA e posta o review como comentário no MR — uma única vez por MR (idempotente).
 
 A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo global → client → projeto, igual aos prompts), em dois modos:

@@ -2,7 +2,7 @@
 
 ## Stack
 
-Vue 3 + TypeScript + Vite. Pinia for state, axios for HTTP, Chart.js / vue-chartjs for the cost graph, Tiptap for rich text editing. No UI library — all styling is hand-written scoped CSS with a dark (`#0f172a` / Slate) palette.
+Vue 3 + TypeScript + Vite. Pinia for state, axios for HTTP, Chart.js / vue-chartjs for the cost graph, Tiptap for rich text editing. No UI library — o estilo é CSS escrito à mão sobre os tokens de `src/assets/tokens.css` (identidade **Mergeye**, nome visível do produto; o repositório, o módulo Go e o binário continuam `code-reviewer`).
 
 ## Comandos
 
@@ -17,6 +17,16 @@ npm run build
 
 # Type-check sem emitir
 npm run type-check
+
+# Lint
+npm run lint
+
+# Testes (node --test em tests/*.test.ts): formatação, status, contraste AA dos tokens,
+# armazenamento, tema e a varredura final (tests/sweep.test.ts)
+npm test
+
+# API fictícia em :8080 para desenvolver a interface sem o backend (use --empty para o estado vazio)
+node tests/mock-api.mjs
 ```
 
 ## Integração com o Go
@@ -37,15 +47,31 @@ web/
 ├── package.json
 ├── vite.config.ts        # outDir + proxy
 ├── tsconfig.json
+├── tests/                # node --test + mock-api.mjs (API fictícia, fora do build)
 └── src/
-    ├── main.ts           # createApp + Pinia + router + mount
+    ├── main.ts           # createApp + Pinia + router + mount (importa assets/tokens.css)
     ├── App.vue           # <router-view /> + <ToastContainer />
+    ├── assets/           # tokens.css (tokens, temas e classes globais) e brand/ (logos PNG)
+    ├── brand/            # funções puras: formatação pt-BR, statusMark, atalhos, readStorage
+    ├── composables/      # useTheme (tema claro/escuro)
     ├── router/           # Rotas e navigation guard
     ├── stores/           # Pinia: auth, toast
     ├── api/              # axios + funções de API + tipos TypeScript
-    ├── components/       # Componentes reutilizáveis
+    ├── components/       # Componentes reutilizáveis (AppIcon, BrandLogo, BackgroundMotion, ...)
     └── views/            # Páginas carregadas pelo router
 ```
+
+## Identidade visual (Mergeye)
+
+- **Tokens:** `src/assets/tokens.css` define as variáveis CSS (`--bg`, `--panel`, `--text`, `--accent`, `--ok`, `--danger`, `--ink`, `--spectrum`, ...). O tema escuro é o `:root`; o claro é `[data-theme="light"]`, que só redefine o que muda. Cores literais (`#hex`, `rgba(`) ficam só nesse arquivo; as views e os componentes usam `var(--x)`.
+- **Fontes:** Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), via Google Fonts em `index.html`.
+- **Classes globais:** `tokens.css` também traz as classes compartilhadas (`.btn`, `.pill`, `.card`, `.table`, `.page-head`, `.kpis`, `.filterbar`, `.seg`, `.feed-*`, `.empty`, ...). Estilo específico de um componente continua em `<style scoped>`.
+- **Tema:** `useTheme()` alterna e persiste (`localStorage`, chave `theme`); o script inline de `index.html` aplica `data-theme` antes do Vue montar. O canvas (gráfico e fundo animado) não entende `var(--x)`: lê as cores com `getComputedStyle` e refaz ao trocar de tema.
+- **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`.
+- **Marca:** `BrandLogo.vue` escolhe o PNG de `assets/brand/` pelo tema; `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
+- **Situação nunca só por cor:** `statusMark()` (`brand/status.ts`) devolve sinal e rótulo: `+` publicada, `−` erro, `~` ignorada.
+- **Armazenamento:** use `readStorage`/`writeStorage`/`removeStorage` (`brand/storage.ts`); `localStorage` bloqueado não lança, o valor vale só na sessão.
+- **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.
 
 ## Roteamento
 
@@ -71,6 +97,6 @@ O navigation guard em `router/index.ts` redireciona para `/login` quando `!auth.
 
 - Componentes em PascalCase; arquivos `.vue` com nome idêntico ao componente.
 - Tipos TypeScript exportados dos módulos `@/api/*` — nunca defina tipos inline nas views.
-- Scoped CSS em todos os componentes; sem classes globais além do `body` em `index.html`.
+- Scoped CSS nos componentes; estilos compartilhados vêm das classes globais e dos tokens de `src/assets/tokens.css`. Nada de cor literal nos `.vue`.
 - Props com tipos explícitos via `defineProps<{...}>()`. Emits via `defineEmits<{...}>()`.
 - `defineExpose` apenas quando o pai precisar chamar métodos do filho (ex.: `ClientForm`).

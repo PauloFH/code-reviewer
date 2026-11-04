@@ -1,4 +1,11 @@
-# Code Reviewer
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/superpowers/specs/assets/mergeye/mergeye-logo-horizontal-escuro.png">
+  <img src="docs/superpowers/specs/assets/mergeye/mergeye-logo-horizontal-claro.png" alt="Mergeye" width="320">
+</picture>
+
+# Mergeye
+
+> Mergeye é o nome visível do produto. O repositório, o módulo Go e o binário continuam `code-reviewer`.
 
 Serviço em Go que monitora Merge Requests / Pull Requests em múltiplas plataformas Git e publica automaticamente um code review gerado por IA como comentário no próprio MR/PR.
 
@@ -119,6 +126,18 @@ curl http://localhost:8080/healthz
 
 Acesse `http://localhost:8080` para abrir o dashboard Vue 3.
 
+![Painel do Mergeye em movimento: fundo animado e um evento novo entrando em "Ao vivo"](docs/media/mergeye-painel.gif)
+
+| Painel (tema escuro) | Painel (tema claro) |
+|---|---|
+| ![Painel no tema escuro](docs/media/mergeye-painel-escuro.png) | ![Painel no tema claro](docs/media/mergeye-painel-claro.png) |
+
+| Revisões | Entrar |
+|---|---|
+| ![Histórico de revisões](docs/media/mergeye-revisoes.png) | ![Tela de login](docs/media/mergeye-login.png) |
+
+As capturas usam dados fictícios.
+
 ### Login
 
 Defina as variáveis de ambiente e faça login:
@@ -130,11 +149,11 @@ DASHBOARD_JWT_SECRET=segredo-longo-aleatório
 ```
 
 O dashboard inclui:
-- **Dashboard** — stats globais, custo diário (gráfico 30 dias), breakdown por cliente, live feed SSE
-- **Events** — tabela paginada com filtros por cliente e período; tokens + custo por review
-- **Clients** — CRUD completo de plataformas monitoradas sem precisar editar arquivos
+- **Painel** — stats globais, custo diário (gráfico por período), breakdown por cliente, "Ao vivo" (SSE, todos os status)
+- **Revisões** — tabela paginada com filtros por cliente e período; tokens + custo por review
+- **Clientes** — cadastro e edição de plataformas monitoradas sem precisar editar arquivos
 - **Prompts** — biblioteca de prompts reutilizáveis com editor rich text (Tiptap) para system prompt e template de saída; atribuição hierárquica (global → client → projeto)
-- **IA** — configuração de provedores de IA (OpenAI, Claude, Gemini, DeepSeek) em dois modos (chave de API ou login de conta Claude via OAuth); atribuição hierárquica e botão "Testar" que roda um diff de exemplo
+- **Modelos** — configuração de provedores de IA (OpenAI, Claude, Gemini, DeepSeek) em dois modos (chave de API ou login de conta Claude via OAuth); atribuição hierárquica e botão "Testar" que roda um diff de exemplo
 
 ### Usando a API REST
 
