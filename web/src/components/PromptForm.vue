@@ -1,18 +1,18 @@
 <template>
-  <Modal :title="isEdit ? 'Editar Prompt' : 'Novo Prompt'" max-width="700px" @close="$emit('close')">
+  <Modal :title="isEdit ? 'Editar prompt' : 'Novo prompt'" max-width="700px" @close="$emit('close')">
     <p v-if="error" class="error">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
         <label>Nome</label>
-        <input v-model="form.name" required placeholder="Ex: Review Backend Go" />
+        <input v-model="form.name" required placeholder="Ex: Revisão de backend Go" />
       </div>
       <div class="field field-tall">
-        <label>System Prompt</label>
-        <RichTextEditor v-model="form.system_prompt" placeholder="Instruções para a IA..." />
+        <label>Prompt de sistema</label>
+        <RichTextEditor v-model="form.system_prompt" placeholder="Instruções para a IA…" />
       </div>
       <div class="field field-tall">
-        <label>Template de Saída</label>
-        <RichTextEditor v-model="form.output_template" placeholder="Formato esperado do review..." />
+        <label>Template de saída</label>
+        <RichTextEditor v-model="form.output_template" placeholder="Formato esperado da revisão…" />
       </div>
     </form>
     <template #footer>
@@ -80,12 +80,9 @@ defineExpose({
 }
 
 .field label {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input,
@@ -114,8 +111,8 @@ defineExpose({
   color: var(--danger);
   font-size: 12.5px;
   padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius);
   margin-bottom: 16px;
 }

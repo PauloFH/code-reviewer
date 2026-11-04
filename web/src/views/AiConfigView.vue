@@ -5,7 +5,7 @@
       <div>
         <div class="page-eyebrow">Configuração · modelos de IA</div>
         <h1 class="page-title">Modelos de IA</h1>
-        <div class="page-sub">Configure provedores, modelos e credenciais de IA para o agente de code review.</div>
+        <div class="page-sub">Configure provedores, modelos e credenciais de IA para o agente de revisão de código.</div>
       </div>
     </div>
 
@@ -14,13 +14,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Configurações</div>
-            <div class="card-sub">{{ configs.length }} configs · prioridade: projeto → cliente → global</div>
+            <h2 class="card-title">Configurações</h2>
+            <div class="card-sub">{{ configs.length }} {{ configs.length === 1 ? 'configuração' : 'configurações' }} · prioridade: projeto → cliente → global</div>
           </div>
           <button class="btn primary" @click="openCreate">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Nova configuração
           </button>
         </div>
@@ -44,7 +42,7 @@
           </thead>
           <tbody>
             <tr v-for="c in configs" :key="c.id">
-              <td style="font-weight: 500;">{{ c.name }}</td>
+              <td class="name">{{ c.name }}</td>
               <td class="muted">{{ providerLabel(c.provider) }}</td>
               <td>
                 <span class="pill" :class="c.mode === 'account' ? 'warn' : 'accent'">
@@ -53,38 +51,26 @@
               </td>
               <td>
                 <span v-if="c.mode === 'account'" :class="['cred', c.account_connected ? 'ok' : 'off']">
-                  <svg v-if="c.account_connected" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M20 6L9 17l-5-5"/>
-                  </svg>
+                  <AppIcon v-if="c.account_connected" name="check" :size="12" />
                   {{ c.account_connected ? 'Conectado' : 'Não conectado' }}
                 </span>
                 <span v-else :class="['cred', c.has_api_key ? 'ok' : 'off']">
-                  <svg v-if="c.has_api_key" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M20 6L9 17l-5-5"/>
-                  </svg>
+                  <AppIcon v-if="c.has_api_key" name="check" :size="12" />
                   {{ c.has_api_key ? 'Chave definida' : 'Sem chave' }}
                 </span>
               </td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm" :disabled="testingId === c.id" @click="doTest(c)">
-                    <svg v-if="testingId !== c.id" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    <span v-if="testingId === c.id" class="spinner" />
+                  <button class="btn sm" type="button" :disabled="testingId === c.id" :aria-label="`Testar ${c.name}`" @click="doTest(c)">
+                    <AppIcon v-if="testingId !== c.id" name="play" :size="12" />
+                    <span v-else class="spinner" />
+                    Testar
                   </button>
-                  <button class="btn sm ghost" @click="openEdit(c)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M17 3l4 4-12 12H5v-4z"/>
-                      <path d="M14.5 5.5l4 4"/>
-                    </svg>
+                  <button class="btn sm ghost" type="button" title="Editar" :aria-label="`Editar ${c.name}`" @click="openEdit(c)">
+                    <AppIcon name="edit" :size="12" />
                   </button>
-                  <button class="btn sm ghost danger" @click="deleteTarget = c">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Excluir" :aria-label="`Excluir ${c.name}`" @click="deleteTarget = c">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -97,13 +83,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Atribuições</div>
+            <h2 class="card-title">Atribuições</h2>
             <div class="card-sub">Fallback do ambiente usado quando nenhuma atribuição resolve</div>
           </div>
           <button class="btn primary" @click="showAssignForm = true">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Nova atribuição
           </button>
         </div>
@@ -115,7 +99,7 @@
         <table v-else class="table">
           <thead>
             <tr>
-              <th style="width: 110px;">Escopo</th>
+              <th class="col-scope">Escopo</th>
               <th>Cliente</th>
               <th>Projeto</th>
               <th>Configuração</th>
@@ -134,12 +118,8 @@
               <td>{{ a.config_name }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm ghost danger" @click="removeAssign(a)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Remover atribuição" aria-label="Remover atribuição" @click="removeAssign(a)">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -168,7 +148,7 @@
     />
 
     <!-- Test result modal -->
-    <Modal v-if="testResult || testError" title="Resultado do teste — {{ testName }}" max-width="680px" @close="closeTest">
+    <Modal v-if="testResult || testError" :title="`Resultado do teste — ${testName}`" max-width="680px" @close="closeTest">
       <div v-if="testError" class="error-box">{{ testError }}</div>
       <template v-else-if="testResult">
         <p class="usage">
@@ -193,6 +173,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
 import AiConfigForm from '@/components/AiConfigForm.vue'
 import AiConfigAssignmentForm from '@/components/AiConfigAssignmentForm.vue'
 import Modal from '@/components/Modal.vue'
@@ -344,7 +325,7 @@ async function removeAssign(a: AIConfigAssignment) {
 
 function scopeLabel(scope: string) {
   if (scope === 'global') return 'Global'
-  if (scope === 'client') return 'Client'
+  if (scope === 'client') return 'Cliente'
   return 'Projeto'
 }
 
@@ -379,8 +360,17 @@ function providerLabel(provider: string) {
   text-align: center;
 }
 
-.muted {
-  color: var(--muted);
+.name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.col-scope {
+  width: 110px;
+}
+
+.row-actions:focus-within {
+  opacity: 1;
 }
 
 .cred {
@@ -425,8 +415,8 @@ function providerLabel(provider: string) {
   color: var(--danger);
   font-size: 13px;
   padding: 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius);
   margin: 0;
 }

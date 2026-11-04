@@ -7,10 +7,10 @@
       <button type="button" :class="{ active: editor.isActive('heading', { level: 2 }) }" @click="editor.chain().focus().toggleHeading({ level: 2 }).run()">H2</button>
       <button type="button" :class="{ active: editor.isActive('heading', { level: 3 }) }" @click="editor.chain().focus().toggleHeading({ level: 3 }).run()">H3</button>
       <span class="sep" />
-      <button type="button" :class="{ active: editor.isActive('bulletList') }" @click="editor.chain().focus().toggleBulletList().run()">&#8226; List</button>
-      <button type="button" :class="{ active: editor.isActive('orderedList') }" @click="editor.chain().focus().toggleOrderedList().run()">1. List</button>
+      <button type="button" :class="{ active: editor.isActive('bulletList') }" @click="editor.chain().focus().toggleBulletList().run()">&#8226; Lista</button>
+      <button type="button" :class="{ active: editor.isActive('orderedList') }" @click="editor.chain().focus().toggleOrderedList().run()">1. Lista</button>
       <span class="sep" />
-      <button type="button" :class="{ active: editor.isActive('codeBlock') }" @click="editor.chain().focus().toggleCodeBlock().run()">Code</button>
+      <button type="button" :class="{ active: editor.isActive('codeBlock') }" @click="editor.chain().focus().toggleCodeBlock().run()">Código</button>
     </div>
     <EditorContent :editor="editor" class="editor-content" />
   </div>
@@ -58,7 +58,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--bg-2);
+  background: var(--panel-solid);
+  color: var(--text);
 }
 .toolbar {
   display: flex;
@@ -80,8 +81,9 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 .toolbar button:hover { background: var(--panel-2); color: var(--text-2); }
-.toolbar button.active { background: var(--accent); color: var(--bg); }
+.toolbar button.active { background: var(--highlight); color: var(--ink); }
 .sep { width: 1px; height: 18px; background: var(--hairline); margin: 0 4px; }
+.editor-wrap:focus-within { border-color: var(--accent); }
 .editor-content {
   padding: 12px;
   min-height: 150px;
@@ -104,7 +106,7 @@ onBeforeUnmount(() => {
 .editor-content :deep(h3) { font-size: 14px; font-weight: 600; margin: 6px 0; color: var(--text-2); }
 .editor-content :deep(ul), .editor-content :deep(ol) { padding-left: 1.5rem; margin: 6px 0; }
 .editor-content :deep(li) { margin: 3px 0; }
-.editor-content :deep(code) { background: var(--bg); padding: 2px 4px; border-radius: 3px; font-size: 12px; }
-.editor-content :deep(pre) { background: var(--bg); padding: 12px; border-radius: var(--radius); overflow-x: auto; margin: 8px 0; }
+.editor-content :deep(code) { background: var(--bg-2); font-family: var(--font-mono); padding: 2px 4px; border-radius: var(--radius); font-size: 12px; }
+.editor-content :deep(pre) { background: var(--bg-2); border: 1px solid var(--hairline); padding: 12px; border-radius: var(--radius); overflow-x: auto; margin: 8px 0; }
 .editor-content :deep(pre code) { background: none; padding: 0; }
 </style>

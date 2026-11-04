@@ -4,7 +4,7 @@
     <div class="page-head">
       <div>
         <div class="page-eyebrow">Configuração · perfis de revisão</div>
-        <h1 class="page-title">Perfis de revisão &amp; atribuições</h1>
+        <h1 class="page-title">Perfis de revisão e atribuições</h1>
         <div class="page-sub">Defina os perfis de revisão e a quais escopos eles se aplicam — global, por cliente ou por projeto.</div>
       </div>
     </div>
@@ -14,13 +14,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Perfis</div>
-            <div class="card-sub">{{ profiles.length }} perfis definidos</div>
+            <h2 class="card-title">Perfis</h2>
+            <div class="card-sub">{{ profiles.length }} {{ profiles.length === 1 ? 'definido' : 'definidos' }}</div>
           </div>
           <button class="btn primary" @click="openCreate">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Novo perfil
           </button>
         </div>
@@ -37,23 +35,19 @@
             <tr>
               <th>Nome</th>
               <th>Camadas</th>
-              <th>Max iter.</th>
+              <th>Máx. iterações</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="p in profiles" :key="p.id">
               <td>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="name-cell">
                   <div class="profile-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                      <path d="M2 17l10 5 10-5"/>
-                      <path d="M2 12l10 5 10-5"/>
-                    </svg>
+                    <AppIcon name="layers" :size="14" />
                   </div>
                   <div>
-                    <div style="font-weight: 500;">{{ p.name }}</div>
+                    <div class="name">{{ p.name }}</div>
                     <div class="card-sub">criado em {{ fmtDate(p.created_at) }}</div>
                   </div>
                 </div>
@@ -69,18 +63,11 @@
               <td class="num">{{ p.max_iterations || '—' }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm ghost" @click="openEdit(p)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M17 3l4 4-12 12H5v-4z"/>
-                      <path d="M14.5 5.5l4 4"/>
-                    </svg>
+                  <button class="btn sm ghost" type="button" title="Editar" :aria-label="`Editar ${p.name}`" @click="openEdit(p)">
+                    <AppIcon name="edit" :size="12" />
                   </button>
-                  <button class="btn sm ghost danger" @click="deleteTarget = p">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Excluir" :aria-label="`Excluir ${p.name}`" @click="deleteTarget = p">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -93,13 +80,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Atribuições</div>
+            <h2 class="card-title">Atribuições</h2>
             <div class="card-sub">resolução do perfil por escopo · ordem: projeto → cliente → global</div>
           </div>
           <button class="btn primary" @click="showAssignForm = true">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Nova atribuição
           </button>
         </div>
@@ -111,7 +96,7 @@
         <table v-else class="table">
           <thead>
             <tr>
-              <th style="width: 110px;">Escopo</th>
+              <th class="col-scope">Escopo</th>
               <th>Cliente</th>
               <th>Projeto</th>
               <th>Perfil</th>
@@ -130,12 +115,8 @@
               <td>{{ a.profile_name }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm ghost danger" @click="removeAssign(a)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Remover atribuição" aria-label="Remover atribuição" @click="removeAssign(a)">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -177,6 +158,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
 import ReviewProfileForm from '@/components/ReviewProfileForm.vue'
 import ReviewProfileAssignmentForm from '@/components/ReviewProfileAssignmentForm.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -295,7 +277,7 @@ async function removeAssign(a: ReviewProfileAssignment) {
 
 function scopeLabel(scope: string) {
   if (scope === 'global') return 'Global'
-  if (scope === 'client') return 'Client'
+  if (scope === 'client') return 'Cliente'
   return 'Projeto'
 }
 
@@ -324,7 +306,28 @@ function fmtDate(s: string) {
   text-align: center;
 }
 
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.col-scope {
+  width: 110px;
+}
+
+.row-actions:focus-within {
+  opacity: 1;
+}
+
 .profile-icon {
+  flex-shrink: 0;
   width: 28px;
   height: 28px;
   border-radius: 6px;
@@ -342,31 +345,31 @@ function fmtDate(s: string) {
 }
 
 .badge {
-  font-size: 11px;
+  font-size: 11.5px;
   font-family: var(--font-mono);
   padding: 2px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline-strong);
   font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.badge.related {
-  background: rgba(99, 102, 241, 0.12);
-  color: #818cf8;
+  color: var(--text-2);
+  background: var(--bg-2);
 }
 
 .badge.agentic {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
+/* Camada mais sensível (executa comandos): marca-texto pontual, sempre com --ink. */
 .badge.execution {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
+  color: var(--ink);
+  border-color: var(--hl-2);
+  background: var(--highlight);
 }
 
 .badge.none {
-  background: var(--bg-2);
   color: var(--muted);
+  border-color: var(--hairline);
 }
 </style>

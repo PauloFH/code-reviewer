@@ -4,7 +4,7 @@
     <div class="page-head">
       <div>
         <div class="page-eyebrow">Configuração · prompts</div>
-        <h1 class="page-title">Prompts &amp; atribuições</h1>
+        <h1 class="page-title">Prompts e atribuições</h1>
         <div class="page-sub">Defina os prompts usados pelo agente e a quais escopos eles se aplicam — global, por cliente ou por projeto.</div>
       </div>
     </div>
@@ -14,13 +14,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Prompts</div>
-            <div class="card-sub">{{ prompts.length }} prompts definidos</div>
+            <h2 class="card-title">Prompts</h2>
+            <div class="card-sub">{{ prompts.length }} {{ prompts.length === 1 ? 'definido' : 'definidos' }}</div>
           </div>
           <button class="btn primary" @click="openCreate">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Novo prompt
           </button>
         </div>
@@ -43,16 +41,12 @@
           <tbody>
             <tr v-for="p in prompts" :key="p.id">
               <td>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="name-cell">
                   <div class="prompt-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <path d="M14 2v6h6"/>
-                      <path d="M8 13h8M8 17h6"/>
-                    </svg>
+                    <AppIcon name="document" :size="14" />
                   </div>
                   <div>
-                    <div style="font-weight: 500;">{{ p.name }}</div>
+                    <div class="name">{{ p.name }}</div>
                     <div class="card-sub">criado em {{ fmtDate(p.created_at) }}</div>
                   </div>
                 </div>
@@ -60,18 +54,11 @@
               <td class="num">{{ fmtDate(p.created_at) }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm ghost" @click="openEdit(p)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M17 3l4 4-12 12H5v-4z"/>
-                      <path d="M14.5 5.5l4 4"/>
-                    </svg>
+                  <button class="btn sm ghost" type="button" title="Editar" :aria-label="`Editar ${p.name}`" @click="openEdit(p)">
+                    <AppIcon name="edit" :size="12" />
                   </button>
-                  <button class="btn sm ghost danger" @click="deleteTarget = p">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Excluir" :aria-label="`Excluir ${p.name}`" @click="deleteTarget = p">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -84,13 +71,11 @@
       <div class="card">
         <div class="card-head">
           <div>
-            <div class="card-title">Atribuições</div>
+            <h2 class="card-title">Atribuições</h2>
             <div class="card-sub">resolução do prompt por escopo · ordem: projeto → cliente → global</div>
           </div>
           <button class="btn primary" @click="showAssignForm = true">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <AppIcon name="plus" :size="13" />
             Nova atribuição
           </button>
         </div>
@@ -102,7 +87,7 @@
         <table v-else class="table">
           <thead>
             <tr>
-              <th style="width: 110px;">Escopo</th>
+              <th class="col-scope">Escopo</th>
               <th>Cliente</th>
               <th>Projeto</th>
               <th>Prompt</th>
@@ -121,12 +106,8 @@
               <td>{{ a.prompt_name }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="btn sm ghost danger" @click="removeAssign(a)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
+                  <button class="btn sm ghost danger" type="button" title="Remover atribuição" aria-label="Remover atribuição" @click="removeAssign(a)">
+                    <AppIcon name="trash" :size="12" />
                   </button>
                 </div>
               </td>
@@ -167,6 +148,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
 import PromptForm from '@/components/PromptForm.vue'
 import PromptAssignmentForm from '@/components/PromptAssignmentForm.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -273,7 +255,7 @@ async function removeAssign(a: PromptAssignment) {
 
 function scopeLabel(scope: string) {
   if (scope === 'global') return 'Global'
-  if (scope === 'client') return 'Client'
+  if (scope === 'client') return 'Cliente'
   return 'Projeto'
 }
 
@@ -302,7 +284,28 @@ function fmtDate(s: string) {
   text-align: center;
 }
 
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.col-scope {
+  width: 110px;
+}
+
+.row-actions:focus-within {
+  opacity: 1;
+}
+
 .prompt-icon {
+  flex-shrink: 0;
   width: 28px;
   height: 28px;
   border-radius: 6px;

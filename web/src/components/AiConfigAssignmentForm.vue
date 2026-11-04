@@ -1,5 +1,5 @@
 <template>
-  <Modal title="Nova Atribuição" max-width="480px" @close="$emit('close')">
+  <Modal title="Nova atribuição" max-width="480px" @close="$emit('close')">
     <p v-if="error" class="error">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
@@ -13,19 +13,19 @@
         <label>Escopo</label>
         <select v-model="form.scope" required>
           <option value="global">Global (padrão para todos)</option>
-          <option value="client">Client (provedor Git)</option>
+          <option value="client">Cliente (host Git)</option>
           <option value="project">Projeto (repositório específico)</option>
         </select>
       </div>
       <div v-if="form.scope !== 'global'" class="field">
-        <label>Client</label>
+        <label>Cliente</label>
         <select v-model="form.client_name" required>
-          <option value="" disabled>Selecione um client</option>
+          <option value="" disabled>Selecione um cliente</option>
           <option v-for="c in clients" :key="c.name" :value="c.name">{{ c.name }} ({{ c.platform }})</option>
         </select>
       </div>
       <div v-if="form.scope === 'project'" class="field">
-        <label>Projeto (project ref)</label>
+        <label>Projeto (referência)</label>
         <input v-model="form.project_ref" required placeholder="Ex: org/repo-name" />
       </div>
     </form>
@@ -109,12 +109,9 @@ defineExpose({
 }
 
 .field label {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input,
@@ -143,8 +140,8 @@ defineExpose({
   color: var(--danger);
   font-size: 12.5px;
   padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius);
   margin-bottom: 16px;
 }
