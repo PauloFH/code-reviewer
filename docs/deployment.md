@@ -298,7 +298,7 @@ sudo ln -s /etc/nginx/sites-available/code-reviewer /etc/nginx/sites-enabled/
 # Faixas do Cloudflare: o IP real só é aceito delas, e $is_cloudflare identifica quem chega direto no IP.
 # O geo usa $realip_remote_addr, o par TCP real, antes da substituição feita pelo real_ip.
 IPS="$(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6)"
-if [ "$(echo $IPS | wc -w)" -gt 10 ]; then
+if [ "$(echo $IPS | wc -w)" -ge 20 ]; then
   { for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done
     printf 'real_ip_header CF-Connecting-IP;\n\n'
     printf 'geo $realip_remote_addr $is_cloudflare {\n    default 0;\n'
