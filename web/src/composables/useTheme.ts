@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { writeStorage } from '@/brand/storage'
 
 export type Theme = 'dark' | 'light'
 
@@ -11,11 +12,7 @@ function toggleTheme(): void {
   theme.value = theme.value === 'light' ? 'dark' : 'light'
   if (theme.value === 'light') document.documentElement.setAttribute('data-theme', 'light')
   else document.documentElement.removeAttribute('data-theme')
-  try {
-    localStorage.setItem('theme', theme.value)
-  } catch {
-    // armazenamento bloqueado: o tema vale só nesta sessão
-  }
+  writeStorage('theme', theme.value)
 }
 
 export function useTheme() {
