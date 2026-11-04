@@ -36,13 +36,18 @@ const feed = ref<ReviewEvent[]>([])
 const novos = ref(new Set<number>())
 
 let es: EventSource | null = null
+// Desmontar durante o await de loadRecent não pode deixar uma conexão SSE aberta.
+let disposed = false
 
 onMounted(async () => {
   await loadRecent()
-  startSSE()
+  if (!disposed) startSSE()
 })
 
-onUnmounted(() => es?.close())
+onUnmounted(() => {
+  disposed = true
+  es?.close()
+})
 
 async function loadRecent() {
   try {
