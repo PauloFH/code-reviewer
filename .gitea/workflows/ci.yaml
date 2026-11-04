@@ -50,6 +50,8 @@ jobs:
         with:
           version: v1.64.8
           install-mode: goinstall
+          # O cache restaurado gerou falsos SA5011 (t.Fatal visto como retornável).
+          skip-cache: true
 
       # Go vulnerability check
       - name: govulncheck
