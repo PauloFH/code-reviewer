@@ -121,29 +121,94 @@ jobs:
       - name: Frontend build
         run: cd web && npm run build
 
-  deploy:
+  # Compila aqui para o servidor não precisar de token, Go, Node nem rodar o build do commit.
+  # Sem a chave de deploy: o código do commit roda neste job e não pode alcançá-la.
+  build:
     needs: [go-quality, go-test-arm, frontend]
+    # Mesmo Ubuntu e arquitetura do servidor; ARM usa BUILD_RUNNER=ubuntu-24.04-arm.
+    runs-on: ${{ vars.BUILD_RUNNER || 'ubuntu-24.04' }}
+    outputs:
+      checksum: ${{ steps.package.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build frontend
+        run: cd web && npm ci --ignore-scripts && npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+          cache: false
+
+      # Helper com reset: o token não vai para ps nem para ~/.gitconfig.
+      - name: Build binary
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+          GOPRIVATE: git.pauloholanda.com.br/*
+          GIT_CONFIG_COUNT: '2'
+          GIT_CONFIG_KEY_0: credential.https://git.pauloholanda.com.br.helper
+          GIT_CONFIG_VALUE_0: ''
+          GIT_CONFIG_KEY_1: credential.https://git.pauloholanda.com.br.helper
+          GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$CI_GIT_TOKEN"; }; f'
+        run: CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o code-reviewer ./cmd/server
+
+      # Artefato de repositório público é baixável por qualquer pessoa logada, e o binário contém o SDK privado.
+      - name: Encrypt binary
+        id: package
+        env:
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+        run: |
+          if [ -z "$ARTIFACT_KEY" ]; then
+            echo "::error::secret ARTIFACT_KEY is empty or not set"
+            exit 1
+          fi
+          echo "checksum=$(sha256sum code-reviewer | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:ARTIFACT_KEY -in code-reviewer -out code-reviewer.enc
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: code-reviewer
+          path: code-reviewer.enc
+          retention-days: 1
+          if-no-files-found: error
+
+  # Espera a aprovação do ambiente production. Sem checkout: nenhum código do commit roda perto da chave.
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: production
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: code-reviewer
+
       # A chave só executa deploy/code-reviewer-deploy.sh (forced command); ver docs/deployment.md.
       - name: Deploy via SSH
         env:
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
           DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
         run: |
-          for name in DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_TARGET DEPLOY_PORT; do
+          for name in ARTIFACT_KEY CHECKSUM DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_TARGET DEPLOY_PORT; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is empty or not set"
               exit 1
             fi
           done
           umask 077
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:ARTIFACT_KEY -in code-reviewer.enc -out "$RUNNER_TEMP/code-reviewer"
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
           ssh -i "$RUNNER_TEMP/deploy_key" -p "$DEPLOY_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ServerAliveInterval=30 \
-            "$DEPLOY_TARGET" "$GITHUB_SHA"
+            "$DEPLOY_TARGET" "$GITHUB_SHA $CHECKSUM" < "$RUNNER_TEMP/code-reviewer"

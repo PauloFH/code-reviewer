@@ -209,6 +209,10 @@ mkdir -p /opt/code-reviewer/data
 
 ```bash
 sudo adduser --system --group --home /var/lib/cr-app --shell /usr/sbin/nologin cr-app
+sudo chown -R cr-app:cr-app /opt/code-reviewer/data
+sudo chmod -R u=rwX,go= /opt/code-reviewer/data
+sudo chown cr-app:cr-app /opt/code-reviewer/.env /opt/code-reviewer/clients.json
+sudo chmod 600 /opt/code-reviewer/.env /opt/code-reviewer/clients.json
 sudo nano /etc/systemd/system/code-reviewer.service
 ```
 
@@ -219,7 +223,7 @@ After=network.target
 
 [Service]
 Type=simple
-# Usuário sem sudo. `.env`, `clients.json` e `data/` precisam ser dele (ver "Deploy automático pelo GitHub Actions").
+# Usuário sem sudo, dono de .env, clients.json e data/.
 User=cr-app
 WorkingDirectory=/opt/code-reviewer
 EnvironmentFile=/opt/code-reviewer/.env
@@ -264,10 +268,6 @@ server {
     listen 80;
     server_name reviewer.seu-dominio.com;
 
-    # Cloudflare envia o IP real do cliente neste header
-    real_ip_header    CF-Connecting-IP;
-    set_real_ip_from  0.0.0.0/0;
-
     # Tamanho máximo de body — diffs grandes podem chegar a poucos KB
     client_max_body_size 2M;
 
@@ -291,6 +291,13 @@ server {
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/code-reviewer /etc/nginx/sites-enabled/
+
+# Só aceita CF-Connecting-IP vindo das faixas do Cloudflare; qualquer outra origem poderia falsificar o IP
+{ for ip in $(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6); do
+    printf 'set_real_ip_from %s;\n' "$ip"
+  done
+  printf 'real_ip_header CF-Connecting-IP;\n'
+} | sudo tee /etc/nginx/conf.d/00-cloudflare-real-ip.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -336,16 +343,18 @@ curl https://reviewer.seu-dominio.com/healthz
 
 ## 13. Firewall interno da VM
 
-As portas 80 e 443 já estão abertas na security list da rede.  
-Configure o `ufw` interno para consistência:
+As portas 80 e 443 já estão abertas na security list da rede. O `ufw` as restringe às faixas do Cloudflare, para ninguém contornar o proxy acessando o IP direto; o SSH continua aberto:
 
 ```bash
 sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
+for ip in $(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6); do
+  sudo ufw allow proto tcp from "$ip" to any port 80,443
+done
+sudo ufw --force enable
 sudo ufw status
 ```
+
+Se você vai aplicar isso em um servidor que já está no ar, siga "Fechar a origem em um servidor existente", na seção 16.
 
 A porta 8080 **não deve ser aberta** — o acesso externo passa exclusivamente pelo Nginx.
 
@@ -412,32 +421,33 @@ sudo systemctl restart code-reviewer
 
 ### Deploy automático pelo GitHub Actions
 
-Cada push no `main` do GitHub roda o CI em runners hospedados e, se tudo passar, conecta ao servidor por SSH. A chave do CI só consegue executar `/usr/local/bin/code-reviewer-deploy`, que recebe o SHA testado, recusa o que não estiver no `main`, compila e reinicia o serviço. Go e Node precisam continuar instalados no servidor (não aplique a seção 14), e a porta SSH precisa aceitar conexões da internet: use o IP direto ou um host que não passe pelo proxy do Cloudflare.
+Cada push no `main` do GitHub testa e compila o binário em runners hospedados. O deploy então **espera sua aprovação** no ambiente `production`. Aprovado, o binário vai por SSH para o servidor, onde a chave do CI só consegue executar `/usr/local/bin/code-reviewer-deploy`. O script confere o checksum, recusa o que não for o último commit do `main`, troca o binário e volta ao anterior se o `/healthz` não responder.
 
-São dois usuários sem `sudo` geral e sem senha:
+O servidor não guarda token nem código, e não precisa de Go nem de Node, então a seção 14 pode ser aplicada depois do primeiro deploy. A porta SSH precisa aceitar conexões da internet, por um host fora do proxy do Cloudflare.
 
 | Usuário | Papel | Dono de | Pode |
 |---|---|---|---|
-| `cr-deploy` | Deploy, entra só pela chave do CI | Código e binário | Reiniciar este serviço |
-| `cr-app` | Roda o serviço, sem login | `.env`, `clients.json`, `data/` | Ler o código e o binário |
+| `cr-deploy` | Deploy, entra só pela chave do CI | Diretório da aplicação e binário | Reiniciar este serviço |
+| `cr-app` | Roda o serviço, sem login | `.env`, `clients.json`, `data/` | Executar o binário |
 
 **No servidor**, como `ubuntu`, confira primeiro o que o serviço usa hoje:
 
 ```bash
+uname -m; . /etc/os-release; echo "$PRETTY_NAME"    # definem BUILD_RUNNER, abaixo
 sudo systemctl cat code-reviewer                    # confira User, WorkingDirectory e EnvironmentFile
-grep -E '^(DATABASE_PATH|WORKSPACE_DIR|CLIENTS_CONFIG_PATH|GITLAB_REPOS_PATH|SANDBOX_IMAGE)=' /opt/code-reviewer/.env
+grep -E '^(APP_PORT|DATABASE_PATH|WORKSPACE_DIR|CLIENTS_CONFIG_PATH|GITLAB_REPOS_PATH|SANDBOX_IMAGE)=' /opt/code-reviewer/.env
 grep -hE '^(AllowUsers|AllowGroups)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/* 2>/dev/null   # se aparecer algo, inclua cr-deploy
-/usr/local/go/bin/go version                        # precisa ser >= 1.26.10 ou conseguir baixar a toolchain
-command -v npm
+command -v git curl flock
 ```
 
 Antes de continuar, resolva o que o `grep` do `.env` mostrar:
 
 - **Caminho fora de `data/`** (`DATABASE_PATH`, `WORKSPACE_DIR`) ou **`CLIENTS_CONFIG_PATH`**: dê acesso a `cr-app` nesses caminhos também.
+- **`APP_PORT` diferente de 8080**: ajuste o `HEALTH_URL` no comando da chave, adiante.
 - **`GITLAB_REPOS_PATH`**: `cr-app` precisa de leitura no `@hashed`; sem isso, a revisão agêntica cai para o clone pela rede.
 - **`SANDBOX_IMAGE`**: a camada `execution` usa Docker, e o grupo `docker` equivale a root. Não adicione `cr-app` a esse grupo sem aceitar esse risco; sem o grupo, remova `SANDBOX_IMAGE` do `.env`, ou a IA pode ler o erro de acesso ao Docker como teste falho.
 
-Depois, crie os usuários e troque o usuário do serviço (o serviço fica parado por alguns segundos):
+Depois, crie os usuários, troque o usuário do serviço e instale o script (o serviço fica parado por alguns segundos):
 
 ```bash
 sudo adduser --disabled-password --gecos '' cr-deploy
@@ -455,8 +465,7 @@ printf '[Service]\nUser=cr-app\nGroup=cr-app\n' \
 
 sudo systemctl stop code-reviewer
 cd /opt/code-reviewer
-sudo find . -mindepth 1 -maxdepth 1 ! -name .env ! -name clients.json ! -name data -exec chown -R cr-deploy:cr-deploy {} +
-sudo chown cr-deploy:cr-deploy .
+sudo chown cr-deploy:cr-deploy . code-reviewer
 sudo chmod 755 . code-reviewer
 sudo chown -R cr-app:cr-app data
 sudo chmod -R u=rwX,go= data
@@ -468,9 +477,13 @@ systemctl show -p User,ActiveState code-reviewer    # User=cr-app, ActiveState=a
 curl -fsS http://localhost:8080/healthz             # use o APP_PORT do .env, se for outro
 sudo journalctl -u code-reviewer -n 30 --no-pager
 cd -
+
+# Instala o script fora do diretório da aplicação (troque <ref> pela branch; depois do merge, é main)
+curl -fsSL https://raw.githubusercontent.com/PauloFH/code-reviewer/<ref>/deploy/code-reviewer-deploy.sh \
+  | sudo install -o root -g root -m 755 /dev/stdin /usr/local/bin/code-reviewer-deploy
 ```
 
-Para voltar atrás se o serviço não subir:
+Para voltar atrás se o serviço não subir, antes de instalar a chave:
 
 ```bash
 sudo rm /etc/systemd/system/code-reviewer.service.d/10-usuario.conf
@@ -478,39 +491,31 @@ sudo chown -R ubuntu:ubuntu /opt/code-reviewer
 sudo systemctl daemon-reload && sudo systemctl restart code-reviewer
 ```
 
-Com o serviço de pé, aponte o repositório para o GitHub e instale o script:
-
-```bash
-
-# O repositório passa a ser o do GitHub (público, sem credencial)
-sudo -u cr-deploy git -C /opt/code-reviewer remote set-url origin https://github.com/PauloFH/code-reviewer.git
-sudo -u cr-deploy git -C /opt/code-reviewer fetch origin
-
-# Instala o script fora do checkout (troque <ref> pela branch; depois do merge, é main)
-sudo -u cr-deploy git -C /opt/code-reviewer show origin/<ref>:deploy/code-reviewer-deploy.sh \
-  | sudo install -o root -g root -m 755 /dev/stdin /usr/local/bin/code-reviewer-deploy
-
-# Token de leitura do SDK no Gitea, legível só por cr-deploy
-sudo install -d -o root -g root -m 755 /etc/code-reviewer
-read -rs TOKEN && printf '%s' "$TOKEN" \
-  | sudo install -o cr-deploy -g cr-deploy -m 600 /dev/stdin /etc/code-reviewer/git-token
-unset TOKEN
-```
-
-**Na sua máquina**, gere a chave, cadastre os segredos e copie a chave pública:
+**Na sua máquina**, gere a chave, crie o ambiente com aprovação e cadastre os segredos. A chave de deploy fica só no ambiente `production`, liberado depois da sua aprovação e só para o `main`:
 
 ```bash
 HOST=<host-ssh-do-servidor>; PORT=22; R=PauloFH/code-reviewer
 D=$(mktemp -d)
 ssh-keygen -t ed25519 -N '' -C github-actions-deploy -f "$D/key"
-gh secret set DEPLOY_SSH_KEY -R "$R" < "$D/key"
-gh secret set DEPLOY_TARGET -R "$R" -b "cr-deploy@$HOST"
-gh variable set DEPLOY_PORT -R "$R" -b "$PORT"
 ssh-keyscan -t ed25519 -p "$PORT" "$HOST" > "$D/known_hosts"
 ssh-keygen -lf "$D/known_hosts"                     # confira com: sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-gh secret set DEPLOY_KNOWN_HOSTS -R "$R" < "$D/known_hosts"
-gh secret set CI_GIT_TOKEN -R "$R"                  # token de leitura do SDK; o valor é pedido no terminal
+
+printf '{"reviewers":[{"type":"User","id":%s}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' "$(gh api user --jq .id)" \
+  | gh api -X PUT "repos/$R/environments/production" --input -
+gh api -X POST "repos/$R/environments/production/deployment-branch-policies" -f name=main
+
+gh secret set DEPLOY_SSH_KEY -R "$R" -e production < "$D/key"
+gh secret set DEPLOY_KNOWN_HOSTS -R "$R" -e production < "$D/known_hosts"
+gh secret set DEPLOY_TARGET -R "$R" -e production -b "cr-deploy@$HOST"
+gh variable set DEPLOY_PORT -R "$R" -e production -b "$PORT"
+gh variable set BUILD_RUNNER -R "$R" -b ubuntu-24.04     # ubuntu-24.04-arm se uname -m for aarch64; acompanhe a versão do Ubuntu
+openssl rand -base64 48 | gh secret set ARTIFACT_KEY -R "$R"
+gh secret set CI_GIT_TOKEN -R "$R"                       # token de leitura do SDK; o valor é pedido no terminal
+
+# PRs de fork precisam de aprovação para rodar; main sem force-push nem exclusão
 gh api -X PUT "repos/$R/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors
+printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' \
+  | gh api -X PUT "repos/$R/branches/main/protection" --input -
 cat "$D/key.pub"
 ```
 
@@ -531,27 +536,51 @@ Se `APP_PORT` não for 8080, use `command="HEALTH_URL=http://localhost:<porta>/h
 
 Depois, apague a chave local com `rm -rf "$D"`. O script é de root e não se atualiza pelo deploy: se `deploy/code-reviewer-deploy.sh` mudar, reinstale-o com o comando acima. Para voltar a uma versão anterior, use `git revert` no `main`: o script recusa commits superados.
 
-**Teste antes do corte**, ainda no servidor. O primeiro build é mais lento porque os caches de `cr-deploy` estão vazios, e o SHA precisa ser o do `main` no GitHub:
+**Corte:** desligue o Actions no Gitea antes de enviar o workflow novo, porque, sem `.gitea/workflows`, o Gitea usaria `.github/workflows`. Em **Settings → Repository → Actions** no Gitea, desmarque Actions; depois, apague o segredo `CI_GIT_TOKEN` de lá e desregistre o runner de deploy. O primeiro deploy pelo GitHub é o teste real: se o binário novo não subir, o script volta ao anterior.
+
+Limites:
+
+- **Código aprovado:** ao aprovar um deploy, ele roda como `cr-app`, com acesso ao `.env` e ao banco. A barreira é a sua aprovação. Depois de um deploy malicioso, `git revert` não basta: troque os segredos.
+- **Token do SDK:** continua como segredo do CI, ao alcance do código do commit no job de build.
+- **Chave de deploy:** quem a obtiver pode instalar qualquer binário, desde que informe o último commit do `main`. Ela só existe no ambiente `production`; o build não tem acesso a ela.
+
+### Fechar a origem em um servidor existente
+
+Hoje as portas 80 e 443 aceitam qualquer IP, e o Nginx confia no `CF-Connecting-IP` vindo de qualquer origem. Confira primeiro se mais alguém usa esta VM por essas portas:
 
 ```bash
-sudo -u cr-deploy /usr/local/go/bin/go version
-sudo -u cr-deploy npm --version
-SHA=$(sudo -u cr-deploy git -C /opt/code-reviewer ls-remote origin refs/heads/main | cut -f1)
-sudo -u cr-deploy env SSH_ORIGINAL_COMMAND="$SHA" /usr/local/bin/code-reviewer-deploy
+sudo ss -ltnp | grep -E ':(80|443) '
+sudo nginx -T 2>/dev/null | grep -E '^\s*(server_name|listen) ' | sort -u
+sudo ufw status numbered
 ```
 
-**Corte:** desligue o Actions no Gitea antes de enviar o workflow novo. Sem `.gitea/workflows`, o Gitea usaria `.github/workflows`. Em **Settings → Repository → Actions** no Gitea, desmarque Actions; depois, apague o segredo `CI_GIT_TOKEN` de lá e desregistre o runner de deploy.
-
-Limite: um commit malicioso no `main` ainda roda como `cr-deploy` durante o build e como `cr-app` depois do reinício. Assim ele alcança o token de leitura do SDK, o `.env` e o banco, mas não o `sudo` geral nem os arquivos de `ubuntu`. Depois de um commit assim, `git revert` não basta: troque os segredos e revise esses dois usuários, porque ele pode ter deixado persistência, como em `~/.bashrc`.
-
-### Atualizar o binário manualmente
-
-Sem o CI, rode o mesmo script para o commit atual do `main`:
+Em seguida, aplique. O SSH vem primeiro, para você não perder o acesso:
 
 ```bash
-SHA=$(sudo -u cr-deploy git -C /opt/code-reviewer ls-remote origin refs/heads/main | cut -f1)
-sudo -u cr-deploy env SSH_ORIGINAL_COMMAND="$SHA" /usr/local/bin/code-reviewer-deploy
+IPS="$(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6)"
+[ "$(echo $IPS | wc -w)" -gt 10 ] || { echo 'lista do Cloudflare vazia'; return 1 2>/dev/null || exit 1; }
+
+sudo sed -i '/real_ip_header\|set_real_ip_from/d' /etc/nginx/sites-available/code-reviewer
+{ for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done; printf 'real_ip_header CF-Connecting-IP;\n'; } \
+  | sudo tee /etc/nginx/conf.d/00-cloudflare-real-ip.conf >/dev/null
+sudo nginx -t && sudo systemctl reload nginx
+
+sudo ufw allow 22/tcp
+for ip in $IPS; do sudo ufw allow proto tcp from "$ip" to any port 80,443; done
+sudo ufw delete allow 80/tcp
+sudo ufw delete allow 443/tcp
+sudo ufw --force enable
+sudo ufw status
 ```
+
+Da sua máquina, o IP direto deve falhar e o domínio deve responder:
+
+```bash
+curl -m 8 -sS -o /dev/null -w '%{http_code}\n' http://<ip-do-servidor>/healthz     # deve dar timeout
+curl -sS -o /dev/null -w '%{http_code}\n' https://<dominio-do-painel>/healthz      # deve dar 200
+```
+
+Para desfazer o firewall: `sudo ufw allow 80/tcp && sudo ufw allow 443/tcp`. As faixas do Cloudflare mudam raramente; se mudarem, repita o bloco acima.
 
 ---
 
