@@ -52,7 +52,7 @@ web/
     ├── main.ts           # createApp + Pinia + router + mount (importa assets/tokens.css)
     ├── App.vue           # <router-view /> + <ToastContainer />
     ├── assets/           # tokens.css (tokens, temas e classes globais) e brand/ (logos PNG)
-    ├── brand/            # funções puras: formatação pt-BR, statusMark, atalhos, readStorage
+    ├── brand/            # funções puras: formatação pt-BR, statusMark, atalhos, readStorage, geometria da abertura da landing
     ├── composables/      # useTheme (tema claro/escuro)
     ├── router/           # Rotas e navigation guard
     ├── stores/           # Pinia: auth, toast
@@ -67,23 +67,23 @@ web/
 - **Fontes:** Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), via Google Fonts em `index.html`.
 - **Classes globais:** `tokens.css` também traz as classes compartilhadas (`.btn`, `.pill`, `.card`, `.table`, `.page-head`, `.kpis`, `.filterbar`, `.seg`, `.feed-*`, `.empty`, ...). Estilo específico de um componente continua em `<style scoped>`.
 - **Tema:** `useTheme()` alterna e persiste (`localStorage`, chave `theme`); o script inline de `index.html` aplica `data-theme` antes do Vue montar. O canvas (gráfico e fundo animado) não entende `var(--x)`: lê as cores com `getComputedStyle` e refaz ao trocar de tema.
-- **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`.
+- **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`. A exceção é `LandingAbertura.vue`, o SVG animado da abertura da landing (redesenho do símbolo oficial, decorativo e com `aria-hidden`); não crie outro por script para escapar da varredura.
 - **Marca:** `BrandLogo.vue` escolhe o PNG de `assets/brand/` pelo tema; `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
 - **Situação nunca só por cor:** `statusMark()` (`brand/status.ts`) devolve sinal e rótulo: `+` publicada, `−` erro, `~` ignorada.
 - **Armazenamento:** use `readStorage`/`writeStorage`/`removeStorage` (`brand/storage.ts`); `localStorage` bloqueado não lança, o valor vale só na sessão.
-- **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.
+- **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon` e `LandingAbertura`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.
 
 ## Roteamento
 
 | Path | Nome | Público | Componente |
 |------|------|---------|------------|
+| `/` | landing | sim | LandingView.vue (quem tem sessão é redirecionado para `/dashboard` pelo guard) |
 | `/login` | login | sim | LoginView.vue |
 | `/dashboard` | dashboard | não | DashboardView.vue |
 | `/events` | events | não | EventsView.vue |
 | `/clients` | clients | não | ClientsView.vue |
 | `/prompts` | prompts | não | PromptsView.vue |
 | `/ai-configs` | ai-configs | não (super/gestor) | AiConfigView.vue |
-| `/` | — | — | redirect → /dashboard |
 
 `/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).
 

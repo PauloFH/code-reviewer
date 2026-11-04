@@ -126,8 +126,9 @@ Modal de atribuição de uma config a um escopo (global/client/projeto), espelha
 
 ## Identidade Mergeye
 
-- **`AppIcon.vue`** — único componente com `<svg`. Props `name` e `size`; ícones de traço reto, sem arredondar. Para um ícone novo, adicione-o aqui.
+- **`AppIcon.vue`** — único componente de ícones com `<svg` (a outra exceção é `LandingAbertura`). Props `name` e `size`; ícones de traço reto, sem arredondar. Para um ícone novo, adicione-o aqui.
 - **`BrandLogo.vue`** — logo PNG de `assets/brand/`, versão escura ou clara pelo tema. Prop `variant`: `horizontal` | `simbolo`.
+- **`LandingAbertura.vue`** — SVG animado da abertura da landing: o símbolo se monta e vira os fios vermelho e verde que se juntam na linha amarela das seções. Props `raiz`, `heroi`, `topo`, `logoTopo` e `texto` (elementos da `LandingView`); a geometria e o tempo vêm de `brand/abertura.ts`. Toca uma vez por sessão do navegador; clique, rolagem, toque ou tecla pulam para o estado final, e `prefers-reduced-motion` já abre no estado final. `requestAnimationFrame` só roda durante a abertura.
 - **`BackgroundMotion.vue`** — fundo animado em canvas (raias vermelha e verde, branch sendo puxada). Prop `intensity`. Lê as cores dos tokens a cada quadro, então acompanha o tema; com `prefers-reduced-motion` desenha um quadro estático.
 - **`Modal.vue`** — casca de modal em `Teleport`. Props `title` e `maxWidth`; emite `close`; slot padrão e slot `footer`. Ao montar, foca o `.modal` (`tabindex="-1"`) e, ao desmontar, devolve o foco ao elemento anterior; Esc e trap de Tab não existem. Os formulários (`ClientForm`, `PromptForm`, ...) são montados dentro dele.
 - **`ConfirmModal.vue`** — confirmação de exclusão sobre `Modal`. Props `name`, `warning?`, `loading?`; emite `close` e `confirm`. Usado por Prompts, Modelos e Perfis de revisão.
