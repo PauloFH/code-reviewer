@@ -14,7 +14,9 @@ RUN npm run build
 # ─────────────────────────────────────────────
 # Stage 2: build the Go binary
 # ─────────────────────────────────────────────
-FROM golang:1.26-alpine AS go-builder
+# Tag fixa: a imagem define GOTOOLCHAIN=local, então a linha `toolchain` do go.mod
+# não baixa Go novo; uma tag flutuante em cache poderia compilar com stdlib vulnerável.
+FROM golang:1.26.10-alpine AS go-builder
 
 # CGO is required by go-sqlite3; git is required to fetch the private SDK module
 RUN apk add --no-cache gcc musl-dev git
@@ -26,16 +28,19 @@ WORKDIR /app
 
 COPY go.mod go.sum ./
 # The token comes from a BuildKit secret (docker build --secret id=git_token,...),
-# is mounted only for this command and injected via GIT_CONFIG_* env vars of this
-# single process: never written to a file, ENV, ARG or image layer.
+# mounted only for this command. A credential helper scoped to the Gitea host
+# (reset first, so no `store` helper can persist it) reads the file when git asks:
+# the token is never in a command line/ps, file, ENV, ARG or image layer.
 RUN --mount=type=secret,id=git_token \
     if [ ! -s /run/secrets/git_token ]; then \
-      echo "ERROR: secret 'git_token' ausente ou vazio. Use: docker build --secret id=git_token,env=CI_GIT_TOKEN ." >&2; \
+      echo "ERROR: secret 'git_token' ausente ou vazio. Use: docker build --secret id=git_token,env=CI_GIT_TOKEN . (ou docker compose build com CI_GIT_TOKEN exportado)" >&2; \
       exit 1; \
     fi; \
-    GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0="url.https://oauth2:$(cat /run/secrets/git_token)@git.pauloholanda.com.br/.insteadOf" \
-    GIT_CONFIG_VALUE_0="https://git.pauloholanda.com.br/" \
+    GIT_CONFIG_COUNT=2 \
+    GIT_CONFIG_KEY_0='credential.https://git.pauloholanda.com.br.helper' \
+    GIT_CONFIG_VALUE_0='' \
+    GIT_CONFIG_KEY_1='credential.https://git.pauloholanda.com.br.helper' \
+    GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$(cat /run/secrets/git_token)"; }; f' \
     go mod download
 
 COPY . .

@@ -195,13 +195,13 @@ Rotas de `clients`, `prompts` e `ai-configs` exigem JWT + papel `super`/`gestor`
 
 ## Módulo privado (`sdk-claude-oauth-go`)
 
-O SDK de OAuth é privado e só existe no Gitea. Para baixá-lo é preciso `GOPRIVATE=git.pauloholanda.com.br/*` e credencial de leitura no Git (por exemplo `git config --global url."https://<token>@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"` na sua máquina). No build Docker o token vai por segredo do BuildKit, nunca para a imagem.
+O SDK de OAuth é privado e só existe no Gitea. Para baixá-lo é preciso `GOPRIVATE=git.pauloholanda.com.br/*` e credencial de leitura no Git (prefira SSH ou um `credential.helper` seguro; evite gravar o token em texto puro em `~/.gitconfig`). No build Docker o token vai por segredo do BuildKit, nunca para a imagem.
 
 ---
 
 ## Rodando com Docker
 
-O build precisa do token de leitura do Gitea na variável de ambiente `CI_GIT_TOKEN` do **host** (não a coloque no `.env` nem em `ARG`/`ENV`; o Compose a repassa como segredo de build `git_token`):
+O build precisa do token de leitura do Gitea na variável de ambiente `CI_GIT_TOKEN` do shell (o Compose também lê o `.env`, mas não a coloque lá: o `env_file: .env` a injetaria no contêiner em execução; e nunca em `ARG`/`ENV`). O Compose a repassa como segredo de build `git_token`:
 
 ```bash
 # Build e start (CI_GIT_TOKEN exportado no shell, sem gravá-lo em arquivo)
@@ -210,7 +210,6 @@ docker compose up --build
 
 # Build direto, sem Compose
 docker build --secret id=git_token,env=CI_GIT_TOKEN -t code-reviewer .
-```
 
 # Em background
 docker compose up --build -d

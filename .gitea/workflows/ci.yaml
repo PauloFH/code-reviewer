@@ -112,7 +112,29 @@ jobs:
     env:
       GOPRIVATE: git.pauloholanda.com.br/*
     steps:
-      - name: Deploy
+      # Falha cedo, antes de alterar o checkout do servidor.
+      - name: Check deploy token
+        env:
+          CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+        run: |
+          if [ -z "$CI_GIT_TOKEN" ]; then
+            echo "::error::secret CI_GIT_TOKEN is empty or not set"
+            exit 1
+          fi
+
+      # Sem o token: git pull e npm ci (scripts de terceiros) não o recebem.
+      - name: Update checkout and build frontend
+        run: |
+          cd /opt/code-reviewer
+          git pull
+          cd web
+          npm ci
+          npm run build
+
+      # Só este passo recebe o token. Helper de credencial escopado ao host do
+      # Gitea (com reset, para um `credential.helper=store` não o gravar): o
+      # token não vai para linha de comando/ps nem para `git config --global`.
+      - name: Build binary
         env:
           CI_GIT_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
         run: |
@@ -120,19 +142,12 @@ jobs:
           # PATH is not loaded; Go lives in /usr/local/go/bin. Add it explicitly.
           export PATH="/usr/local/go/bin:$PATH"
           cd /opt/code-reviewer
-          git pull
-          cd web
-          npm ci
-          npm run build
-          cd /opt/code-reviewer
-          # Token só no ambiente do `go build` (GIT_CONFIG_*), sem
-          # `git config --global`, para não persisti-lo no servidor.
-          if [ -z "$CI_GIT_TOKEN" ]; then
-            echo "::error::secret CI_GIT_TOKEN is empty or not set"
-            exit 1
-          fi
-          GIT_CONFIG_COUNT=1 \
-          GIT_CONFIG_KEY_0="url.https://oauth2:${CI_GIT_TOKEN}@git.pauloholanda.com.br/.insteadOf" \
-          GIT_CONFIG_VALUE_0="https://git.pauloholanda.com.br/" \
+          GIT_CONFIG_COUNT=2 \
+          GIT_CONFIG_KEY_0='credential.https://git.pauloholanda.com.br.helper' \
+          GIT_CONFIG_VALUE_0='' \
+          GIT_CONFIG_KEY_1='credential.https://git.pauloholanda.com.br.helper' \
+          GIT_CONFIG_VALUE_1='!f() { test "$1" = get && printf "username=oauth2\npassword=%s\n" "$CI_GIT_TOKEN"; }; f' \
           CGO_ENABLED=1 go build -ldflags="-s -w" -o code-reviewer ./cmd/server
-          sudo systemctl restart code-reviewer
+
+      - name: Restart service
+        run: sudo systemctl restart code-reviewer
