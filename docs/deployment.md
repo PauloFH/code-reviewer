@@ -208,10 +208,10 @@ mkdir -p /opt/code-reviewer/data
 ## 10. Serviço systemd
 
 ```bash
-sudo adduser --system --group --home /var/lib/cr-app --shell /usr/sbin/nologin cr-app
-sudo chown -R cr-app:cr-app /opt/code-reviewer/data
+sudo adduser --system --group --home /var/lib/code-reviewer --shell /usr/sbin/nologin code-reviewer
+sudo chown -R code-reviewer:code-reviewer /opt/code-reviewer/data
 sudo chmod -R u=rwX,go= /opt/code-reviewer/data
-sudo chown cr-app:cr-app /opt/code-reviewer/.env /opt/code-reviewer/clients.json
+sudo chown code-reviewer:code-reviewer /opt/code-reviewer/.env /opt/code-reviewer/clients.json
 sudo chmod 600 /opt/code-reviewer/.env /opt/code-reviewer/clients.json
 sudo nano /etc/systemd/system/code-reviewer.service
 ```
@@ -224,7 +224,7 @@ After=network.target
 [Service]
 Type=simple
 # Usuário sem sudo, dono de .env, clients.json e data/.
-User=cr-app
+User=code-reviewer
 WorkingDirectory=/opt/code-reviewer
 EnvironmentFile=/opt/code-reviewer/.env
 ExecStart=/opt/code-reviewer/code-reviewer
@@ -268,6 +268,9 @@ server {
     listen 80;
     server_name reviewer.seu-dominio.com;
 
+    # Só aceita tráfego do Cloudflare (conf.d/cloudflare.conf, abaixo)
+    if ($is_cloudflare = 0) { return 444; }
+
     # Tamanho máximo de body — diffs grandes podem chegar a poucos KB
     client_max_body_size 2M;
 
@@ -292,12 +295,15 @@ server {
 ```bash
 sudo ln -s /etc/nginx/sites-available/code-reviewer /etc/nginx/sites-enabled/
 
-# Só aceita CF-Connecting-IP vindo das faixas do Cloudflare; qualquer outra origem poderia falsificar o IP
-{ for ip in $(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6); do
-    printf 'set_real_ip_from %s;\n' "$ip"
-  done
-  printf 'real_ip_header CF-Connecting-IP;\n'
-} | sudo tee /etc/nginx/conf.d/00-cloudflare-real-ip.conf
+# Faixas do Cloudflare: o IP real só é aceito delas, e $is_cloudflare identifica quem chega direto no IP.
+# O geo usa $realip_remote_addr, o par TCP real, antes da substituição feita pelo real_ip.
+IPS="$(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6)"
+{ for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done
+  printf 'real_ip_header CF-Connecting-IP;\n\n'
+  printf 'geo $realip_remote_addr $is_cloudflare {\n    default 0;\n'
+  for ip in $IPS; do printf '    %s 1;\n' "$ip"; done
+  printf '}\n'
+} | sudo tee /etc/nginx/conf.d/cloudflare.conf >/dev/null
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -343,18 +349,16 @@ curl https://reviewer.seu-dominio.com/healthz
 
 ## 13. Firewall interno da VM
 
-As portas 80 e 443 já estão abertas na security list da rede. O `ufw` as restringe às faixas do Cloudflare, para ninguém contornar o proxy acessando o IP direto; o SSH continua aberto:
+As portas 80 e 443 ficam abertas na security list da rede e nas regras `iptables` da imagem. Quem restringe ao Cloudflare é o Nginx, pelo `$is_cloudflare` da seção 11. Não instale o `ufw` em VMs da Oracle: ele pode entrar em conflito com as regras da imagem e bloquear o acesso.
+
+Depois de cadastrar um site novo neste servidor, inclua `if ($is_cloudflare = 0) { return 444; }` no bloco dele. Para conferir de fora, o IP direto não deve responder, e o domínio deve dar 200:
 
 ```bash
-sudo ufw allow 22/tcp
-for ip in $(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6); do
-  sudo ufw allow proto tcp from "$ip" to any port 80,443
-done
-sudo ufw --force enable
-sudo ufw status
+curl -sk -m 8 --resolve <dominio-do-painel>:443:<ip-do-servidor> https://<dominio-do-painel>/healthz -o /dev/null -w '%{http_code}\n'  # 000
+curl -s -m 8 https://<dominio-do-painel>/healthz -o /dev/null -w '%{http_code}\n'                                                     # 200
 ```
 
-Se você vai aplicar isso em um servidor que já está no ar, siga "Fechar a origem em um servidor existente", na seção 16.
+As faixas do Cloudflare mudam raramente; se mudarem, gere `conf.d/cloudflare.conf` de novo.
 
 A porta 8080 **não deve ser aberta** — o acesso externo passa exclusivamente pelo Nginx.
 
@@ -428,7 +432,7 @@ O servidor não guarda token nem código, e não precisa de Go nem de Node, ent�
 | Usuário | Papel | Dono de | Pode |
 |---|---|---|---|
 | `cr-deploy` | Deploy, entra só pela chave do CI | Diretório da aplicação e binário | Reiniciar este serviço |
-| `cr-app` | Roda o serviço, sem login | `.env`, `clients.json`, `data/` | Executar o binário |
+| `code-reviewer` | Roda o serviço, sem login | `.env`, `clients.json`, `data/` | Executar o binário |
 
 **No servidor**, como `ubuntu`, confira primeiro o que o serviço usa hoje:
 
@@ -442,40 +446,33 @@ command -v git curl flock
 
 Antes de continuar, resolva o que o `grep` do `.env` mostrar:
 
-- **Caminho fora de `data/`** (`DATABASE_PATH`, `WORKSPACE_DIR`) ou **`CLIENTS_CONFIG_PATH`**: dê acesso a `cr-app` nesses caminhos também.
+- **Caminho fora de `data/`** (`DATABASE_PATH`, `WORKSPACE_DIR`) ou **`CLIENTS_CONFIG_PATH`**: dê acesso a `code-reviewer` nesses caminhos também.
 - **`APP_PORT` diferente de 8080**: ajuste o `HEALTH_URL` no comando da chave, adiante.
-- **`GITLAB_REPOS_PATH`**: `cr-app` precisa de leitura no `@hashed`; sem isso, a revisão agêntica cai para o clone pela rede.
-- **`SANDBOX_IMAGE`**: a camada `execution` usa Docker, e o grupo `docker` equivale a root. Não adicione `cr-app` a esse grupo sem aceitar esse risco; sem o grupo, remova `SANDBOX_IMAGE` do `.env`, ou a IA pode ler o erro de acesso ao Docker como teste falho.
+- **`GITLAB_REPOS_PATH`**: `code-reviewer` precisa de leitura no `@hashed`; sem isso, a revisão agêntica cai para o clone pela rede.
+- **`SANDBOX_IMAGE`**: a camada `execution` usa Docker, e o grupo `docker` equivale a root. Não adicione `code-reviewer` a esse grupo sem aceitar esse risco; sem o grupo, remova `SANDBOX_IMAGE` do `.env`, ou a IA pode ler o erro de acesso ao Docker como teste falho.
 
-Depois, crie os usuários, troque o usuário do serviço e instale o script (o serviço fica parado por alguns segundos):
+Depois, crie o usuário de deploy, ajuste as posses e instale o script. O serviço fica parado por alguns segundos. Este bloco assume que o serviço já roda como `code-reviewer`, com `nologin` e sem outros direitos:
 
 ```bash
+systemctl show -p User code-reviewer                # User=code-reviewer
 sudo adduser --disabled-password --gecos '' cr-deploy
-sudo adduser --system --group --home /var/lib/cr-app --shell /usr/sbin/nologin cr-app
 
-# cr-deploy só pode reiniciar este serviço
+# cr-deploy só pode reiniciar este serviço; o serviço deixa de poder se reiniciar
 echo 'cr-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart code-reviewer' > /tmp/cr-sudoers
 sudo visudo -cf /tmp/cr-sudoers && sudo install -o root -g root -m 440 /tmp/cr-sudoers /etc/sudoers.d/code-reviewer-deploy
 rm -f /tmp/cr-sudoers
-
-# O drop-in muda só o usuário e preserva o resto do unit
-sudo install -d -m 755 /etc/systemd/system/code-reviewer.service.d
-printf '[Service]\nUser=cr-app\nGroup=cr-app\n' \
-  | sudo install -o root -g root -m 644 /dev/stdin /etc/systemd/system/code-reviewer.service.d/10-usuario.conf
 
 sudo systemctl stop code-reviewer
 cd /opt/code-reviewer
 sudo chown cr-deploy:cr-deploy . code-reviewer
 sudo chmod 755 . code-reviewer
-sudo chown -R cr-app:cr-app data
+sudo chown -R code-reviewer:code-reviewer data
 sudo chmod -R u=rwX,go= data
-sudo chown cr-app:cr-app .env clients.json
+sudo chown code-reviewer:code-reviewer .env clients.json
 sudo chmod 600 .env clients.json
-sudo systemctl daemon-reload
 sudo systemctl start code-reviewer
-systemctl show -p User,ActiveState code-reviewer    # User=cr-app, ActiveState=active
+systemctl show -p User,ActiveState code-reviewer
 curl -fsS http://localhost:8080/healthz             # use o APP_PORT do .env, se for outro
-sudo journalctl -u code-reviewer -n 30 --no-pager
 cd -
 
 # Instala o script fora do diretório da aplicação (troque <ref> pela branch; depois do merge, é main)
@@ -483,13 +480,7 @@ curl -fsSL https://raw.githubusercontent.com/PauloFH/code-reviewer/<ref>/deploy/
   | sudo install -o root -g root -m 755 /dev/stdin /usr/local/bin/code-reviewer-deploy
 ```
 
-Para voltar atrás se o serviço não subir, antes de instalar a chave:
-
-```bash
-sudo rm /etc/systemd/system/code-reviewer.service.d/10-usuario.conf
-sudo chown -R ubuntu:ubuntu /opt/code-reviewer
-sudo systemctl daemon-reload && sudo systemctl restart code-reviewer
-```
+Para voltar atrás antes de instalar a chave: `sudo chown code-reviewer:code-reviewer /opt/code-reviewer /opt/code-reviewer/code-reviewer` e devolva a regra de `sudo` a `code-reviewer`.
 
 **Na sua máquina**, gere a chave, crie o ambiente com aprovação e cadastre os segredos. A chave de deploy fica só no ambiente `production`, liberado depois da sua aprovação e só para o `main`:
 
@@ -536,51 +527,13 @@ Se `APP_PORT` não for 8080, use `command="HEALTH_URL=http://localhost:<porta>/h
 
 Depois, apague a chave local com `rm -rf "$D"`. O script é de root e não se atualiza pelo deploy: se `deploy/code-reviewer-deploy.sh` mudar, reinstale-o com o comando acima. Para voltar a uma versão anterior, use `git revert` no `main`: o script recusa commits superados.
 
-**Corte:** desligue o Actions no Gitea antes de enviar o workflow novo, porque, sem `.gitea/workflows`, o Gitea usaria `.github/workflows`. Em **Settings → Repository → Actions** no Gitea, desmarque Actions; depois, apague o segredo `CI_GIT_TOKEN` de lá e desregistre o runner de deploy. O primeiro deploy pelo GitHub é o teste real: se o binário novo não subir, o script volta ao anterior.
+**Corte:** desligue o Actions no Gitea antes de enviar o workflow novo, porque, sem `.gitea/workflows`, o Gitea usaria `.github/workflows`. Em **Settings → Repository → Actions** no Gitea, desmarque Actions; depois, apague o segredo `CI_GIT_TOKEN` de lá, pare e desregistre o `act_runner` e revogue o token antigo, que ficou no `~/.gitconfig` do usuário do runner. O primeiro deploy pelo GitHub é o teste real: se o binário novo não subir, o script volta ao anterior.
 
 Limites:
 
-- **Código aprovado:** ao aprovar um deploy, ele roda como `cr-app`, com acesso ao `.env` e ao banco. A barreira é a sua aprovação. Depois de um deploy malicioso, `git revert` não basta: troque os segredos.
+- **Código aprovado:** ao aprovar um deploy, ele roda como `code-reviewer`, com acesso ao `.env` e ao banco. A barreira é a sua aprovação. Depois de um deploy malicioso, `git revert` não basta: troque os segredos.
 - **Token do SDK:** continua como segredo do CI, ao alcance do código do commit no job de build.
 - **Chave de deploy:** quem a obtiver pode instalar qualquer binário, desde que informe o último commit do `main`. Ela só existe no ambiente `production`; o build não tem acesso a ela.
-
-### Fechar a origem em um servidor existente
-
-Hoje as portas 80 e 443 aceitam qualquer IP, e o Nginx confia no `CF-Connecting-IP` vindo de qualquer origem. Confira primeiro se mais alguém usa esta VM por essas portas:
-
-```bash
-sudo ss -ltnp | grep -E ':(80|443) '
-sudo nginx -T 2>/dev/null | grep -E '^\s*(server_name|listen) ' | sort -u
-sudo ufw status numbered
-```
-
-Em seguida, aplique. O SSH vem primeiro, para você não perder o acesso:
-
-```bash
-IPS="$(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6)"
-[ "$(echo $IPS | wc -w)" -gt 10 ] || { echo 'lista do Cloudflare vazia'; return 1 2>/dev/null || exit 1; }
-
-sudo sed -i '/real_ip_header\|set_real_ip_from/d' /etc/nginx/sites-available/code-reviewer
-{ for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done; printf 'real_ip_header CF-Connecting-IP;\n'; } \
-  | sudo tee /etc/nginx/conf.d/00-cloudflare-real-ip.conf >/dev/null
-sudo nginx -t && sudo systemctl reload nginx
-
-sudo ufw allow 22/tcp
-for ip in $IPS; do sudo ufw allow proto tcp from "$ip" to any port 80,443; done
-sudo ufw delete allow 80/tcp
-sudo ufw delete allow 443/tcp
-sudo ufw --force enable
-sudo ufw status
-```
-
-Da sua máquina, o IP direto deve falhar e o domínio deve responder:
-
-```bash
-curl -m 8 -sS -o /dev/null -w '%{http_code}\n' http://<ip-do-servidor>/healthz     # deve dar timeout
-curl -sS -o /dev/null -w '%{http_code}\n' https://<dominio-do-painel>/healthz      # deve dar 200
-```
-
-Para desfazer o firewall: `sudo ufw allow 80/tcp && sudo ufw allow 443/tcp`. As faixas do Cloudflare mudam raramente; se mudarem, repita o bloco acima.
 
 ---
 
