@@ -1,61 +1,60 @@
 <template>
   <div>
     <div v-if="loading" class="loading">
-      <span class="spinner" /> Loading…
+      <span class="spinner" /> Carregando…
     </div>
-    <table v-else class="table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Client</th>
-          <th>MR</th>
-          <th style="width: 100px;">Status</th>
-          <th class="num">Tokens</th>
-          <th class="num">Cost</th>
-          <th class="num">Duration</th>
-          <th style="width: 60px;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="e in events" :key="e.id" :class="{ error: e.status === 'error' }">
-          <td class="mono">{{ fmtDate(e.reviewed_at) }}</td>
-          <td class="muted">{{ e.client_name }}</td>
-          <td class="mr-cell">
-            <a v-if="e.mr_url" :href="e.mr_url" target="_blank" rel="noopener" class="mr-link">
-              {{ e.mr_title || '#' + e.mr_iid }}
-            </a>
-            <span v-else class="mr-title">{{ e.mr_title || '#' + e.mr_iid }}</span>
-            <div v-if="e.error_message" class="err-msg">{{ e.error_message }}</div>
-          </td>
-          <td>
-            <span class="pill" :class="statusClass(e.status)">
-              <span class="dot"></span>{{ e.status }}
-            </span>
-          </td>
-          <td class="num mono">{{ fmtTokens(e.total_tokens) }}</td>
-          <td class="num mono">${{ e.cost_usd.toFixed(5) }}</td>
-          <td class="num mono">{{ e.duration_ms }}ms</td>
-          <td>
-            <button
-              class="btn sm ghost"
-              :disabled="reanalyzing === e.id"
-              title="Re-analisar"
-              @click="handleReanalyze(e)"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
-                <path d="M21 3v5h-5"/>
-                <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
-                <path d="M3 21v-5h5"/>
-              </svg>
-            </button>
-          </td>
-        </tr>
-        <tr v-if="events.length === 0">
-          <td colspan="8" class="empty">No events found</td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else class="scroll-x">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Horário</th>
+            <th>Cliente</th>
+            <th>MR</th>
+            <th class="situacao">Situação</th>
+            <th class="num">Tokens</th>
+            <th class="num">Custo</th>
+            <th class="num">Duração</th>
+            <th class="acao"><span class="sr">Ações</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="e in events" :key="e.id">
+            <td class="mono">{{ fmtDate(e.reviewed_at) }}</td>
+            <td class="muted cliente">{{ e.client_name }}</td>
+            <td class="mr-cell">
+              <a v-if="e.mr_url" :href="e.mr_url" target="_blank" rel="noopener" class="mr-link" :title="mrTitle(e)">
+                {{ mrTitle(e) }}
+              </a>
+              <span v-else class="mr-title" :title="mrTitle(e)">{{ mrTitle(e) }}</span>
+              <div v-if="e.error_message" class="err-msg">{{ e.error_message }}</div>
+            </td>
+            <td>
+              <span class="pill" :class="statusMark(e.status).tone">
+                <span class="sinal" aria-hidden="true">{{ statusMark(e.status).sign }}</span>{{ statusMark(e.status).label }}
+              </span>
+            </td>
+            <td class="num mono">{{ formatCount(e.total_tokens) }}</td>
+            <td class="num mono">{{ formatUsd(e.cost_usd) }}</td>
+            <td class="num mono">{{ fmtDuration(e.duration_ms) }}</td>
+            <td>
+              <button
+                class="btn sm ghost"
+                type="button"
+                :disabled="reanalyzing === e.id"
+                title="Re-analisar"
+                aria-label="Re-analisar"
+                @click="handleReanalyze(e)"
+              >
+                <AppIcon name="refresh" :size="12" />
+              </button>
+            </td>
+          </tr>
+          <tr v-if="events.length === 0">
+            <td colspan="8" class="vazio">Nenhuma revisão encontrada</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -64,6 +63,9 @@ import { ref } from 'vue'
 import type { ReviewEvent } from '@/api/events'
 import { reanalyze } from '@/api/reanalyze'
 import { useToastStore } from '@/stores/toast'
+import AppIcon from '@/components/AppIcon.vue'
+import { statusMark } from '@/brand/status'
+import { formatCount, formatUsd } from '@/brand/format'
 
 defineProps<{ events: ReviewEvent[]; loading: boolean }>()
 
@@ -80,14 +82,10 @@ function fmtDate(ts: string) {
   })
 }
 
-function fmtTokens(n: number) {
-  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-}
+const mrTitle = (e: ReviewEvent) => e.mr_title || '#' + e.mr_iid
 
-function statusClass(status: string) {
-  if (status === 'success') return 'ok'
-  if (status === 'skipped') return 'skip'
-  return 'danger'
+function fmtDuration(ms: number) {
+  return (ms / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' s'
 }
 
 async function handleReanalyze(e: ReviewEvent) {
@@ -116,6 +114,15 @@ async function handleReanalyze(e: ReviewEvent) {
   padding: 24px;
 }
 
+/* Abaixo disso a tabela rola dentro de .scroll-x em vez de espremer as colunas. */
+.table {
+  min-width: 760px;
+}
+
+.table th {
+  white-space: nowrap;
+}
+
 .mono {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -126,27 +133,24 @@ async function handleReanalyze(e: ReviewEvent) {
   color: var(--muted);
 }
 
+.cliente {
+  max-width: 160px;
+  overflow-wrap: anywhere;
+}
+
+.situacao {
+  width: 130px;
+}
+
+.acao {
+  width: 60px;
+}
+
 .mr-cell {
-  max-width: 260px;
+  max-width: 280px;
 }
 
-.mr-link {
-  color: var(--text);
-  text-decoration: none;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-}
-
-.mr-link:hover {
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
-  text-underline-offset: 3px;
-}
-
+.mr-link,
 .mr-title {
   color: var(--text);
   font-weight: 500;
@@ -156,18 +160,43 @@ async function handleReanalyze(e: ReviewEvent) {
   display: block;
 }
 
+.mr-link {
+  text-decoration: none;
+}
+
+.mr-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+
 .err-msg {
   font-size: 11px;
   color: var(--danger);
   margin-top: 4px;
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.sinal {
+  font-weight: 500;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .num {
   text-align: right;
 }
 
-.empty {
+.vazio {
   text-align: center;
   color: var(--muted);
   padding: 48px;

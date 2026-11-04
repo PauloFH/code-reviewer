@@ -3,16 +3,13 @@
     <!-- Page head -->
     <div class="page-head">
       <div>
-        <div class="page-eyebrow">Reviews · histórico</div>
-        <h1 class="page-title">Events</h1>
-        <div class="page-sub">Cada evento representa uma MR/PR processada pelo agente. Filtros e drill-down disponíveis.</div>
+        <div class="page-eyebrow">histórico</div>
+        <h1 class="page-title">Revisões</h1>
+        <div class="page-sub">Cada linha é uma MR/PR processada pelo agente. Use os filtros para refinar a lista.</div>
       </div>
       <div class="page-actions">
-        <button class="btn" @click="exportCSV">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <path d="M15 3h6v6M10 14L21 3"/>
-          </svg>
+        <button class="btn" type="button" @click="exportCSV">
+          <AppIcon name="document" :size="13" />
           Exportar CSV
         </button>
       </div>
@@ -21,39 +18,31 @@
     <!-- Filterbar -->
     <div class="filterbar">
       <div class="field">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="7"/>
-          <path d="M21 21l-4.3-4.3"/>
-        </svg>
-        <input v-model="filterSearch" placeholder="Buscar por título, autor ou hash…" @keyup.enter="applyFilter" />
+        <AppIcon name="search" :size="13" />
+        <input v-model="filterSearch" aria-label="Buscar" placeholder="Buscar por título, autor ou hash…" @keyup.enter="applyFilter" />
       </div>
       <div class="field">
-        <label>Cliente</label>
-        <select v-model="filterClient">
+        <label for="filtro-cliente">Cliente</label>
+        <select id="filtro-cliente" v-model="filterClient">
           <option value="">todos</option>
           <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
         </select>
       </div>
       <div class="field">
-        <label>Status</label>
-        <select v-model="filterStatus">
-          <option value="">todos</option>
-          <option value="success">success</option>
-          <option value="skipped">skipped</option>
-          <option value="error">error</option>
+        <label for="filtro-situacao">Situação</label>
+        <select id="filtro-situacao" v-model="filterStatus">
+          <option value="">todas</option>
+          <option v-for="s in statuses" :key="s" :value="s">{{ statusMark(s).label }}</option>
         </select>
       </div>
       <div class="field">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="5" width="18" height="16" rx="2"/>
-          <path d="M3 10h18M8 3v4M16 3v4"/>
-        </svg>
-        <input v-model="filterSince" type="date" @change="applyFilter" />
-        <span style="color: var(--muted)">→</span>
-        <input v-model="filterUntil" type="date" @change="applyFilter" />
+        <AppIcon name="calendar" :size="13" />
+        <input v-model="filterSince" type="date" aria-label="Data inicial" @change="applyFilter" />
+        <span class="seta" aria-hidden="true">→</span>
+        <input v-model="filterUntil" type="date" aria-label="Data final" @change="applyFilter" />
       </div>
-      <button class="btn primary" @click="applyFilter">Aplicar</button>
-      <span class="counter">{{ total.toLocaleString() }} resultados · {{ totalTokens }} tokens · ${{ totalCost.toFixed(4) }}</span>
+      <button class="btn primary" type="button" @click="applyFilter">Aplicar</button>
+      <span class="counter">{{ formatCount(total) }} resultados · {{ formatCount(totalTokens) }} tokens · {{ formatUsd(totalCost) }}</span>
     </div>
 
     <!-- Table -->
@@ -63,19 +52,15 @@
 
     <!-- Pagination -->
     <div class="pagination">
-      <span>Página {{ page + 1 }} de {{ totalPages }} · {{ total.toLocaleString() }} resultados</span>
+      <span>Página {{ page + 1 }} de {{ totalPages }} · {{ formatCount(total) }} resultados</span>
       <div class="pagination-controls">
-        <button class="btn sm" :disabled="page === 0" @click="prevPage">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 18l-6-6 6-6"/>
-          </svg>
+        <button class="btn sm" type="button" :disabled="page === 0" @click="prevPage">
+          <AppIcon name="chevron-left" :size="12" />
           Anterior
         </button>
-        <button class="btn sm" :disabled="page >= totalPages - 1" @click="nextPage">
+        <button class="btn sm" type="button" :disabled="page >= totalPages - 1" @click="nextPage">
           Próxima
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 18l6-6-6-6"/>
-          </svg>
+          <AppIcon name="chevron-right" :size="12" />
         </button>
       </div>
     </div>
@@ -85,6 +70,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import EventsTable from '@/components/EventsTable.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import { statusMark } from '@/brand/status'
+import { formatCount, formatUsd } from '@/brand/format'
 import { listEvents, type ReviewEvent } from '@/api/events'
 import { listClients } from '@/api/clients'
 
@@ -94,6 +82,7 @@ const total = ref(0)
 const page = ref(0)
 const loading = ref(false)
 const pageSize = 25
+const statuses = ['success', 'skipped', 'error']
 
 const filterSearch = ref('')
 const filterClient = ref('')
@@ -190,5 +179,14 @@ onMounted(() => {
 .page {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.seta {
+  color: var(--muted);
+}
+
+.counter {
+  overflow-wrap: anywhere;
 }
 </style>
