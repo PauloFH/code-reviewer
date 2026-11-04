@@ -22,3 +22,19 @@ export function removeStorage(key: string): void {
     // sem persistência
   }
 }
+
+export function readSessionFlag(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) !== null
+  } catch {
+    return false
+  }
+}
+
+export function writeSessionFlag(key: string): void {
+  try {
+    sessionStorage.setItem(key, '1')
+  } catch {
+    // sem persistência
+  }
+}

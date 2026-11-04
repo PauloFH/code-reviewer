@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import BrandLogo from '@/components/BrandLogo.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import LandingAbertura from '@/components/LandingAbertura.vue'
 
 const { theme, toggleTheme } = useTheme()
+
+const raiz = ref<HTMLElement>()
+const heroi = ref<HTMLElement>()
+const topo = ref<HTMLElement>()
+const logoTopo = ref<HTMLElement>()
+const texto = ref<HTMLElement>()
+const montado = ref(false)
+onMounted(() => (montado.value = true))
 
 // URLs literais para o Vite resolver em build.
 const capturas = {
@@ -40,10 +49,18 @@ const pontos = [
 </script>
 
 <template>
-  <div class="landing">
-    <div class="heroi">
-      <header class="topo">
-        <span class="marca"><BrandLogo /></span>
+  <div ref="raiz" class="landing">
+    <div ref="heroi" class="heroi">
+      <LandingAbertura
+        v-if="montado"
+        :raiz="raiz!"
+        :heroi="heroi!"
+        :topo="topo!"
+        :logo-topo="logoTopo!"
+        :texto="texto!"
+      />
+      <header ref="topo" class="topo">
+        <span ref="logoTopo" class="marca"><BrandLogo /></span>
         <span class="espaco"></span>
         <nav class="links" aria-label="Seções">
           <a href="#como-funciona">como funciona</a>
@@ -63,7 +80,7 @@ const pontos = [
         <router-link to="/login" class="btn primary">Entrar</router-link>
       </header>
 
-      <div class="texto">
+      <div ref="texto" class="texto">
         <h1>Todo MR merece uma <mark>segunda leitura</mark>.</h1>
         <p>Um serviço em Go que recebe o webhook, lê o diff com IA e comenta no próprio MR, uma única vez.</p>
         <div class="acoes">

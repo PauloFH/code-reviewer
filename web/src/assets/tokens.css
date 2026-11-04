@@ -44,6 +44,18 @@
   --spectrum:   linear-gradient(90deg, var(--danger), var(--merge-mid) 50%, var(--ok));
   --highlight:  linear-gradient(100deg, var(--hl-1), var(--hl-2));
 
+  /* Símbolo animado da abertura: decorativos, nenhum fica sob texto */
+  --logo-traco:  #f4f2e8;
+  --logo-v-1:    #ff4d1f;
+  --logo-v-2:    #ff8a1f;
+  --logo-g-1:    #1fd97c;
+  --logo-g-2:    #6fe03a;
+  --logo-no-v:   #e6410f;
+  --logo-no-g:   #14913c;
+  --logo-bloco:  #ffbf1f;
+  --logo-check:  #2fd94a;
+  --logo-brilho: rgba(255, 190, 30, 0.45);
+
   /* Radius & shadow */
   --radius:     2px;
   --radius-lg:  4px;
@@ -81,6 +93,16 @@
   --skip:   #5e5a4d;
   --hl-2:      #ffd21f;
   --merge-mid: #e0a100;
+  --logo-traco:  #16140e;
+  --logo-v-1:    #dc2a18;
+  --logo-v-2:    #e8730f;
+  --logo-g-1:    #07924f;
+  --logo-g-2:    #4aa91f;
+  --logo-no-v:   #dc2a18;
+  --logo-no-g:   #07924f;
+  --logo-bloco:  #e0a100;
+  --logo-check:  #07924f;
+  --logo-brilho: rgba(224, 161, 0, 0.30);
 }
 
 /* ── Global reset ────────────────────────────── */
