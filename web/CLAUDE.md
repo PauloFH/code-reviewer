@@ -87,7 +87,7 @@ web/
 
 `/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).
 
-O navigation guard em `router/index.ts` redireciona para `/login` quando `!auth.isAuthenticated` para rotas sem `meta.public`.
+O navigation guard em `router/index.ts` redireciona para `/login` quando `!auth.isAuthenticated` para rotas sem `meta.public`, e `/` manda quem tem sessão para `/dashboard`.
 
 ## Alias de path
 

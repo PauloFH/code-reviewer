@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: (to) => (to.hash ? { el: to.hash } : undefined),
+  scrollBehavior: (to, _de, salva) => salva || (to.hash ? { el: to.hash } : undefined),
   routes: [
     {
       path: '/',
@@ -17,6 +17,7 @@ const router = createRouter({
       component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
+    // A landing precisa vir primeiro; o pai do layout não pode voltar a ter filho vazio em '/'.
     {
       path: '/',
       component: () => import('@/components/AppLayout.vue'),

@@ -25,7 +25,7 @@ const tronco = ref<SVGPathElement>()
 const resto = ref<SVGGElement>()
 
 const VARIAVEIS = ['--abertura-topo', '--abertura-texto', '--abertura-texto-y', '--abertura-trilho']
-const PULAM = ['pointerdown', 'wheel', 'touchstart', 'keydown']
+const PULAM = ['pointerdown', 'wheel', 'touchstart', 'keydown', 'scroll']
 
 let partes: SVGElement[] = []
 let atual: number = ABERTURA.FIM
@@ -36,9 +36,8 @@ let observador: ResizeObserver | undefined
 function desenha(t: number) {
   atual = t
   const { raiz, heroi, topo, logoTopo, texto } = props
-  const largura = heroi.clientWidth
-  const altura = heroi.clientHeight
   const h = heroi.getBoundingClientRect()
+  const { width: largura, height: altura } = h
   const l = logoTopo.getBoundingClientRect()
   const q = quadroAbertura(t, {
     largura,
@@ -191,6 +190,7 @@ rect {
 .meio { stop-color: var(--merge-mid); }
 
 #tronco {
+  stroke: var(--merge-mid);
   stroke: color-mix(in srgb, var(--merge-mid) calc(var(--amarelo) * 100%), var(--logo-traco));
 }
 

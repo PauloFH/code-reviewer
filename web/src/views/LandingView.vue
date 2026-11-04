@@ -96,7 +96,7 @@ const pontos = [
       <section id="como-funciona">
         <h2>Como funciona</h2>
         <p>Você marca o usuário configurado como reviewer ou assignee, e o resto acontece sozinho.</p>
-        <ol class="grade">
+        <ol class="grade" role="list">
           <li v-for="p in passos" :key="p.titulo" class="caixa"><b>{{ p.titulo }}</b>{{ p.texto }}</li>
         </ol>
       </section>
@@ -107,7 +107,7 @@ const pontos = [
           As camadas se somam por perfil, definido por cliente ou por projeto. No GitLab, um comentário
           <code>/review deep</code> escolhe o nível daquele MR.
         </p>
-        <ul class="grade">
+        <ul class="grade" role="list">
           <li v-for="n in niveis" :key="n.titulo" class="caixa">
             <b><span class="sinal">+</span> {{ n.titulo }}</b>{{ n.texto }}
           </li>
@@ -129,7 +129,7 @@ const pontos = [
       <section id="como-e-feito">
         <h2>Como é feito</h2>
         <p>A parte para quem quer ver como o sistema foi pensado.</p>
-        <ul class="grade">
+        <ul class="grade" role="list">
           <li v-for="p in pontos" :key="p.titulo" class="caixa"><b>{{ p.titulo }}</b>{{ p.texto }}</li>
         </ul>
       </section>

@@ -30,7 +30,7 @@ function achados(arquivo: string, texto: string): string[] {
     for (const b of BANIDOS) if (linha.includes(b)) out.push(`${onde} termo banido "${b}"`)
     // símbolo animado: AppIcon só desenha ícones estáticos de um traço
     const podeSvg = arquivo.endsWith(`${sep}AppIcon.vue`) || arquivo.endsWith(`${sep}LandingAbertura.vue`)
-    if (linha.includes('<svg') && !podeSvg) out.push(`${onde} <svg fora de AppIcon.vue`)
+    if (linha.includes('<svg') && !podeSvg) out.push(`${onde} <svg fora de AppIcon.vue e LandingAbertura.vue`)
     if (ehVue) {
       if (COR_HEX.test(linha)) out.push(`${onde} cor hexadecimal`)
       for (const m of linha.matchAll(new RegExp(COR_RGBA, 'g'))) {
