@@ -3,21 +3,25 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: (to, _de, salva) => salva || (to.hash ? { el: to.hash } : undefined),
   routes: [
+    {
+      path: '/',
+      name: 'landing',
+      component: () => import('@/views/LandingView.vue'),
+      meta: { public: true },
+    },
     {
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
+    // A landing precisa vir primeiro; o pai do layout não pode voltar a ter filho vazio em '/'.
     {
       path: '/',
       component: () => import('@/components/AppLayout.vue'),
       children: [
-        {
-          path: '',
-          redirect: '/dashboard',
-        },
         {
           path: 'dashboard',
           name: 'dashboard',
@@ -65,6 +69,7 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  if (to.name === 'landing' && auth.isAuthenticated) return { name: 'dashboard' }
   if (!to.meta.public && !auth.isAuthenticated) {
     return { name: 'login' }
   }

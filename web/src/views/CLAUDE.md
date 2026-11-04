@@ -1,5 +1,15 @@
 # CLAUDE.md — web/src/views/
 
+## LandingView.vue
+
+Landing pública do Mergeye (`/`): topo, herói, quatro seções ligadas por uma linha amarela que desce pela página (como funciona, níveis de revisão, painel por capturas, como é feito) e rodapé.
+
+- Rota pública; o guard redireciona para `/dashboard` quem tem sessão. Não faz chamada de API nem usa `BackgroundMotion`.
+- `LandingAbertura` desenha a abertura animada sobre o herói; ela escreve as variáveis `--abertura-*` em `.landing`, e sem ela valem os valores do estado final.
+- As capturas (`assets/landing/`) seguem o tema de `useTheme()`. Níveis Relacionado, Agêntica e Execução aparecem com a ressalva de que hoje são só GitLab.
+
+---
+
 ## LoginView.vue
 
 Página pública de login (`/login`).

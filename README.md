@@ -126,7 +126,7 @@ curl http://localhost:8080/healthz
 
 ## Dashboard de monitoramento
 
-Acesse `http://localhost:8080` para abrir o dashboard Vue 3.
+Acesse `http://localhost:8080` para abrir o dashboard Vue 3; em `/`, quem não está logado vê a landing do Mergeye, e quem tem sessão vai direto ao painel.
 
 ![Painel do Mergeye em movimento: fundo animado e um evento novo entrando em "Ao vivo"](docs/media/mergeye-painel.gif)
 

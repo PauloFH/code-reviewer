@@ -1,0 +1,234 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=DM+Mono:wght@400;500&display=swap">
+<style>
+  .p { --bg:#0b0c10; --bg2:#111319; --pan:#14161d; --hl:#292c36; --tx:#f6f6f0; --tx2:#d2d3cf; --mu:#a4a7ae; --ok:#1fd97c; --no:#ff4d3d; --am:#ffc917;
+       background:var(--bg); color:var(--tx); border:1px solid var(--hl); border-radius:4px; overflow:hidden; margin-top:14px;
+       font:400 15px/1.5 'Bricolage Grotesque',system-ui,sans-serif; }
+  .p .topo { display:flex; align-items:center; gap:18px; padding:12px 22px; border-bottom:1px solid var(--hl); flex-wrap:wrap; }
+  .p .topo img { height:24px; display:block; }
+  .p .sp { flex:1; }
+  .p .link { color:var(--tx2); font-size:13px; }
+  .p .btn { display:inline-block; padding:8px 14px; font-size:14px; font-weight:600; border:1px solid var(--hl); border-radius:2px; color:var(--tx); }
+  .p .btn.pri { background:linear-gradient(100deg,#fff15a,#ffc917); color:#14130a; border:0; }
+  .p mark { background:linear-gradient(100deg,#fff15a,#ffc917); color:#14130a; padding:0 .15em; }
+  .p code { font-family:'DM Mono',ui-monospace,monospace; font-size:.92em; color:var(--tx2); }
+
+  .p .heroi { position:relative; padding:44px 22px; min-height:clamp(440px,72vh,640px); display:flex; align-items:center; }
+  .p #cena { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .p #cena path, .p #cena polyline, .p #cena line { fill:none; }
+  .p #resto .claro { stroke:#f4f2e8; stroke-linecap:round; stroke-linejoin:round; }
+  .p #resto .pop { transform-box:fill-box; transform-origin:center; }
+  .p #bloco { filter:drop-shadow(0 0 16px rgba(255,190,30,.45)); }
+  .p .texto { position:relative; max-width:540px; }
+  .p h4.t { font-size:clamp(30px,4.6vw,52px); line-height:1.02; font-weight:800; margin:0 0 14px; }
+  .p .texto p { color:var(--tx2); margin:0 0 18px; max-width:44ch; }
+
+  .p .trilho { position:relative; padding:0 64px 8px 22px; }
+  .p .trilho::before { content:""; position:absolute; top:0; bottom:0; right:30px; width:3px; background:var(--am); transform:scaleY(var(--trilho,1)); transform-origin:top; }
+  .p .commit { position:absolute; right:26px; width:11px; height:11px; border-radius:50%; background:#fff15a; animation:desce 9s linear infinite; opacity:var(--trilho,1); }
+  @keyframes desce { 0% { top:0; } 100% { top:98%; } }
+  .p section { position:relative; padding:26px 0; border-top:1px solid var(--hl); }
+  .p section::after { content:""; position:absolute; top:34px; right:-40px; box-sizing:border-box; width:15px; height:15px; border-radius:50%; background:var(--bg); border:3px solid var(--am); opacity:var(--trilho,1); }
+  .p h5 { font-size:clamp(20px,2.6vw,27px); font-weight:800; line-height:1.15; margin:0 0 6px; }
+  .p section > p { color:var(--tx2); margin:0 0 14px; max-width:60ch; }
+  .p .passos { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px; }
+  .p .caixa { border:1px solid var(--hl); background:var(--pan); padding:10px 12px; font-size:13px; color:var(--tx2); }
+  .p .caixa b { display:block; color:var(--tx); font-size:14px; margin-bottom:2px; }
+  .p .caixa .s { color:var(--ok); font-family:'DM Mono',monospace; }
+  .p .telas { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+  .p .telas img { width:100%; display:block; border:1px solid var(--hl); }
+  .p .fim { padding:22px; border-top:3px solid; border-image:linear-gradient(90deg,#ff4d3d,#ffc917 50%,#1fd97c) 1; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .p .fim span.q { font-weight:600; }
+  #rever { font:inherit; padding:6px 12px; cursor:pointer; }
+  @media (prefers-reduced-motion:reduce) { .p .commit { animation:none; } }
+</style>
+
+<h2>Abertura: a logo se forma e vira os fios</h2>
+<p class="subtitle">A animação leva cerca de 4 segundos. Clique na cena para pular. <button id="rever" type="button">Rever animação</button></p>
+
+<div class="p">
+  <div class="topo"><img id="logoTopo" src="/files/mergeye-logo-horizontal-escuro.png" alt="Mergeye"><span class="sp"></span><span class="link">como funciona</span><span class="link">modos</span><span class="link">painel</span><span class="link">como é feito</span><span class="btn pri">Entrar</span></div>
+
+  <div class="heroi" id="heroi">
+    <svg id="cena" aria-hidden="true">
+      <defs>
+        <linearGradient id="gv"><stop offset="0" stop-color="#ff4d1f"/><stop offset=".5" stop-color="#ff8a1f"/><stop offset="1" stop-color="#ffc917"/></linearGradient>
+        <linearGradient id="gg"><stop offset="0" stop-color="#1fd97c"/><stop offset=".5" stop-color="#6fe03a"/><stop offset="1" stop-color="#ffe02a"/></linearGradient>
+      </defs>
+      <path id="ramoV" stroke="url(#gv)" pathLength="1" stroke-dasharray="1 1"/>
+      <path id="ramoG" stroke="url(#gg)" pathLength="1" stroke-dasharray="1 1"/>
+      <path id="tronco" stroke-linecap="round" pathLength="1" stroke-dasharray="1 1"/>
+      <!-- redesenho em SVG do símbolo oficial, nas coordenadas do PNG de 866x450 -->
+      <g id="resto">
+        <line class="claro tr" data-de="0" data-ate=".35" x1="22" y1="224" x2="90" y2="224" stroke-width="16" pathLength="1" stroke-dasharray="1 1"/>
+        <line class="claro tr" data-de=".5" data-ate="1.1" x1="150" y1="224" x2="322" y2="224" stroke-width="16" pathLength="1" stroke-dasharray="1 1"/>
+        <line class="claro tr" data-de="1.35" data-ate="1.7" x1="566" y1="224" x2="680" y2="224" stroke-width="16" pathLength="1" stroke-dasharray="1 1"/>
+        <circle class="pop claro" data-de=".3" data-ate=".55" cx="117" cy="224" r="29" fill="#0b0c10" stroke-width="10"/>
+        <circle class="pop claro" data-de=".8" data-ate="1.05" cx="336" cy="58" r="29" fill="#e6410f" stroke-width="10"/>
+        <circle class="pop claro" data-de=".8" data-ate="1.05" cx="336" cy="386" r="29" fill="#14913c" stroke-width="10"/>
+        <g id="bloco">
+          <rect class="tr" data-de="1.1" data-ate="1.6" x="351" y="136" width="184" height="180" rx="44" fill="none" stroke="#ffbf1f" stroke-width="13" pathLength="1" stroke-dasharray="1 1"/>
+          <polyline class="claro tr" data-de="1.5" data-ate="1.7" points="418,181 391,204 418,227" stroke-width="10" pathLength="1" stroke-dasharray="1 1"/>
+          <line class="claro tr" data-de="1.6" data-ate="1.8" x1="456" y1="171" x2="432" y2="231" stroke-width="10" pathLength="1" stroke-dasharray="1 1"/>
+          <polyline class="claro tr" data-de="1.7" data-ate="1.9" points="471,181 498,204 471,227" stroke-width="10" pathLength="1" stroke-dasharray="1 1"/>
+          <polyline class="tr" data-de="1.85" data-ate="2.15" points="414,263 433,285 472,252" stroke="#2fd94a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1"/>
+        </g>
+        <g class="pop" data-de="1.45" data-ate="1.75">
+          <circle class="claro" cx="721" cy="224" r="43" fill="#0b0c10" stroke-width="10"/>
+          <path class="claro" d="M696 258 L721 228 V198 M712 207 L721 196 L730 207 M721 228 H750 M741 219 L752 228 L741 237" stroke-width="6"/>
+        </g>
+      </g>
+    </svg>
+    <div class="texto" id="texto">
+      <h4 class="t">Todo MR merece uma <mark>segunda leitura</mark>.</h4>
+      <p>Um serviço em Go que recebe o webhook, lê o diff com IA e comenta no próprio MR, uma única vez.</p>
+      <span class="btn pri">Ver como funciona</span> <span class="btn">Código no GitHub</span>
+    </div>
+  </div>
+
+  <div class="trilho" id="trilho">
+    <span class="commit" aria-hidden="true"></span>
+
+    <section>
+      <h5>Como funciona</h5>
+      <p>Você marca o usuário configurado como reviewer ou assignee, e o resto acontece sozinho.</p>
+      <div class="passos">
+        <div class="caixa"><b>1. Webhook</b>GitLab, GitHub ou Gitea avisam</div>
+        <div class="caixa"><b>2. Diff</b>Busca o MR pela API</div>
+        <div class="caixa"><b>3. IA</b>Claude, OpenAI, Gemini ou DeepSeek</div>
+        <div class="caixa"><b>4. Comentário</b>Publicado no MR, uma vez só</div>
+      </div>
+    </section>
+
+    <section>
+      <h5>Quatro níveis de revisão</h5>
+      <p>As camadas se somam por perfil, ou por MR com o comentário <code>/review deep</code>.</p>
+      <div class="passos">
+        <div class="caixa"><b><span class="s">+</span> Diff</b>Título, descrição e alterações</div>
+        <div class="caixa"><b><span class="s">+</span> Relacionado</b>Issues, MRs e discussão (GitLab)</div>
+        <div class="caixa"><b><span class="s">+</span> Agêntica</b>A IA navega pelo repositório (GitLab)</div>
+        <div class="caixa"><b><span class="s">+</span> Execução</b>Testes em Docker sem rede nem segredos</div>
+      </div>
+    </section>
+
+    <section>
+      <h5>O painel</h5>
+      <p>Prompts, modelos e perfis por cliente e projeto, com custo e erros à vista. Sem demonstração aberta: você vê pelas capturas.</p>
+      <div class="telas"><img src="/files/mergeye-painel-escuro.png" alt="Captura do Painel"><img src="/files/mergeye-revisoes.png" alt="Captura das Revisões"></div>
+    </section>
+
+    <section>
+      <h5>Como é feito</h5>
+      <p>A parte para quem quer ver como o sistema foi pensado.</p>
+      <div class="passos">
+        <div class="caixa"><b>Não repete</b>Reenvio de webhook não gera segundo review</div>
+        <div class="caixa"><b>Falha com aviso</b>Retenta com backoff e explica o erro no MR</div>
+        <div class="caixa"><b>Segredos cifrados</b>Credenciais de IA em AES-256-GCM</div>
+        <div class="caixa"><b>Fácil de estender</b>Clean Architecture e Strategy por plataforma</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="fim"><span class="q">Feito por Paulo Holanda</span><span class="sp"></span><span class="btn">Código no GitHub</span><span class="btn">Site pessoal</span></div>
+</div>
+
+<script>
+(function () {
+  const FIM = 4.2, ABRE = 2.7, DUR = 1; // segundos: a logo fica pronta antes de ABRE e se abre durante DUR
+  const $ = (id) => document.getElementById(id);
+  const heroi = $('heroi'), cena = $('cena'), resto = $('resto'), logoTopo = $('logoTopo'), texto = $('texto'), trilho = $('trilho');
+  const ramoV = $('ramoV'), ramoG = $('ramoG'), tronco = $('tronco');
+  const partes = [...resto.querySelectorAll('[data-de]')];
+
+  const faixa = (t, de, ate) => Math.min(1, Math.max(0, (t - de) / (ate - de)));
+  const suave = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const mix = (a, b, k) => a + (b - a) * k;
+
+  // ramos da logo, em três cúbicas, nas coordenadas do PNG
+  // ramos e tronco já nascem no mesmo ponto (721,224), sob o nó de merge, para nunca abrir vão ao se abrirem
+  const LOGO_V = [135,215, 190,195,240,110,336,58, 400,25,500,15,585,75, 640,115,675,195,721,224];
+  const LOGO_G = [135,235, 190,255,240,340,336,386, 400,425,510,430,590,370, 640,330,675,255,721,224];
+  const LOGO_T = [721,224, 760,224,810,224,845,224, 845,224];
+
+  // divide uma cúbica em t (de Casteljau), para o fio final ter o mesmo número de pontos do ramo
+  function divide(p, t) {
+    const m = (i, j) => [mix(p[i], p[j], t), mix(p[i + 1], p[j + 1], t)];
+    const a = m(0, 2), b = m(2, 4), c = m(4, 6);
+    const ab = [mix(a[0], b[0], t), mix(a[1], b[1], t)], bc = [mix(b[0], c[0], t), mix(b[1], c[1], t)];
+    const q = [mix(ab[0], bc[0], t), mix(ab[1], bc[1], t)];
+    return [[p[0], p[1], ...a, ...ab, ...q], [...q, ...bc, ...c, p[6], p[7]]];
+  }
+  function emTres(p) {
+    const [um, r] = divide(p, 1 / 3), [dois, tres] = divide(r, .5);
+    return [...um, ...dois.slice(2), ...tres.slice(2)];
+  }
+  const caminho = (v) => `M${v[0]} ${v[1]}C${v.slice(2, 8)}C${v.slice(8, 14)}C${v.slice(14, 20)}`;
+
+  let atual = 0, inicio = null, quadro = null;
+
+  function desenha(t) {
+    atual = t;
+    const W = heroi.clientWidth, H = heroi.clientHeight;
+    cena.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const s = Math.min(W * .6 / 866, H * .62 / 450), ox = (W - 866 * s) / 2, oy = (H - 450 * s) / 2;
+    const px = (v) => v.map((n, i) => (i % 2 ? oy + n * s : ox + n * s));
+
+    // fio final: mesma geometria aprovada, presa à direita; railX é o centro da linha do trilho
+    const k = H / 330, kx = Math.min(k, W * .4 / 340), railX = W - 31.5, x0 = railX - 308.5 * kx, mx = x0 + 220 * kx;
+    const fimV = emTres([x0, 24 * k, x0 + 120 * kx, 24 * k, x0 + 130 * kx, 140 * k, mx, 160 * k]);
+    const fimG = emTres([x0, 300 * k, x0 + 120 * kx, 300 * k, x0 + 130 * kx, 180 * k, mx, 160 * k]);
+    const fimT = [mx, 160 * k, mx + 60 * kx, 160 * k, railX, 180 * k, railX, 230 * k, railX, H];
+
+    const m = suave(faixa(t, ABRE, ABRE + DUR));
+    const entre = (a, b) => a.map((n, i) => mix(n, b[i], m));
+
+    const v = entre(px(LOGO_V), fimV), g = entre(px(LOGO_G), fimG), tr = entre(px(LOGO_T), fimT);
+    const risco = mix(36 * s, 3, m);
+    const formando = faixa(t, .5, 1.5);
+    [[ramoV, v], [ramoG, g]].forEach(([el, d]) => {
+      el.setAttribute('d', caminho(d));
+      el.setAttribute('stroke-width', risco);
+      el.setAttribute('stroke-dashoffset', 1 - formando);
+    });
+    tronco.setAttribute('d', `M${tr[0]} ${tr[1]}C${tr.slice(2, 8)}L${tr[8]} ${tr[9]}`);
+    tronco.setAttribute('stroke-width', mix(16 * s, 3, m));
+    const am = Math.min(1, m * 2.5); // fica amarelo logo no começo, para não parecer outro fio
+    tronco.setAttribute('stroke', `rgb(${mix(244, 255, am)},${mix(242, 201, am)},${mix(232, 23, am)})`);
+    tronco.setAttribute('stroke-dashoffset', 1 - faixa(t, 1.65, 1.95));
+
+    // o resto do símbolo encolhe até a logo do topo, que aparece no lugar dele
+    const hr = heroi.getBoundingClientRect(), lr = logoTopo.getBoundingClientRect();
+    const ts = lr.height / 450, tx = lr.left - hr.left, ty = lr.top - hr.top;
+    resto.setAttribute('transform', `translate(${mix(ox, tx, m)} ${mix(oy, ty, m)}) scale(${mix(s, ts, m)})`);
+    resto.style.opacity = 1 - faixa(t, ABRE + .35, ABRE + .95);
+    logoTopo.style.opacity = faixa(t, ABRE + .45, ABRE + 1);
+
+    partes.forEach((el) => {
+      const p = faixa(t, +el.dataset.de, +el.dataset.ate);
+      if (el.classList.contains('pop')) { el.style.transform = `scale(${p ? mix(.4, 1, suave(p)) : 0})`; el.style.opacity = p ? 1 : 0; }
+      else el.setAttribute('stroke-dashoffset', 1 - p);
+    });
+
+    const e = faixa(t, ABRE + .55, ABRE + 1.15);
+    texto.style.opacity = e;
+    texto.style.transform = `translateY(${(1 - suave(e)) * 14}px)`;
+    trilho.style.setProperty('--trilho', faixa(t, ABRE + DUR - .05, ABRE + DUR + .45));
+  }
+
+  function passo(agora) {
+    if (inicio === null) inicio = agora;
+    const t = (agora - inicio) / 1000;
+    desenha(Math.min(t, FIM));
+    quadro = t < FIM ? requestAnimationFrame(passo) : null;
+  }
+  function toca() { cancelAnimationFrame(quadro); inicio = null; quadro = requestAnimationFrame(passo); }
+  function pula() { cancelAnimationFrame(quadro); quadro = null; desenha(FIM); }
+
+  heroi.addEventListener('click', pula);
+  $('rever').addEventListener('click', toca);
+  new ResizeObserver(() => desenha(atual)).observe(heroi);
+  window.mergeyeVaiPara = (t) => { cancelAnimationFrame(quadro); quadro = null; desenha(t); };
+
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) pula(); else { desenha(0); toca(); }
+})();
+</script>

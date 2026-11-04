@@ -28,7 +28,9 @@ function achados(arquivo: string, texto: string): string[] {
   texto.split('\n').forEach((linha, i) => {
     const onde = `${arquivo}:${i + 1}`
     for (const b of BANIDOS) if (linha.includes(b)) out.push(`${onde} termo banido "${b}"`)
-    if (linha.includes('<svg') && !arquivo.endsWith(`${sep}AppIcon.vue`)) out.push(`${onde} <svg fora de AppIcon.vue`)
+    // símbolo animado: AppIcon só desenha ícones estáticos de um traço
+    const podeSvg = arquivo.endsWith(`${sep}AppIcon.vue`) || arquivo.endsWith(`${sep}LandingAbertura.vue`)
+    if (linha.includes('<svg') && !podeSvg) out.push(`${onde} <svg fora de AppIcon.vue e LandingAbertura.vue`)
     if (ehVue) {
       if (COR_HEX.test(linha)) out.push(`${onde} cor hexadecimal`)
       for (const m of linha.matchAll(new RegExp(COR_RGBA, 'g'))) {
@@ -63,6 +65,7 @@ test('detectores pegam o que devem e deixam passar o legítimo', () => {
   assert.equal(achados('X.ts', '<svg></svg>').length, 1)
   assert.equal(achados('X.vue', '<svg></svg>').length, 1)
   assert.equal(achados(`a${sep}AppIcon.vue`, '<svg></svg>').length, 0)
+  assert.equal(achados(`components${sep}LandingAbertura.vue`, '<svg></svg>').length, 0)
   assert.equal(achados('X.vue', 'box-shadow: 0 1px rgba(0, 0, 0, .3)').length, 0)
   assert.equal(achados('X.vue', '&#8226; Lista').length, 0)
   assert.equal(achados('X.vue', 'return `rgba(${r}, ${g}, ${b}, ${a})`').length, 0)
