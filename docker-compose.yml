@@ -1,6 +1,9 @@
 services:
   code-reviewer:
-    build: .
+    build:
+      context: .
+      secrets:
+        - git_token
     ports:
       - "${APP_PORT:-8080}:8080"
     env_file:
@@ -15,3 +18,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+secrets:
+  # Token de leitura do Gitea para baixar o SDK privado durante o build.
+  # Lido da variável CI_GIT_TOKEN do ambiente do host; não vai para a imagem.
+  git_token:
+    environment: CI_GIT_TOKEN

@@ -1,8 +1,8 @@
 module github.com/paulofh/code-reviewer
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.25.11
+toolchain go1.26.10
 
 require (
 	git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go v0.1.0

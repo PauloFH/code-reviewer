@@ -23,7 +23,8 @@ Além do comentário completo, o serviço tenta publicar comentários inline no 
 
 ## Pré-requisitos
 
-- Go 1.22+ (com CGo habilitado, necessário para SQLite)
+- Go 1.26.10+ (com CGo habilitado, necessário para SQLite)
+- Acesso de leitura ao módulo privado `git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go` (veja "Módulo privado" abaixo)
 - GCC / musl-dev (Linux) ou Xcode CLT (macOS) — para o driver SQLite
 - Docker + Docker Compose (para execução containerizada)
 
@@ -90,7 +91,8 @@ O campo `name` é usado na URL do webhook: `POST /webhook/{name}`.
 ## Rodando localmente
 
 ```bash
-# 1. Instale dependências
+# 1. Instale dependências (módulo privado: veja "Módulo privado" abaixo)
+export GOPRIVATE='git.pauloholanda.com.br/*'
 go mod download
 
 # 2. Configure o ambiente
@@ -191,11 +193,24 @@ Rotas de `clients`, `prompts` e `ai-configs` exigem JWT + papel `super`/`gestor`
 
 ---
 
+## Módulo privado (`sdk-claude-oauth-go`)
+
+O SDK de OAuth é privado e só existe no Gitea. Para baixá-lo é preciso `GOPRIVATE=git.pauloholanda.com.br/*` e credencial de leitura no Git (por exemplo `git config --global url."https://<token>@git.pauloholanda.com.br/".insteadOf "https://git.pauloholanda.com.br/"` na sua máquina). No build Docker o token vai por segredo do BuildKit, nunca para a imagem.
+
+---
+
 ## Rodando com Docker
 
+O build precisa do token de leitura do Gitea na variável de ambiente `CI_GIT_TOKEN` do **host** (não a coloque no `.env` nem em `ARG`/`ENV`; o Compose a repassa como segredo de build `git_token`):
+
 ```bash
-# Build e start
+# Build e start (CI_GIT_TOKEN exportado no shell, sem gravá-lo em arquivo)
+read -rs CI_GIT_TOKEN && export CI_GIT_TOKEN
 docker compose up --build
+
+# Build direto, sem Compose
+docker build --secret id=git_token,env=CI_GIT_TOKEN -t code-reviewer .
+```
 
 # Em background
 docker compose up --build -d

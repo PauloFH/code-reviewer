@@ -14,15 +14,29 @@ RUN npm run build
 # ─────────────────────────────────────────────
 # Stage 2: build the Go binary
 # ─────────────────────────────────────────────
-FROM golang:1.25-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 
-# CGO is required by go-sqlite3
-RUN apk add --no-cache gcc musl-dev
+# CGO is required by go-sqlite3; git is required to fetch the private SDK module
+RUN apk add --no-cache gcc musl-dev git
+
+# The SDK lives on the private Gitea: skip the public proxy/checksum DB for it
+ENV GOPRIVATE=git.pauloholanda.com.br/*
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+# The token comes from a BuildKit secret (docker build --secret id=git_token,...),
+# is mounted only for this command and injected via GIT_CONFIG_* env vars of this
+# single process: never written to a file, ENV, ARG or image layer.
+RUN --mount=type=secret,id=git_token \
+    if [ ! -s /run/secrets/git_token ]; then \
+      echo "ERROR: secret 'git_token' ausente ou vazio. Use: docker build --secret id=git_token,env=CI_GIT_TOKEN ." >&2; \
+      exit 1; \
+    fi; \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.https://oauth2:$(cat /run/secrets/git_token)@git.pauloholanda.com.br/.insteadOf" \
+    GIT_CONFIG_VALUE_0="https://git.pauloholanda.com.br/" \
+    go mod download
 
 COPY . .
 # Copy the compiled frontend into the embed path
