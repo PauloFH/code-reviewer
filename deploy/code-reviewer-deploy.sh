@@ -4,6 +4,8 @@
 set -euo pipefail
 export LC_ALL=C
 umask 022
+# Se a conexão SSH cair, o script ainda precisa terminar o health check e o rollback.
+trap '' PIPE HUP
 
 APP_DIR="${APP_DIR:-/opt/code-reviewer}"
 HEALTH_URL="${HEALTH_URL:-http://localhost:8080/healthz}"
@@ -50,6 +52,8 @@ if [ -f code-reviewer ]; then
   cp -p code-reviewer code-reviewer.prev
 fi
 mv -f "$new" code-reviewer
+# A partir daqui, nenhuma falha pode encerrar o script antes do rollback.
+set +e
 
 restart() { sudo -n systemctl restart code-reviewer; }
 # Com Type=simple, o restart retorna sucesso mesmo se o binário novo cair no boot.

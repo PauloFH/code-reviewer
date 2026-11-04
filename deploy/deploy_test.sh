@@ -84,4 +84,15 @@ if run "$sha3 $(sha256sum "$tmp/v3" | cut -d' ' -f1)" "$tmp/v3"; then fail "depl
 [ "$(binary)" = binario-v2 ] || fail "não voltou ao binário anterior"
 [ "$(grep -c '^sudo args=-n systemctl restart code-reviewer$' "$log")" = 2 ] || fail "não reiniciou depois de voltar"
 
+# Conexão SSH caindo durante o health check de um binário ruim: o rollback ainda precisa acontecer.
+: > "$log"
+printf 'binario-v4\n' > "$tmp/v4"
+git -C "$tmp/dev" commit -q --allow-empty -m v4
+git -C "$tmp/dev" push -q origin main
+sha4="$(git -C "$tmp/dev" rev-parse HEAD)"
+SSH_ORIGINAL_COMMAND="$sha4 $(sha256sum "$tmp/v4" | cut -d' ' -f1)" APP_DIR="$app" REPO_URL="$tmp/remote.git" PATH="$tmp/bin:$PATH" \
+  bash "$script" < "$tmp/v4" 2>&1 | true || true
+[ "$(binary)" = binario-v2 ] || fail "conexão perdida impediu a volta ao binário anterior"
+[ "$(grep -c '^sudo args=-n systemctl restart code-reviewer$' "$log")" = 2 ] || fail "conexão perdida impediu o reinício depois de voltar"
+
 echo "deploy_test: ok"

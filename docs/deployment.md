@@ -298,12 +298,16 @@ sudo ln -s /etc/nginx/sites-available/code-reviewer /etc/nginx/sites-enabled/
 # Faixas do Cloudflare: o IP real só é aceito delas, e $is_cloudflare identifica quem chega direto no IP.
 # O geo usa $realip_remote_addr, o par TCP real, antes da substituição feita pelo real_ip.
 IPS="$(curl -fsS https://www.cloudflare.com/ips-v4) $(curl -fsS https://www.cloudflare.com/ips-v6)"
-{ for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done
-  printf 'real_ip_header CF-Connecting-IP;\n\n'
-  printf 'geo $realip_remote_addr $is_cloudflare {\n    default 0;\n'
-  for ip in $IPS; do printf '    %s 1;\n' "$ip"; done
-  printf '}\n'
-} | sudo tee /etc/nginx/conf.d/cloudflare.conf >/dev/null
+if [ "$(echo $IPS | wc -w)" -gt 10 ]; then
+  { for ip in $IPS; do printf 'set_real_ip_from %s;\n' "$ip"; done
+    printf 'real_ip_header CF-Connecting-IP;\n\n'
+    printf 'geo $realip_remote_addr $is_cloudflare {\n    default 0;\n'
+    for ip in $IPS; do printf '    %s 1;\n' "$ip"; done
+    printf '}\n'
+  } | sudo tee /etc/nginx/conf.d/cloudflare.conf >/dev/null
+else
+  echo 'lista do Cloudflare incompleta; conf.d/cloudflare.conf não foi alterado'
+fi
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -351,11 +355,13 @@ curl https://reviewer.seu-dominio.com/healthz
 
 As portas 80 e 443 ficam abertas na security list da rede e nas regras `iptables` da imagem. Quem restringe ao Cloudflare é o Nginx, pelo `$is_cloudflare` da seção 11. Não instale o `ufw` em VMs da Oracle: ele pode entrar em conflito com as regras da imagem e bloquear o acesso.
 
-Depois de cadastrar um site novo neste servidor, inclua `if ($is_cloudflare = 0) { return 444; }` no bloco dele. Para conferir de fora, o IP direto não deve responder, e o domínio deve dar 200:
+Depois de cadastrar um site novo neste servidor, inclua `if ($is_cloudflare = 0) { return 444; }` no bloco dele. Para conferir de fora, os acessos diretos pelo IP não devem responder (`000`), e o domínio deve dar 200:
 
 ```bash
-curl -sk -m 8 --resolve <dominio-do-painel>:443:<ip-do-servidor> https://<dominio-do-painel>/healthz -o /dev/null -w '%{http_code}\n'  # 000
-curl -s -m 8 https://<dominio-do-painel>/healthz -o /dev/null -w '%{http_code}\n'                                                     # 200
+curl -s -m 8 -H 'Host: <dominio-do-painel>' -o /dev/null -w '%{http_code}\n' http://<ip-do-servidor>/healthz
+curl -sk -m 8 --resolve <dominio-do-painel>:443:<ip-do-servidor> -o /dev/null -w '%{http_code}\n' https://<dominio-do-painel>/healthz
+curl -s -m 8 -o /dev/null -w '%{http_code}\n' http://<ip-do-servidor>:8080/healthz
+curl -s -m 8 -o /dev/null -w '%{http_code}\n' https://<dominio-do-painel>/healthz   # 200
 ```
 
 As faixas do Cloudflare mudam raramente; se mudarem, gere `conf.d/cloudflare.conf` de novo.
@@ -427,7 +433,7 @@ sudo systemctl restart code-reviewer
 
 Cada push no `main` do GitHub testa e compila o binário em runners hospedados. O deploy então **espera sua aprovação** no ambiente `production`. Aprovado, o binário vai por SSH para o servidor, onde a chave do CI só consegue executar `/usr/local/bin/code-reviewer-deploy`. O script confere o checksum, recusa o que não for o último commit do `main`, troca o binário e volta ao anterior se o `/healthz` não responder.
 
-O servidor não guarda token nem código, e não precisa de Go nem de Node, então a seção 14 pode ser aplicada depois do primeiro deploy. A porta SSH precisa aceitar conexões da internet, por um host fora do proxy do Cloudflare.
+O servidor não precisa de token, código, Go nem Node para o deploy, então a seção 14 pode ser aplicada depois do primeiro deploy. A porta SSH precisa aceitar conexões da internet, por um host fora do proxy do Cloudflare.
 
 | Usuário | Papel | Dono de | Pode |
 |---|---|---|---|
@@ -439,7 +445,7 @@ O servidor não guarda token nem código, e não precisa de Go nem de Node, ent�
 ```bash
 uname -m; . /etc/os-release; echo "$PRETTY_NAME"    # definem BUILD_RUNNER, abaixo
 sudo systemctl cat code-reviewer                    # confira User, WorkingDirectory e EnvironmentFile
-grep -E '^(APP_PORT|DATABASE_PATH|WORKSPACE_DIR|CLIENTS_CONFIG_PATH|GITLAB_REPOS_PATH|SANDBOX_IMAGE)=' /opt/code-reviewer/.env
+sudo grep -E '^(APP_PORT|DATABASE_PATH|WORKSPACE_DIR|CLIENTS_CONFIG_PATH|GITLAB_REPOS_PATH|SANDBOX_IMAGE)=' /opt/code-reviewer/.env
 grep -hE '^(AllowUsers|AllowGroups)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/* 2>/dev/null   # se aparecer algo, inclua cr-deploy
 command -v git curl flock
 ```
@@ -457,7 +463,7 @@ Depois, crie o usuário de deploy, ajuste as posses e instale o script. O servi�
 systemctl show -p User code-reviewer                # User=code-reviewer
 sudo adduser --disabled-password --gecos '' cr-deploy
 
-# cr-deploy só pode reiniciar este serviço; o serviço deixa de poder se reiniciar
+# cr-deploy só pode reiniciar este serviço; confira com sudo -l -U code-reviewer se sobrou regra para o serviço
 echo 'cr-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart code-reviewer' > /tmp/cr-sudoers
 sudo visudo -cf /tmp/cr-sudoers && sudo install -o root -g root -m 440 /tmp/cr-sudoers /etc/sudoers.d/code-reviewer-deploy
 rm -f /tmp/cr-sudoers
@@ -476,8 +482,9 @@ curl -fsS http://localhost:8080/healthz             # use o APP_PORT do .env, se
 cd -
 
 # Instala o script fora do diretório da aplicação (troque <ref> pela branch; depois do merge, é main)
-curl -fsSL https://raw.githubusercontent.com/PauloFH/code-reviewer/<ref>/deploy/code-reviewer-deploy.sh \
-  | sudo install -o root -g root -m 755 /dev/stdin /usr/local/bin/code-reviewer-deploy
+curl -fsSL -o /tmp/cr-deploy.sh https://raw.githubusercontent.com/PauloFH/code-reviewer/<ref>/deploy/code-reviewer-deploy.sh \
+  && sudo install -o root -g root -m 755 /tmp/cr-deploy.sh /usr/local/bin/code-reviewer-deploy
+rm -f /tmp/cr-deploy.sh
 ```
 
 Para voltar atrás antes de instalar a chave: `sudo chown code-reviewer:code-reviewer /opt/code-reviewer /opt/code-reviewer/code-reviewer` e devolva a regra de `sudo` a `code-reviewer`.
@@ -531,8 +538,8 @@ Depois, apague a chave local com `rm -rf "$D"`. O script é de root e não se at
 
 Limites:
 
-- **Código aprovado:** ao aprovar um deploy, ele roda como `code-reviewer`, com acesso ao `.env` e ao banco. A barreira é a sua aprovação. Depois de um deploy malicioso, `git revert` não basta: troque os segredos.
-- **Token do SDK:** continua como segredo do CI, ao alcance do código do commit no job de build.
+- **Código aprovado:** ao aprovar um deploy, ele roda como `code-reviewer`, com acesso ao `.env` e ao banco; `retention-days: 1` faz o artefato expirar se a aprovação demorar mais de um dia, e aí basta refazer a execução. A barreira é a sua aprovação. Depois de um deploy malicioso, `git revert` não basta: troque os segredos.
+- **Token do SDK e `ARTIFACT_KEY`:** continuam como segredos do CI, ao alcance do código do commit no job de build.
 - **Chave de deploy:** quem a obtiver pode instalar qualquer binário, desde que informe o último commit do `main`. Ela só existe no ambiente `production`; o build não tem acesso a ela.
 
 ---
