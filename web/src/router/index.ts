@@ -3,7 +3,14 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: (to) => (to.hash ? { el: to.hash } : undefined),
   routes: [
+    {
+      path: '/',
+      name: 'landing',
+      component: () => import('@/views/LandingView.vue'),
+      meta: { public: true },
+    },
     {
       path: '/login',
       name: 'login',
@@ -14,10 +21,6 @@ const router = createRouter({
       path: '/',
       component: () => import('@/components/AppLayout.vue'),
       children: [
-        {
-          path: '',
-          redirect: '/dashboard',
-        },
         {
           path: 'dashboard',
           name: 'dashboard',
@@ -65,6 +68,7 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  if (to.name === 'landing' && auth.isAuthenticated) return { name: 'dashboard' }
   if (!to.meta.public && !auth.isAuthenticated) {
     return { name: 'login' }
   }
