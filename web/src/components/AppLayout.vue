@@ -151,8 +151,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 }
 
 .brand-logo {
-  width: 150px;
-  min-width: 0; /* deixa a logo encolher no flex para o botão de fechar caber na barra */
+  width: 190px;
+  min-width: 0; /* no drawer, encolhe só o necessário para o botão de fechar caber na barra */
+  max-width: 100%;
 }
 
 .close-btn {
