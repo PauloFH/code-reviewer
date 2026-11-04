@@ -1,43 +1,43 @@
 <template>
-  <Modal :title="isEdit ? 'Edit Client' : 'New Client'" max-width="480px" @close="$emit('close')">
-    <p v-if="error" class="error">{{ error }}</p>
+  <Modal :title="isEdit ? 'Editar cliente' : 'Novo cliente'" max-width="480px" @close="$emit('close')">
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
-        <label>Name</label>
-        <input v-model="form.name" required :disabled="isEdit" />
+        <label for="client-name">Nome</label>
+        <input id="client-name" v-model="form.name" required :disabled="isEdit" />
       </div>
       <div class="field">
-        <label>Platform</label>
-        <select v-model="form.platform" required>
+        <label for="client-platform">Plataforma</label>
+        <select id="client-platform" v-model="form.platform" required>
           <option value="gitlab">GitLab</option>
-          <option value="gitlab-selfhosted">GitLab Self-hosted</option>
+          <option value="gitlab-selfhosted">GitLab auto-hospedado</option>
           <option value="github">GitHub</option>
           <option value="gitea">Gitea</option>
-          <option value="gitea-selfhosted">Gitea Self-hosted</option>
+          <option value="gitea-selfhosted">Gitea auto-hospedado</option>
         </select>
       </div>
       <div class="field">
-        <label>Base URL</label>
-        <input v-model="form.base_url" placeholder="https://gitlab.com" required />
+        <label for="client-base-url">URL base</label>
+        <input id="client-base-url" v-model="form.base_url" placeholder="https://gitlab.com" required />
       </div>
       <div class="field">
-        <label>API Token</label>
-        <input v-model="form.token" type="password" :placeholder="isEdit ? 'leave blank to keep' : ''" />
+        <label for="client-token">Token de API</label>
+        <input id="client-token" v-model="form.token" type="password" :placeholder="isEdit ? 'deixe em branco para manter' : ''" />
       </div>
       <div class="field">
-        <label>Webhook Secret</label>
-        <input v-model="form.webhook_secret" type="password" :placeholder="isEdit ? 'leave blank to keep' : ''" />
+        <label for="client-secret">Segredo do webhook</label>
+        <input id="client-secret" v-model="form.webhook_secret" type="password" :placeholder="isEdit ? 'deixe em branco para manter' : ''" />
       </div>
       <div class="field">
-        <label>Watch Username</label>
-        <input v-model="form.username" required />
+        <label for="client-username">Usuário monitorado</label>
+        <input id="client-username" v-model="form.username" required />
       </div>
     </form>
     <template #footer>
-      <button class="btn" type="button" @click="$emit('close')">Cancel</button>
+      <button class="btn" type="button" @click="$emit('close')">Cancelar</button>
       <button class="btn primary" type="submit" :disabled="saving" @click="submit">
         <span v-if="saving" class="spinner" />
-        {{ saving ? 'Saving…' : 'Save' }}
+        {{ saving ? 'Salvando…' : 'Salvar' }}
       </button>
     </template>
   </Modal>
@@ -101,24 +101,20 @@ defineExpose({ setSaving: (v: boolean) => { saving.value = v }, setError: (e: st
 }
 
 .field label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input,
 .field select {
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: var(--bg-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   color: var(--text);
-  font-size: 13px;
-  font-family: inherit;
-  transition: border-color 0.1s;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  transition: border-color 0.12s;
 }
 
 .field input:focus,
@@ -138,11 +134,12 @@ defineExpose({ setSaving: (v: boolean) => { saving.value = v }, setError: (e: st
 
 .error {
   color: var(--danger);
-  font-size: 12.5px;
-  padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
   margin-bottom: 16px;
+  overflow-wrap: anywhere;
 }
 </style>

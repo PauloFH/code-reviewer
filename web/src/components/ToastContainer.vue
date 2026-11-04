@@ -6,9 +6,12 @@
           v-for="t in toasts.toasts"
           :key="t.id"
           :class="['toast', t.type]"
+          :role="t.type === 'error' ? 'alert' : 'status'"
           @click="toasts.remove(t.id)"
         >
-          {{ t.message }}
+          <!-- Tipo também por sinal, nunca só por cor. -->
+          <span class="sign" aria-hidden="true">{{ SIGNS[t.type] }}</span>
+          <span class="msg">{{ t.message }}</span>
         </div>
       </TransitionGroup>
     </div>
@@ -16,8 +19,10 @@
 </template>
 
 <script setup lang="ts">
-import { useToastStore } from '@/stores/toast'
+import { useToastStore, type ToastType } from '@/stores/toast'
 const toasts = useToastStore()
+
+const SIGNS: Record<ToastType, string> = { success: '+', error: '−', info: '~' }
 </script>
 
 <style scoped>
@@ -25,33 +30,44 @@ const toasts = useToastStore()
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
+  left: 1rem;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 0.5rem;
   z-index: 9999;
+  pointer-events: none;
 }
 .toast {
-  padding: 0.75rem 1.25rem;
+  --tone: var(--info);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0.7rem 1rem;
+  background: var(--panel-solid);
+  color: var(--text);
+  border: 1px solid var(--hairline-strong);
+  border-left: 3px solid var(--tone);
   border-radius: var(--radius);
   font-size: 13px;
   cursor: pointer;
   max-width: 340px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
 }
-.toast.success {
-  background: rgba(52, 211, 153, 0.12);
-  color: var(--ok);
-  border: 1px solid rgba(52, 211, 153, 0.25);
+.toast.success { --tone: var(--ok); }
+.toast.error { --tone: var(--danger); }
+.toast .sign {
+  color: var(--tone);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.3;
+  flex-shrink: 0;
 }
-.toast.error {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--danger);
-  border: 1px solid rgba(248, 113, 113, 0.25);
-}
-.toast.info {
-  background: rgba(103, 232, 249, 0.12);
-  color: var(--info);
-  border: 1px solid rgba(103, 232, 249, 0.25);
+.toast .msg {
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .toast-enter-active, .toast-leave-active { transition: all 0.25s ease; }

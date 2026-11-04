@@ -9,9 +9,7 @@
       </div>
       <div class="page-actions">
         <button class="btn primary" @click="openCreate">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
+          <AppIcon name="plus" :size="13" />
           Novo usuário
         </button>
       </div>
@@ -56,18 +54,11 @@
             <td class="num muted">—</td>
             <td>
               <div class="row-actions">
-                <button class="btn sm ghost" @click="editUser(u)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17 3l4 4-12 12H5v-4z"/>
-                    <path d="M14.5 5.5l4 4"/>
-                  </svg>
+                <button class="btn sm ghost" title="Editar" aria-label="Editar" @click="editUser(u)">
+                  <AppIcon name="edit" :size="12" />
                 </button>
-                <button class="btn sm ghost danger" @click="confirmDelete(u)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 6h18"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
+                <button class="btn sm ghost danger" title="Excluir" aria-label="Excluir" @click="confirmDelete(u)">
+                  <AppIcon name="trash" :size="12" />
                 </button>
               </div>
             </td>
@@ -77,49 +68,37 @@
     </div>
 
     <!-- Create/Edit Modal -->
-    <div v-if="showForm" class="overlay" @click.self="closeForm">
-      <div class="modal">
-        <div class="modal-head">
-          <h2>{{ editing ? 'Editar Usuário' : 'Novo Usuário' }}</h2>
-          <button class="icon-btn" @click="closeForm">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          </button>
+    <Modal v-if="showForm" :title="editing ? 'Editar usuário' : 'Novo usuário'" max-width="420px" @close="closeForm">
+      <form id="user-form" class="form" @submit.prevent="handleSubmit">
+        <div class="field">
+          <label for="user-username">Usuário</label>
+          <input id="user-username" v-model="form.username" type="text" required />
         </div>
 
-        <form @submit.prevent="handleSubmit" class="modal-body">
-          <div class="field">
-            <label>Usuário</label>
-            <input v-model="form.username" type="text" required />
-          </div>
+        <div class="field">
+          <label for="user-password">Senha {{ editing ? '(deixe vazio para manter)' : '' }}</label>
+          <input id="user-password" v-model="form.password" type="password" :required="!editing" />
+        </div>
 
-          <div class="field">
-            <label>Senha {{ editing ? '(deixe vazio para manter)' : '' }}</label>
-            <input v-model="form.password" :type="editing ? 'password' : 'password'" :required="!editing" />
-          </div>
+        <div class="field">
+          <label for="user-role">Papel</label>
+          <select id="user-role" v-model="form.role" required>
+            <option value="super">Super</option>
+            <option value="gestor">Gestor</option>
+            <option value="padrao">Padrão</option>
+          </select>
+        </div>
 
-          <div class="field">
-            <label>Papel</label>
-            <select v-model="form.role" required>
-              <option value="super">Super</option>
-              <option value="gestor">Gestor</option>
-              <option value="padrao">Padrão</option>
-            </select>
-          </div>
-
-          <p v-if="formError" class="error">{{ formError }}</p>
-
-          <div class="modal-actions">
-            <button type="button" class="btn" @click="closeForm">Cancelar</button>
-            <button type="submit" class="btn primary" :disabled="saving">
-              <span v-if="saving" class="spinner" />
-              {{ saving ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <p v-if="formError" class="error" role="alert">{{ formError }}</p>
+      </form>
+      <template #footer>
+        <button type="button" class="btn" @click="closeForm">Cancelar</button>
+        <button type="submit" form="user-form" class="btn primary" :disabled="saving">
+          <span v-if="saving" class="spinner" />
+          {{ saving ? 'Salvando…' : 'Salvar' }}
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -127,6 +106,8 @@
 import { ref, onMounted } from 'vue'
 import { listUsers, createUser, updateUser, deleteUser, type User } from '@/api/users'
 import { useToastStore } from '@/stores/toast'
+import Modal from '@/components/Modal.vue'
+import AppIcon from '@/components/AppIcon.vue'
 
 const toast = useToastStore()
 const users = ref<User[]>([])
@@ -243,33 +224,7 @@ onMounted(load)
   text-align: center;
 }
 
-/* Modal */
-.modal {
-  background: var(--panel);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 420px;
-  overflow: hidden;
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.modal-head h2 {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-  margin: 0;
-}
-
-.modal-body {
-  padding: 22px;
+.form {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -282,11 +237,8 @@ onMounted(load)
 }
 
 .field label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .field input,
@@ -315,16 +267,10 @@ onMounted(load)
   color: var(--danger);
   font-size: 13px;
   padding: 8px 12px;
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: var(--bg-2);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
   margin: 0;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 </style>
