@@ -28,3 +28,8 @@ export function formatRelative(iso: string, now: Date = new Date()): string {
   const d = Math.floor(h / 24)
   return d === 1 ? 'há 1 dia' : `há ${d} dias`
 }
+
+// Só exibição: o valor enviado à API continua `padrao`.
+export function formatRole(role: string): string {
+  return role === 'padrao' ? 'padrão' : role
+}

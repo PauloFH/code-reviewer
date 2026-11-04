@@ -4,6 +4,9 @@
 
 /* ── Dark theme (default) ─────────────────────── */
 :root {
+  color-scheme: dark; /* controles nativos (checkbox, calendário, rolagem) seguem o tema */
+  accent-color: var(--accent);
+
   /* Backgrounds */
   --bg:          #0b0c10;
   --bg-2:        #111319;
@@ -56,6 +59,7 @@
 /* ── Light theme ──────────────────────────────── */
 /* --hl-1, --ink e --spectrum herdam do :root (iguais nos dois temas). */
 [data-theme="light"] {
+  color-scheme: light;
   --bg:          #fbf8ef;
   --bg-2:        #f3eee0;
   --panel:       rgba(255, 254, 249, 0.92);

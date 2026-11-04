@@ -38,19 +38,19 @@
           <div class="client-name">
             <div class="client-mark">{{ getPlatformInitials(c.platform) }}</div>
             <div>
-              <div style="font-weight: 500;">{{ c.name }}</div>
+              <div class="client-nome">{{ c.name }}</div>
               <div class="client-meta">{{ c.base_url }} · {{ c.username }}</div>
             </div>
           </div>
-          <div style="text-align: right;">
-            <div class="num-emph">{{ clientStats[c.name]?.reviews || 0 }}</div>
+          <div class="client-num">
+            <div class="num-emph">{{ formatCount(clientStats[c.name]?.reviews || 0) }}</div>
             <div class="client-meta">revisões</div>
           </div>
-          <div style="text-align: right;">
-            <div class="num-emph">${{ (clientStats[c.name]?.cost || 0).toFixed(4) }}</div>
+          <div class="client-num">
+            <div class="num-emph">{{ formatUsd(clientStats[c.name]?.cost || 0) }}</div>
             <div class="client-meta">custo</div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div class="client-acoes">
             <span class="pill ok">
               <span class="dot"></span>conectado
             </span>
@@ -65,7 +65,7 @@
     <!-- Footer hint -->
     <div class="foothint">
       <AppIcon name="merge" :size="14" />
-      Conecte outros hosts (GitHub, Bitbucket, Azure DevOps) para revisar MRs em múltiplas plataformas a partir do mesmo painel.
+      Cada cliente pode ser GitLab, GitHub ou Gitea, então um só painel revisa MRs e PRs de plataformas diferentes.
     </div>
 
     <!-- Create/Edit modal -->
@@ -86,6 +86,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { useToastStore } from '@/stores/toast'
 import { listClients, createClient, updateClient, type Client, type ClientInput } from '@/api/clients'
 import { getStats } from '@/api/events'
+import { formatCount, formatUsd } from '@/brand/format'
 
 const toast = useToastStore()
 
@@ -183,6 +184,50 @@ onMounted(load)
 .empty-state {
   padding: 56px 32px;
   text-align: center;
+}
+
+/* Ações do cabeçalho quebram de linha em vez de sair da tela. */
+.page-head,
+.page-actions {
+  flex-wrap: wrap;
+}
+
+.client-row {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.client-nome {
+  font-weight: 500;
+}
+
+.client-num {
+  text-align: right;
+}
+
+.client-acoes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Em tela estreita: nome e URL em cima; números e selo embaixo. */
+@media (max-width: 640px) {
+  .client-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 12px 20px;
+  }
+
+  .client-name {
+    grid-column: 1 / -1;
+  }
+
+  .client-num {
+    text-align: left;
+  }
+
+  .client-acoes {
+    justify-content: flex-end;
+  }
 }
 
 /* URLs longas quebram em vez de empurrar a linha. */

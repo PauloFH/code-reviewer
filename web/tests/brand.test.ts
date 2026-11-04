@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { statusMark } from '../src/brand/status.ts'
-import { formatUsd, formatCount, formatRelative } from '../src/brand/format.ts'
+import { formatUsd, formatCount, formatRelative, formatRole } from '../src/brand/format.ts'
 import { NAV_SHORTCUTS, isEditableTarget } from '../src/brand/shortcuts.ts'
 
 test('statusMark: sinal, rótulo e tom por situação', () => {
@@ -46,4 +46,10 @@ test('atalhos de navegação e alvos editáveis', () => {
   assert.equal(isEditableTarget({ tagName: 'DIV', isContentEditable: true }), true)
   assert.equal(isEditableTarget({ tagName: 'DIV', isContentEditable: false }), false)
   assert.equal(isEditableTarget(null), false)
+})
+
+test('formatRole: só `padrao` ganha acento; os demais ficam como vêm', () => {
+  assert.equal(formatRole('padrao'), 'padrão')
+  assert.equal(formatRole('super'), 'super')
+  assert.equal(formatRole('gestor'), 'gestor')
 })

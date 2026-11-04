@@ -144,6 +144,7 @@ async function handleReanalyze(e: ReviewEvent) {
 
 .acao {
   width: 60px;
+  position: relative; /* ancora o .sr, que senão escapa do .scroll-x e alarga a página */
 }
 
 .mr-cell {

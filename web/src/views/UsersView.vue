@@ -41,13 +41,13 @@
                 <div class="avatar">{{ u.username.slice(0, 2).toUpperCase() }}</div>
                 <div>
                   <div style="font-weight: 500;">{{ u.username }}</div>
-                  <div class="card-sub">{{ u.role }}</div>
+                  <div class="card-sub">{{ formatRole(u.role) }}</div>
                 </div>
               </div>
             </td>
             <td>
               <span class="pill" :class="u.role === 'super' ? 'accent' : 'skip'">
-                <span class="dot"></span>{{ u.role }}
+                <span class="dot"></span>{{ formatRole(u.role) }}
               </span>
             </td>
             <td class="num">{{ fmtDate(u.created_at) }}</td>
@@ -108,6 +108,7 @@ import { listUsers, createUser, updateUser, deleteUser, type User } from '@/api/
 import { useToastStore } from '@/stores/toast'
 import Modal from '@/components/Modal.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import { formatRole } from '@/brand/format'
 
 const toast = useToastStore()
 const users = ref<User[]>([])

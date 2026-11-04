@@ -52,7 +52,7 @@
         <div class="user-row">
           <div class="user-info">
             <div class="user-name">{{ auth.user?.username || 'admin' }}</div>
-            <div class="user-role">{{ auth.user?.role || 'super' }}</div>
+            <div class="user-role">{{ formatRole(auth.user?.role || 'super') }}</div>
           </div>
           <button class="icon-btn" title="Sair" aria-label="Sair" @click="handleLogout">
             <AppIcon name="logout" :size="14" />
@@ -88,6 +88,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import { NAV_SHORTCUTS, isEditableTarget } from '@/brand/shortcuts'
+import { formatRole } from '@/brand/format'
 import AppIcon from '@/components/AppIcon.vue'
 import BackgroundMotion from '@/components/BackgroundMotion.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
@@ -176,8 +177,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
 }
 
 .nav-section {
