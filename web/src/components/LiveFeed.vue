@@ -1,6 +1,16 @@
 <template>
   <div class="feed">
-    <div v-if="feed.length === 0" class="feed-empty">
+    <div v-if="!loaded" aria-busy="true">
+      <span class="sr-only" role="status">Carregando…</span>
+      <div v-for="n in 3" :key="n" class="ev" aria-hidden="true">
+        <span class="skeleton" />
+        <div class="corpo">
+          <span class="skeleton" :style="{ width: 40 + n * 12 + '%' }" />
+          <span class="skeleton meta-skeleton" />
+        </div>
+      </div>
+    </div>
+    <div v-else-if="feed.length === 0" class="feed-empty">
       <AppIcon name="activity" :size="20" />
       <span>Aguardando revisões…</span>
     </div>
@@ -35,6 +45,7 @@ const auth = useAuthStore()
 const feed = ref<ReviewEvent[]>([])
 // Só eventos que chegam por SSE ganham a passada de marca-texto; a carga inicial não.
 const novos = ref(new Set<number>())
+const loaded = ref(false)
 
 const admit = createEventAdmitter()
 let es: EventSource | null = null
@@ -56,6 +67,7 @@ async function loadRecent() {
     const res = await listEvents({ client: props.client, limit: 20 })
     feed.value = res.items || []
   } catch { /* ignore */ }
+  loaded.value = true
 }
 
 function startSSE() {
@@ -70,7 +82,7 @@ function startSSE() {
       if (!admit(feed.value, e)) return
       novos.value.add(e.id)
       feed.value.unshift(e)
-      if (feed.value.length > 50) feed.value.pop()
+      if (feed.value.length > 50) novos.value.delete(feed.value.pop()!.id)
     } catch { /* ignore */ }
   }
 }
@@ -95,6 +107,12 @@ function meta(e: ReviewEvent) {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--hairline-strong) transparent;
+}
+
+.meta-skeleton {
+  width: 30%;
+  margin-top: 8px;
+  height: 10px;
 }
 
 .feed-empty {

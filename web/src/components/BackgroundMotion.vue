@@ -11,6 +11,8 @@ const GAP = 150
 const SPEED = 16
 const CYCLE = 6
 const STATIC_FRAME_MS = 9000
+// Fundo decorativo não precisa de 60 fps: a posição vem do tempo, então só cai a taxa de quadros.
+const FRAME_MS = 1000 / 25
 
 const rnd = (n: number) => {
   const x = Math.sin(n * 127.1) * 43758.5453
@@ -103,8 +105,14 @@ function draw(ms: number) {
   c.globalAlpha = 1
 }
 
+let last = 0
 function loop(ms: number) {
-  if (!document.hidden) draw(ms)
+  const dt = ms - last
+  if (dt >= FRAME_MS && !document.hidden) {
+    draw(ms)
+    // guarda a sobra para alternar 2 e 3 quadros de 60 Hz e manter a média em 25 fps
+    last = ms - (dt % FRAME_MS)
+  }
   raf = requestAnimationFrame(loop)
 }
 

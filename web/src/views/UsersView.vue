@@ -17,9 +17,7 @@
 
     <!-- Users table -->
     <div class="card">
-      <div v-if="loading" class="loading-row">
-        <span class="spinner" /> Carregando…
-      </div>
+      <SkeletonRows v-if="loading && !users.length" :cols="6" />
       <div v-else-if="users.length === 0" class="empty-state">
         <div class="empty-title">Nenhum usuário encontrado</div>
         <div class="empty-sub">Crie um usuário para dar acesso ao painel.</div>
@@ -104,6 +102,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import { listUsers, createUser, updateUser, deleteUser, type User } from '@/api/users'
 import { useToastStore } from '@/stores/toast'
 import Modal from '@/components/Modal.vue'
@@ -210,14 +209,6 @@ onMounted(load)
 .page {
   display: flex;
   flex-direction: column;
-}
-
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
 }
 
 .empty-state {

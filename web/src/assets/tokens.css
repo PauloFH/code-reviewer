@@ -900,3 +900,27 @@ a:hover {
 .scroll-x {
   overflow-x: auto;
 }
+/* ── Skeleton ───────────────────────────────── */
+/* Bloco no lugar do conteúdo enquanto a primeira carga não chega; o tamanho vem de quem usa. */
+.skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--hairline);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

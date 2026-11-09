@@ -23,9 +23,7 @@
           </button>
         </div>
 
-        <div v-if="loading" class="loading-row">
-          <span class="spinner" /> Carregando…
-        </div>
+        <SkeletonRows v-if="loading && !prompts.length" :cols="4" />
         <div v-else-if="prompts.length === 0" class="empty-state">
           <div class="empty-title">Nenhum prompt cadastrado</div>
           <div class="empty-sub">Crie um prompt para customizar como o agente analisa o código.</div>
@@ -147,9 +145,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, defineAsyncComponent } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import AppIcon from '@/components/AppIcon.vue'
-import PromptForm from '@/components/PromptForm.vue'
+import type PromptFormType from '@/components/PromptForm.vue'
 import PromptAssignmentForm from '@/components/PromptAssignmentForm.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useToastStore } from '@/stores/toast'
@@ -169,7 +168,13 @@ const showForm = ref(false)
 const showAssignForm = ref(false)
 const editingPrompt = ref<Prompt | null>(null)
 const deleteTarget = ref<Prompt | null>(null)
-const formRef = ref<InstanceType<typeof PromptForm> | null>(null)
+// O editor (Tiptap) só é baixado quando o modal abre, não com a página.
+// Após um deploy o chunk antigo some: recarregar busca o index.html novo, que aponta para o chunk atual.
+const PromptForm = defineAsyncComponent({
+  loader: () => import('@/components/PromptForm.vue'),
+  onError: () => location.reload(),
+})
+const formRef = ref<InstanceType<typeof PromptFormType> | null>(null)
 const assignFormRef = ref<InstanceType<typeof PromptAssignmentForm> | null>(null)
 
 onMounted(load)
@@ -269,14 +274,6 @@ function fmtDate(s: string) {
 .page {
   display: flex;
   flex-direction: column;
-}
-
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
 }
 
 .empty-state {
