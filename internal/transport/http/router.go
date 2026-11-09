@@ -251,6 +251,12 @@ func NewRouter(
 		jwtMiddleware,
 	))
 
+	// ── Web Vitals de usuários reais (any authenticated user) ─────────────────
+	mux.Handle("POST /api/v1/vitals", chain(
+		vitalsHandler(log),
+		jwtMiddleware,
+	))
+
 	// ── SPA catch-all ─────────────────────────────────────────────────────────
 	mux.Handle("/", frontendHandler())
 
