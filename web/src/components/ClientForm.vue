@@ -109,7 +109,7 @@ defineExpose({ setSaving: (v: boolean) => { saving.value = v }, setError: (e: st
 .field select {
   padding: 10px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 14px;
@@ -119,7 +119,6 @@ defineExpose({ setSaving: (v: boolean) => { saving.value = v }, setError: (e: st
 
 .field input:focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

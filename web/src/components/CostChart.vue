@@ -1,6 +1,6 @@
 <template>
   <div class="cost-chart">
-    <span v-if="loading && points.length === 0" class="spinner" />
+    <span v-if="loading && points.length === 0" class="skeleton chart-skeleton" role="status" aria-label="Carregando gráfico" />
     <div v-else-if="points.length === 0" class="empty-chart">Sem dados ainda</div>
     <div v-else class="chart-box">
       <Line :data="chartData" :options="chartOptions" class="chart" />
@@ -162,6 +162,10 @@ const chartOptions = computed(() => {
 <style scoped>
 .cost-chart {
   min-height: 190px;
+}
+
+.chart-skeleton {
+  height: 190px;
 }
 
 .chart-box {

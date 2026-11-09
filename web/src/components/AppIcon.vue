@@ -2,7 +2,7 @@
 export type IconName =
   | 'plus' | 'trash' | 'edit' | 'close' | 'refresh' | 'activity' | 'document' | 'layers'
   | 'check' | 'play' | 'settings' | 'merge' | 'external' | 'search' | 'calendar'
-  | 'chevron-left' | 'chevron-right' | 'sun' | 'moon' | 'logout' | 'menu'
+  | 'chevron-left' | 'chevron-right' | 'sun' | 'moon' | 'logout' | 'menu' | 'keyboard'
 
 withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 14 })
 
@@ -29,6 +29,7 @@ const PATHS: Record<IconName, string> = {
   moon: 'M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z',
   logout: 'M10 4H4v16h6M9 12h11M16 8l4 4-4 4',
   menu: 'M3 6h18M3 12h18M3 18h18',
+  keyboard: 'M2 6h20v12H2zM6 10h2M11 10h2M16 10h2M7 14h10',
 }
 </script>
 

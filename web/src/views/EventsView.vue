@@ -188,5 +188,7 @@ onMounted(() => {
 
 .counter {
   overflow-wrap: anywhere;
+  /* reserva a largura do texto com números grandes: a linha não quebra quando os dados chegam */
+  min-width: min(48ch, 100%);
 }
 </style>

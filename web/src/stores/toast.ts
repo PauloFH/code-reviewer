@@ -14,7 +14,8 @@ let _id = 0
 export const useToastStore = defineStore('toast', () => {
   const toasts = ref<Toast[]>([])
 
-  function push(message: string, type: ToastType = 'info', ttl = 3500) {
+  // Erro fica mais tempo na tela: precisa ser lido, não só notado.
+  function push(message: string, type: ToastType = 'info', ttl = type === 'error' ? 8000 : 3500) {
     const id = ++_id
     toasts.value.push({ id, message, type })
     setTimeout(() => remove(id), ttl)

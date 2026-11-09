@@ -10,9 +10,9 @@ import (
 	"io"
 )
 
-// errNoEncryptionKey is returned when an AI config holds a secret but no
+// errNoEncryptionKey is returned when an AI config or a platform client holds a secret but no
 // AI_CONFIG_ENC_KEY was configured at boot.
-var errNoEncryptionKey = errors.New("storage: AI_CONFIG_ENC_KEY is required to read/write AI credentials")
+var errNoEncryptionKey = errors.New("storage: AI_CONFIG_ENC_KEY is required to read/write stored credentials (AI configs and client tokens)")
 
 // encryptor seals and opens secrets with AES-256-GCM. The stored format is
 // base64(nonce || ciphertext).

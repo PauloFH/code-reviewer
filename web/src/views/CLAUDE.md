@@ -10,6 +10,12 @@ Landing pública do Mergeye (`/`): topo, herói, quatro seções ligadas por uma
 
 ---
 
+## PrivacyView.vue
+
+Política de privacidade pública (`/privacidade`), escrita a partir do que o código trata: visitantes (sem cookies próprios, Cloudflare + Nginx), usuários do painel (bcrypt, JWT de 24 h, Web Vitals com usuário nos logs) e autores de MR (enviados à Anthropic/OpenAI; histórico apagado após 12 meses). Marcadores `[[PREENCHER: ...]]` ficam até o dono preencher. Mudou o que o serviço coleta ou com quem compartilha? Atualize esta página e a data no topo.
+
+---
+
 ## LoginView.vue
 
 Página pública de login (`/login`).
@@ -28,7 +34,7 @@ Painel (`/dashboard`): visão geral do sistema.
 
 **Estado:** `period` (`24h` | `7d` | `30d` | `90d`, padrão `7d`; vira `days` do `CostChart`), `filterClient` (filtra gráfico e indicadores), `connected` (vem do `LiveFeed`).
 
-**Dados:** `getStats()` em `onMounted`, ao trocar período/cliente e no botão "Atualizar"; `listClients()` alimenta o seletor.
+**Dados:** `getStats()` em `onMounted`, ao trocar cliente e no botão "Atualizar" (que também recarrega o gráfico via `:key`); trocar o período só recarrega o `CostChart`, que observa `days`. Os filhos não são desmontados durante recargas: o skeleton aparece só na primeira carga. `listClients()` alimenta o seletor.
 
 **Composição:**
 ```

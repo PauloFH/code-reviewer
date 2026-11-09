@@ -19,15 +19,25 @@
             {{ p }}
           </button>
         </div>
-        <button class="btn" type="button" @click="loadStats">
+        <button class="btn" type="button" @click="refresh">
           <AppIcon name="refresh" :size="13" />
           Atualizar
         </button>
       </div>
     </div>
 
-    <div v-if="loadingStats" class="loading-row">
-      <span class="spinner" /> Carregando indicadores…
+    <div v-if="loadingStats && !stats" aria-busy="true">
+      <span class="sr-only" role="status">Carregando indicadores…</span>
+      <section class="kpis" aria-hidden="true">
+        <div v-for="n in 5" :key="n" class="kpi">
+          <span class="skeleton kpi-label-skeleton" />
+          <span class="skeleton kpi-skeleton" />
+        </div>
+      </section>
+      <div class="grade" aria-hidden="true">
+        <section class="card"><div class="card-body chart-wrap"><span class="skeleton card-skeleton" /></div></section>
+        <section class="card"><div class="card-body chart-wrap"><span class="skeleton card-skeleton" /></div></section>
+      </div>
     </div>
     <template v-else-if="stats">
       <StatsCards :stats="stats" />
@@ -45,7 +55,7 @@
             </select>
           </div>
           <div class="card-body chart-wrap">
-            <CostChart :client="filterClient || undefined" :days="periodDays" />
+            <CostChart :key="refreshes" :client="filterClient || undefined" :days="periodDays" />
           </div>
         </section>
 
@@ -74,7 +84,7 @@
           </div>
           <span class="vivo" :class="{ off: !connected }">{{ connected ? 'conectado' : 'desconectado' }}</span>
         </div>
-        <LiveFeed @connection="connected = $event" />
+        <LiveFeed :key="refreshes" @connection="connected = $event" />
       </section>
     </template>
   </div>
@@ -109,8 +119,15 @@ const periodLabel = computed(() =>
 
 const today = new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
 
+// Os indicadores não dependem do período; só o gráfico, que observa `days`.
 function setPeriod(p: string) {
   period.value = p
+}
+
+// "Atualizar" refaz indicadores e gráfico e reconecta o feed (o EventSource não volta sozinho após erro HTTP).
+const refreshes = ref(0)
+function refresh() {
+  refreshes.value++
   loadStats()
 }
 
@@ -193,15 +210,6 @@ onMounted(() => {
   border-radius: var(--radius);
 }
 
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 24px 0;
-}
-
 .grade {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
@@ -228,6 +236,20 @@ onMounted(() => {
 .card-sub {
   font-family: var(--font-sans);
   font-size: 12.5px;
+}
+
+.kpi-label-skeleton {
+  width: 60%;
+}
+
+.kpi-skeleton {
+  width: 45%;
+  height: 28px;
+  margin-top: 12px;
+}
+
+.card-skeleton {
+  height: 220px;
 }
 
 .chart-wrap {
@@ -298,18 +320,13 @@ onMounted(() => {
 .client-select {
   padding: 5px 8px;
   background: var(--bg);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
   font-family: var(--font-sans);
   cursor: pointer;
   max-width: 100%;
-}
-
-.client-select:focus-visible {
-  outline: 2px solid var(--merge-mid);
-  outline-offset: 2px;
 }
 
 @media (max-width: 960px) {

@@ -1,13 +1,13 @@
 <template>
   <Modal :title="isEdit ? 'Editar perfil de revisão' : 'Novo perfil de revisão'" max-width="500px" @close="$emit('close')">
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
-        <label>Nome</label>
-        <input v-model="form.name" required placeholder="Ex: Revisão Completa" />
+        <label for="profile-name">Nome</label>
+        <input id="profile-name" v-model="form.name" required placeholder="Ex: Revisão Completa" />
       </div>
-      <div class="field">
-        <label>Camadas de revisão</label>
+      <fieldset class="field group">
+        <legend>Camadas de revisão</legend>
         <div class="checkboxes">
           <label class="checkbox-row">
             <input type="checkbox" v-model="form.include_related" />
@@ -22,10 +22,10 @@
             <span>Execução em sandbox (Fase 2)</span>
           </label>
         </div>
-      </div>
+      </fieldset>
       <div class="field">
-        <label>Máximo de iterações agênticas (0 = padrão)</label>
-        <input type="number" v-model.number="form.max_iterations" min="0" placeholder="0" />
+        <label for="profile-max-iter">Máximo de iterações agênticas (0 = padrão)</label>
+        <input id="profile-max-iter" type="number" v-model.number="form.max_iterations" min="0" placeholder="0" />
       </div>
     </form>
     <template #footer>
@@ -89,7 +89,10 @@ defineExpose({
   gap: 6px;
 }
 
-.field label {
+.group { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.field label,
+.field legend {
   font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
@@ -99,7 +102,7 @@ defineExpose({
 .field select {
   padding: 8px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
@@ -109,7 +112,6 @@ defineExpose({
 
 .field input:not([type="checkbox"]):focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

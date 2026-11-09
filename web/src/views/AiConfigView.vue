@@ -23,9 +23,7 @@
           </button>
         </div>
 
-        <div v-if="loading" class="loading-row">
-          <span class="spinner" /> Carregando…
-        </div>
+        <SkeletonRows v-if="loading && !configs.length" :cols="6" />
         <div v-else-if="configs.length === 0" class="empty-state">
           <div class="empty-title">Nenhuma configuração cadastrada</div>
           <div class="empty-sub">Configure um modelo de IA para usar na revisão de código. Sem configuração, o sistema usa o fallback do ambiente.</div>
@@ -173,6 +171,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import AiConfigForm from '@/components/AiConfigForm.vue'
 import AiConfigAssignmentForm from '@/components/AiConfigAssignmentForm.vue'
@@ -345,14 +344,6 @@ function providerLabel(provider: string) {
 .page {
   display: flex;
   flex-direction: column;
-}
-
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
 }
 
 .empty-state {

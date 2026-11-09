@@ -1,8 +1,6 @@
 <template>
   <div>
-    <div v-if="loading" class="loading">
-      <span class="spinner" /> Carregando…
-    </div>
+    <SkeletonRows v-if="loading && !events.length" :cols="9" :rows="25" />
     <div v-else class="scroll-x">
       <table class="table">
         <thead>
@@ -60,6 +58,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import type { ReviewEvent } from '@/api/events'
 import { reanalyze } from '@/api/reanalyze'
 import { useToastStore } from '@/stores/toast'
@@ -106,14 +105,6 @@ async function handleReanalyze(e: ReviewEvent) {
 </script>
 
 <style scoped>
-.loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
-}
-
 /* Abaixo disso a tabela rola dentro de .scroll-x em vez de espremer as colunas. */
 .table {
   min-width: 760px;

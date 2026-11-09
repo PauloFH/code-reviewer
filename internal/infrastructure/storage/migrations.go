@@ -176,3 +176,14 @@ VALUES('Diff', 0, 0, 0, 0, datetime('now'), datetime('now'));
 INSERT INTO review_profile_assignments(profile_id, scope, client_name, project_ref)
 VALUES((SELECT id FROM review_profiles WHERE name='Diff'), 'global', '', '');
 `
+
+// migration009 adds a covering index for the dashboard aggregates (GetStats,
+// GetDailyCosts), which all filter on status='success' and read only these columns.
+const migration009 = `
+CREATE INDEX IF NOT EXISTS idx_review_events_stats
+    ON review_events(status, reviewed_at, client_name, total_tokens, cost_usd);`
+
+// migration010 marks which clients rows hold token/webhook_secret encrypted (AES-256-GCM).
+// Rows from before it start at 0 (plaintext) and are encrypted at boot by EncryptPlaintextClientSecrets.
+const migration010 = `
+ALTER TABLE clients ADD COLUMN secrets_encrypted INTEGER NOT NULL DEFAULT 0;`

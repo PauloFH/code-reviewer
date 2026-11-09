@@ -31,6 +31,22 @@ func TestFrontendHandler_ServesEmbeddedAsset(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
 		t.Fatal("asset response unexpectedly returned index.html")
 	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+		t.Fatalf("Cache-Control = %q, want immutable for hashed asset", cc)
+	}
+}
+
+func TestFrontendHandler_IndexIsRevalidated(t *testing.T) {
+	handler := frontendHandlerFromFS(fstest.MapFS{
+		"index.html": {Data: []byte(`<!DOCTYPE html>`)},
+	})
+	for _, path := range []string{"/", "/dashboard"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("%s: Cache-Control = %q, want no-cache", path, cc)
+		}
+	}
 }
 
 func TestFrontendHandler_FallsBackToIndexForSPARoute(t *testing.T) {

@@ -6,19 +6,19 @@ const props = withDefaults(defineProps<{ variant?: 'horizontal' | 'simbolo' }>()
 
 const { theme } = useTheme()
 
-// URLs literais para o Vite resolver em build.
+// URLs literais para o Vite resolver em build. Largura e altura reservam o espaço antes de a imagem chegar.
 const sources = {
-  'horizontal-dark': new URL('../assets/brand/mergeye-logo-horizontal-escuro.png', import.meta.url).href,
-  'horizontal-light': new URL('../assets/brand/mergeye-logo-horizontal-claro.png', import.meta.url).href,
-  'simbolo-dark': new URL('../assets/brand/mergeye-simbolo-escuro.png', import.meta.url).href,
-  'simbolo-light': new URL('../assets/brand/mergeye-simbolo-claro.png', import.meta.url).href,
+  'horizontal-dark': { src: new URL('../assets/brand/mergeye-logo-horizontal-escuro.webp', import.meta.url).href, w: 600, h: 109 },
+  'horizontal-light': { src: new URL('../assets/brand/mergeye-logo-horizontal-claro.webp', import.meta.url).href, w: 600, h: 108 },
+  'simbolo-dark': { src: new URL('../assets/brand/mergeye-simbolo-escuro.webp', import.meta.url).href, w: 600, h: 312 },
+  'simbolo-light': { src: new URL('../assets/brand/mergeye-simbolo-claro.webp', import.meta.url).href, w: 600, h: 312 },
 }
 
-const src = computed(() => sources[`${props.variant}-${theme.value}` as keyof typeof sources])
+const logo = computed(() => sources[`${props.variant}-${theme.value}` as keyof typeof sources])
 </script>
 
 <template>
-  <img :src="src" alt="Mergeye" class="brand-logo" />
+  <img :src="logo.src" :width="logo.w" :height="logo.h" alt="Mergeye" class="brand-logo" fetchpriority="high" />
 </template>
 
 <style scoped>

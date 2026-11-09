@@ -26,9 +26,7 @@
         <div class="card-sub">{{ clients.length }} · conectado{{ clients.length !== 1 ? 's' : '' }}</div>
       </div>
 
-      <div v-if="loading" class="loading-row">
-        <span class="spinner" /> Carregando…
-      </div>
+      <SkeletonRows v-if="loading && !clients.length" :cols="3" />
       <div v-else-if="clients.length === 0" class="empty-state">
         <div class="empty-title">Nenhum cliente configurado</div>
         <div class="empty-sub">Conecte um host de plataforma Git (GitLab, GitHub, Gitea) para começar a receber webhooks.</div>
@@ -81,6 +79,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import ClientForm from '@/components/ClientForm.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useToastStore } from '@/stores/toast'
@@ -110,17 +109,16 @@ function getPlatformInitials(platform: string): string {
 
 async function load() {
   loading.value = true
+  // As duas chamadas são independentes; falha nas métricas continua sendo ignorada.
+  const statsReq = getStats().catch(() => null)
   try {
     clients.value = await listClients()
-    // Load stats for each client
-    try {
-      const stats = await getStats()
+    const stats = await statsReq
+    if (stats) {
       clientStats.value = {}
       for (const c of stats.by_client) {
         clientStats.value[c.client_name] = { reviews: c.review_count, cost: c.total_cost_usd }
       }
-    } catch {
-      // ignore stats error
     }
   } catch {
     toast.push('Falha ao carregar clientes', 'error')
@@ -171,14 +169,6 @@ onMounted(load)
 .page {
   display: flex;
   flex-direction: column;
-}
-
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
 }
 
 .empty-state {

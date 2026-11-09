@@ -23,9 +23,7 @@
           </button>
         </div>
 
-        <div v-if="loading" class="loading-row">
-          <span class="spinner" /> Carregando…
-        </div>
+        <SkeletonRows v-if="loading && !profiles.length" :cols="5" />
         <div v-else-if="profiles.length === 0" class="empty-state">
           <div class="empty-title">Nenhum perfil cadastrado</div>
           <div class="empty-sub">Crie um perfil para configurar as camadas de revisão do agente.</div>
@@ -158,6 +156,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import SkeletonRows from '@/components/SkeletonRows.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import ReviewProfileForm from '@/components/ReviewProfileForm.vue'
 import ReviewProfileAssignmentForm from '@/components/ReviewProfileAssignmentForm.vue'
@@ -291,14 +290,6 @@ function fmtDate(s: string) {
 .page {
   display: flex;
   flex-direction: column;
-}
-
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  padding: 24px;
 }
 
 .empty-state {

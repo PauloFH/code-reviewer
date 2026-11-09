@@ -52,7 +52,7 @@ cp .env.example .env
 | `APP_PORT` | `8080` | Porta HTTP |
 | `APP_ENV` | `development` | `development` ou `production` |
 | `AI_PROVIDER` | inferido | Fallback de IA: `gemini` ou `chat_completions` (usado quando nenhuma config do banco resolve) |
-| `AI_CONFIG_ENC_KEY` | — | Base64 de 32 bytes; cifra credenciais de IA configuradas pelo frontend. Obrigatória só quando há configs persistidas |
+| `AI_CONFIG_ENC_KEY` | — | Base64 de 32 bytes; cifra as credenciais de IA e o token/webhook secret dos clients. Obrigatória assim que existe um client |
 | `GEMINI_API_KEY` | — | Chave da API Gemini |
 | `GEMINI_MODEL` | `gemini-flash-latest` | Modelo Gemini a ser usado |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | URL base da API Gemini |
@@ -414,7 +414,7 @@ Cada config também aceita **preço por milhão de tokens** (para o cálculo de 
 
 ### Segurança das credenciais
 
-Chaves de API e tokens OAuth são cifrados em repouso com **AES-256-GCM**, usando a chave-mestra `AI_CONFIG_ENC_KEY` (base64 de 32 bytes). A API nunca devolve os segredos — só flags `has_api_key` / `account_connected`. Mantenha a chave estável: trocá-la torna os segredos gravados ilegíveis e o boot falha rápido ao tentar lê-los.
+Chaves de API, tokens OAuth e o token/webhook secret dos clients são cifrados em repouso com **AES-256-GCM**, usando a chave-mestra `AI_CONFIG_ENC_KEY` (base64 de 32 bytes). A API nunca devolve os segredos — só flags `has_api_key` / `account_connected`. Mantenha a chave estável: trocá-la torna os segredos gravados ilegíveis e o boot falha rápido ao tentar lê-los.
 
 ### Testando uma config
 
