@@ -12,6 +12,15 @@ A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo
 
 Credenciais são cifradas em repouso (AES-256-GCM). Se nenhuma `AIConfig` for resolvida, o serviço cai no **fallback configurado por env** (`gemini` ou `chat_completions`), preservando o comportamento legado.
 
+## Quando a revisão roda
+
+Uma vez por MR e usuário monitorado: a claim em `reviewed_merge_requests` impede que novos commits, edições de título/descrição, outros reviewers ou webhooks reentregues disparem outra revisão. Revisar de novo é sempre um pedido explícito:
+
+- comentário `/review [preset]` ou `#revisar [justificativa]` no MR (só GitLab), aceito do autor do MR ou de um usuário do painel; com justificativa, a IA recebe a revisão anterior e só o diff desde o último commit revisado;
+- botão "Reanalisar" do painel (`POST /api/v1/reanalyze`).
+
+Tokens, webhook secrets e chaves de IA nunca vão para log nem para respostas da API (o painel só vê `***` ou `has_api_key`).
+
 ## Retentativas
 
 O `WebhookHandler` responde `200` ao webhook assim que o evento é parseado e processa a MR numa
@@ -97,6 +106,7 @@ A injeção em `main.go` é o `ai.Reviewer` (implementa `domain.AIReviewer`): el
 
 1. `internal/domain/ai_config.go` — constante `AIProvider` e linha em `AIProviders` (rótulo, base URL e modelo default, se aceita modo conta). A validação, os defaults e o formulário do frontend (via `GET /api/v1/ai-configs/providers`) derivam dessa tabela.
 2. Se o provider fala um protocolo novo (não OpenAI-compatible), um adaptador em `internal/infrastructure/ai/` implementando `conversation` e o `case` em `newConversation`.
+3. `web/src/views/PrivacyView.vue` — a política de privacidade lista os provedores que recebem o código (e onde ficam): nenhum teste liga essa lista à tabela, então atualize à mão.
 
 ### Trocar parâmetros do OAuth de conta (Claude)
 
