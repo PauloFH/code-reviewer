@@ -137,6 +137,7 @@ const pontos = [
 
     <footer class="fim">
       <span class="autor">Feito por Paulo Holanda</span>
+      <router-link to="/privacidade" class="privacidade">Política de privacidade</router-link>
       <span class="espaco"></span>
       <a :href="GITHUB" class="btn" target="_blank" rel="noopener">Código no GitHub</a>
       <a :href="SITE" class="btn" target="_blank" rel="noopener">Site pessoal</a>
@@ -376,6 +377,12 @@ section > p {
 
 .autor {
   font-weight: 600;
+}
+
+.privacidade {
+  font-size: 13px;
+  color: var(--text-2);
+  text-decoration: underline;
 }
 
 @media (max-width: 699px) {

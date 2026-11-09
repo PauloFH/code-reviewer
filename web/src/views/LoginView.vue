@@ -39,6 +39,11 @@
           {{ loading ? 'Entrando…' : 'Entrar' }}
         </button>
       </form>
+
+      <p class="aviso">
+        Usamos seu usuário para controlar o acesso ao painel.
+        <router-link to="/privacidade">Política de privacidade</router-link>
+      </p>
     </div>
   </div>
 </template>
@@ -133,7 +138,7 @@ form {
 .field input {
   padding: 10px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 14px;
@@ -142,7 +147,6 @@ form {
 }
 
 .field input:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
@@ -155,6 +159,16 @@ form {
   justify-content: center;
   padding: 10px;
   margin-top: 0.5rem;
+}
+
+.aviso {
+  margin-top: 1.25rem;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.aviso a {
+  text-decoration: underline;
 }
 
 .error {

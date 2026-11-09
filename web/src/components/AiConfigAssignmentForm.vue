@@ -1,32 +1,32 @@
 <template>
   <Modal title="Nova atribuição" max-width="480px" @close="$emit('close')">
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
-        <label>Configuração de IA</label>
-        <select v-model.number="form.config_id" required>
+        <label for="ai-assign-config">Configuração de IA</label>
+        <select id="ai-assign-config" v-model.number="form.config_id" required>
           <option :value="0" disabled>Selecione uma configuração</option>
           <option v-for="c in configs" :key="c.id" :value="c.id">{{ c.name }} ({{ c.provider }})</option>
         </select>
       </div>
       <div class="field">
-        <label>Escopo</label>
-        <select v-model="form.scope" required>
+        <label for="ai-assign-scope">Escopo</label>
+        <select id="ai-assign-scope" v-model="form.scope" required>
           <option value="global">Global (padrão para todos)</option>
           <option value="client">Cliente (host Git)</option>
           <option value="project">Projeto (repositório específico)</option>
         </select>
       </div>
       <div v-if="form.scope !== 'global'" class="field">
-        <label>Cliente</label>
-        <select v-model="form.client_name" required>
+        <label for="ai-assign-client">Cliente</label>
+        <select id="ai-assign-client" v-model="form.client_name" required>
           <option value="" disabled>Selecione um cliente</option>
           <option v-for="c in clients" :key="c.name" :value="c.name">{{ c.name }} ({{ c.platform }})</option>
         </select>
       </div>
       <div v-if="form.scope === 'project'" class="field">
-        <label>Projeto (referência)</label>
-        <input v-model="form.project_ref" required placeholder="Ex: org/repo-name" />
+        <label for="ai-assign-project">Projeto (referência)</label>
+        <input id="ai-assign-project" v-model="form.project_ref" required placeholder="Ex: org/repo-name" />
       </div>
     </form>
     <template #footer>
@@ -118,7 +118,7 @@ defineExpose({
 .field select {
   padding: 8px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
@@ -128,7 +128,6 @@ defineExpose({
 
 .field input:focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

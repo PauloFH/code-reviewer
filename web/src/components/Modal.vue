@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="modal-overlay" @click.self="$emit('close')">
+    <div class="modal-overlay" @click.self="$emit('close')" @keydown="onKeydown">
       <div ref="modalEl" class="modal" tabindex="-1" role="dialog" aria-modal="true" :aria-label="title" :style="{ maxWidth: maxWidth }">
         <div class="modal-header">
           <h2 class="modal-title">{{ title }}</h2>
@@ -28,7 +28,7 @@ defineProps<{
   maxWidth?: string
 }>()
 
-defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [] }>()
 
 const modalEl = ref<HTMLElement | null>(null)
 let previous: Element | null = null
@@ -40,6 +40,30 @@ onMounted(() => {
 onUnmounted(() => {
   if (previous instanceof HTMLElement) previous.focus()
 })
+
+const FOCAVEIS = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+
+// Escape fecha; Tab fica preso dentro do diálogo, dando a volta nas pontas.
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.stopPropagation()
+    emit('close')
+    return
+  }
+  if (e.key !== 'Tab' || !modalEl.value) return
+  const itens = [...modalEl.value.querySelectorAll<HTMLElement>(FOCAVEIS)]
+  if (!itens.length) return
+  const primeiro = itens[0]
+  const ultimo = itens[itens.length - 1]
+  const atual = document.activeElement
+  if (e.shiftKey && (atual === primeiro || atual === modalEl.value)) {
+    ultimo.focus()
+    e.preventDefault()
+  } else if (!e.shiftKey && atual === ultimo) {
+    primeiro.focus()
+    e.preventDefault()
+  }
+}
 </script>
 
 <style scoped>

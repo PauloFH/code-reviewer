@@ -320,18 +320,13 @@ onMounted(() => {
 .client-select {
   padding: 5px 8px;
   background: var(--bg);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
   font-family: var(--font-sans);
   cursor: pointer;
   max-width: 100%;
-}
-
-.client-select:focus-visible {
-  outline: 2px solid var(--merge-mid);
-  outline-offset: 2px;
 }
 
 @media (max-width: 960px) {

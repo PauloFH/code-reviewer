@@ -1,12 +1,11 @@
 <template>
   <Teleport to="body">
-    <div class="toast-wrap">
+    <div class="toast-wrap" role="status" aria-live="polite">
       <TransitionGroup name="toast">
         <div
           v-for="t in toasts.toasts"
           :key="t.id"
           :class="['toast', t.type]"
-          :role="t.type === 'error' ? 'alert' : 'status'"
           @click="toasts.remove(t.id)"
         >
           <!-- Tipo também por sinal, nunca só por cor. -->

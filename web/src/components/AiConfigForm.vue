@@ -1,16 +1,16 @@
 <template>
   <Modal :title="initial ? 'Editar configuração' : 'Nova configuração de IA'" max-width="520px" @close="$emit('close')">
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
-        <label>Nome</label>
-        <input v-model="form.name" required placeholder="Ex: Claude produção" />
+        <label for="ai-name">Nome</label>
+        <input id="ai-name" v-model="form.name" required placeholder="Ex: Claude produção" />
       </div>
 
       <div class="field-row">
         <div class="field">
-          <label>Provedor</label>
-          <select v-model="form.provider" @change="onProviderChange">
+          <label for="ai-provider">Provedor</label>
+          <select id="ai-provider" v-model="form.provider" @change="onProviderChange">
             <option value="openai">OpenAI</option>
             <option value="claude">Claude (Anthropic)</option>
             <option value="gemini">Gemini (Google)</option>
@@ -18,8 +18,8 @@
           </select>
         </div>
         <div class="field">
-          <label>Modo</label>
-          <select v-model="form.mode" :disabled="form.provider !== 'claude'">
+          <label for="ai-mode">Modo</label>
+          <select id="ai-mode" v-model="form.mode" :disabled="form.provider !== 'claude'">
             <option value="api">API (chave)</option>
             <option value="account">Conta (login)</option>
           </select>
@@ -29,8 +29,9 @@
       <p v-if="form.provider !== 'claude'" class="hint">O modo "Conta" só está disponível para o Claude.</p>
 
       <div v-if="form.mode === 'api'" class="field">
-        <label>Chave de API</label>
+        <label for="ai-api-key">Chave de API</label>
         <input
+          id="ai-api-key"
           v-model="form.api_key"
           type="password"
           :placeholder="initial?.has_api_key ? '•••••• (deixe vazio para manter)' : 'Cole a chave de API'"
@@ -38,34 +39,34 @@
       </div>
 
       <div class="field">
-        <label>Modelo <span class="opt">(opcional)</span></label>
-        <input v-model="form.model" :placeholder="modelPlaceholder" />
+        <label for="ai-model">Modelo <span class="opt">(opcional)</span></label>
+        <input id="ai-model" v-model="form.model" :placeholder="modelPlaceholder" />
       </div>
 
       <div class="field">
-        <label>Base URL <span class="opt">(opcional)</span></label>
-        <input v-model="form.base_url" :placeholder="baseURLPlaceholder" />
+        <label for="ai-base-url">Base URL <span class="opt">(opcional)</span></label>
+        <input id="ai-base-url" v-model="form.base_url" :placeholder="baseURLPlaceholder" />
       </div>
 
       <div class="field-row">
         <div class="field">
-          <label>Preço / M tokens (entrada)</label>
-          <input v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
+          <label for="ai-price-in">Preço / M tokens (entrada)</label>
+          <input id="ai-price-in" v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
         </div>
         <div class="field">
-          <label>Preço / M tokens (saída)</label>
-          <input v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
+          <label for="ai-price-out">Preço / M tokens (saída)</label>
+          <input id="ai-price-out" v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
         </div>
       </div>
 
       <div class="field-row">
         <div class="field">
-          <label>Máx. de tokens de saída <span class="opt">(0 = padrão)</span></label>
-          <input v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
+          <label for="ai-max-tokens">Máx. de tokens de saída <span class="opt">(0 = padrão)</span></label>
+          <input id="ai-max-tokens" v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
         </div>
         <div class="field">
-          <label>Timeout (segundos)</label>
-          <input v-model.number="form.timeout_seconds" type="number" min="1" />
+          <label for="ai-timeout">Timeout (segundos)</label>
+          <input id="ai-timeout" v-model.number="form.timeout_seconds" type="number" min="1" />
         </div>
       </div>
 
@@ -78,14 +79,14 @@
             <span :class="['dot', connected ? 'ok' : 'off']" />
             {{ connected ? `Conta conectada${expiresLabel}` : 'Conta não conectada' }}
           </div>
-          <p v-if="oauthError" class="error oauth-error">{{ oauthError }}</p>
+          <p v-if="oauthError" class="error oauth-error" role="alert">{{ oauthError }}</p>
           <button type="button" class="btn" :disabled="oauthBusy" @click="startConnect">
             <span v-if="oauthBusy" class="spinner" />
             {{ connected ? 'Reconectar conta Claude' : 'Conectar conta Claude' }}
           </button>
           <div v-if="awaitingCode" class="code-step">
             <p class="hint">Autorize na aba aberta e cole o código retornado abaixo.</p>
-            <input v-model="pastedCode" placeholder="Cole o código de autorização" class="code-input" />
+            <input v-model="pastedCode" aria-label="Código de autorização" placeholder="Cole o código de autorização" class="code-input" />
             <button type="button" class="btn primary" :disabled="oauthBusy || !pastedCode" @click="finishConnect">
               Concluir conexão
             </button>
@@ -254,7 +255,7 @@ defineExpose({
 .field select {
   padding: 8px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
@@ -264,7 +265,6 @@ defineExpose({
 
 .field input:focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

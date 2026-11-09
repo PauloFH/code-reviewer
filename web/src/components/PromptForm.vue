@@ -1,18 +1,18 @@
 <template>
   <Modal :title="isEdit ? 'Editar prompt' : 'Novo prompt'" max-width="700px" @close="$emit('close')">
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form @submit.prevent="submit" class="form">
       <div class="field">
-        <label>Nome</label>
-        <input v-model="form.name" required placeholder="Ex: Revisão de backend Go" />
+        <label for="prompt-name">Nome</label>
+        <input id="prompt-name" v-model="form.name" required placeholder="Ex: Revisão de backend Go" />
       </div>
       <div class="field field-tall">
         <label>Prompt de sistema</label>
-        <RichTextEditor v-model="form.system_prompt" placeholder="Instruções para a IA…" />
+        <RichTextEditor v-model="form.system_prompt" label="Prompt de sistema" placeholder="Instruções para a IA…" />
       </div>
       <div class="field field-tall">
         <label>Template de saída</label>
-        <RichTextEditor v-model="form.output_template" placeholder="Formato esperado da revisão…" />
+        <RichTextEditor v-model="form.output_template" label="Template de saída" placeholder="Formato esperado da revisão…" />
       </div>
     </form>
     <template #footer>
@@ -89,7 +89,7 @@ defineExpose({
 .field select {
   padding: 8px 12px;
   background: var(--bg-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
@@ -99,7 +99,6 @@ defineExpose({
 
 .field input:focus,
 .field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

@@ -17,6 +17,9 @@
   /* Borders */
   --hairline:        #292c36;
   --hairline-strong: #3a3e4b;
+  /* Borda de campo e anel de foco: >= 3:1 contra os fundos nos dois temas (WCAG 1.4.11). */
+  --field-border: var(--muted-2);
+  --focus: var(--accent);
 
   /* Text */
   --text:      #f6f6f0;
@@ -86,9 +89,10 @@
   --accent:       #8a6200;
   --accent-2:     #6f4f00;
   --accent-soft:  rgba(138, 98, 0, 0.10);
-  --ok:     #06773f;
-  --warn:   #8a6200;
-  --danger: #cf2412;
+  /* Mais escuros que o accent para as pills (texto sobre o próprio tom a 8%) passarem de 4.5:1. */
+  --ok:     #056a38;
+  --warn:   #7a5600;
+  --danger: #b31d0d;
   --info:   #38352a;
   --skip:   #5e5a4d;
   --hl-2:      #ffd21f;
@@ -519,7 +523,7 @@ body {
   align-items: center;
   gap: 6px;
   background: var(--panel);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: 5px;
   padding: 6px 10px;
   font-size: 12.5px;
@@ -914,6 +918,21 @@ a:hover {
   .skeleton {
     animation: none;
   }
+
+  /* Pulso, entrada de modal e toasts: sem movimento para quem pediu. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Foco visível em todo elemento focável por teclado (WCAG 2.4.7). */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .sr-only {

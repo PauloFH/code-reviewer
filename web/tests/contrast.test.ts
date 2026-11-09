@@ -53,12 +53,13 @@ const themes: Record<string, Record<string, string>> = {
 }
 
 const fgs = ['--text', '--text-2', '--muted', '--muted-2', '--ok', '--danger', '--warn', '--accent']
-const bgs = ['--bg', '--bg-2', '--panel', '--panel-solid']
+const bgs = ['--bg', '--bg-2', '--panel', '--panel-solid', '--panel-2']
 
 for (const [nome, vars] of Object.entries(themes)) {
   const get = (k: string): RGBA => {
     assert.ok(vars[k], `token ${k} ausente no tema ${nome}`)
-    return parse(vars[k])
+    const ref = vars[k].match(/^var\((--[\w-]+)\)$/)
+    return ref ? get(ref[1]) : parse(vars[k])
   }
   const base = get('--bg')
 
@@ -68,6 +69,30 @@ for (const [nome, vars] of Object.entries(themes)) {
       for (const fg of fgs) {
         const r = ratio(over(get(fg), fundo), fundo)
         assert.ok(r >= 4.5, `${fg} sobre ${bg} no tema ${nome}: ${r.toFixed(2)} < 4.5`)
+      }
+    }
+  })
+
+  // Componentes de UI (WCAG 1.4.11): borda de campo e anel de foco precisam de 3:1.
+  test(`contraste AA no tema ${nome}: borda de campo e foco sobre fundos`, () => {
+    for (const bg of bgs) {
+      const fundo = over(get(bg), base)
+      for (const ui of ['--field-border', '--focus']) {
+        const r = ratio(get(ui), fundo)
+        assert.ok(r >= 3, `${ui} sobre ${bg} no tema ${nome}: ${r.toFixed(2)} < 3`)
+      }
+    }
+  })
+
+  // .pill.ok/.warn/.danger: texto na cor sobre a própria cor a 8% (color-mix) por cima do fundo.
+  test(`contraste AA no tema ${nome}: pills de situação`, () => {
+    for (const bg of bgs) {
+      const fundo = over(get(bg), base)
+      for (const fg of ['--ok', '--warn', '--danger']) {
+        const cor = get(fg)
+        const pill = over([cor[0], cor[1], cor[2], 0.08], fundo)
+        const r = ratio(cor, pill)
+        assert.ok(r >= 4.5, `pill ${fg} sobre ${bg} no tema ${nome}: ${r.toFixed(2)} < 4.5`)
       }
     }
   })

@@ -17,33 +17,33 @@
         <div class="nav-section">
           <div class="nav-label">Operação</div>
           <router-link to="/dashboard" class="nav-item" @click="menuOpen = false">
-            <span>Painel</span><kbd class="nav-kbd">P</kbd>
+            <span>Painel</span><kbd v-if="atalhos" class="nav-kbd">P</kbd>
           </router-link>
           <router-link to="/events" class="nav-item" @click="menuOpen = false">
-            <span>Revisões</span><kbd class="nav-kbd">R</kbd>
+            <span>Revisões</span><kbd v-if="atalhos" class="nav-kbd">R</kbd>
           </router-link>
           <router-link v-if="auth.canManageResources" to="/clients" class="nav-item" @click="menuOpen = false">
-            <span>Clientes</span><kbd class="nav-kbd">C</kbd>
+            <span>Clientes</span><kbd v-if="atalhos" class="nav-kbd">C</kbd>
           </router-link>
         </div>
 
         <div v-if="auth.canManageResources" class="nav-section">
           <div class="nav-label">Configuração</div>
           <router-link to="/prompts" class="nav-item" @click="menuOpen = false">
-            <span>Prompts</span><kbd class="nav-kbd">O</kbd>
+            <span>Prompts</span><kbd v-if="atalhos" class="nav-kbd">O</kbd>
           </router-link>
           <router-link to="/ai-configs" class="nav-item" @click="menuOpen = false">
-            <span>Modelos</span><kbd class="nav-kbd">M</kbd>
+            <span>Modelos</span><kbd v-if="atalhos" class="nav-kbd">M</kbd>
           </router-link>
           <router-link to="/review-profiles" class="nav-item" @click="menuOpen = false">
-            <span>Perfis de revisão</span><kbd class="nav-kbd">F</kbd>
+            <span>Perfis de revisão</span><kbd v-if="atalhos" class="nav-kbd">F</kbd>
           </router-link>
         </div>
 
         <div v-if="auth.canManageUsers" class="nav-section">
           <div class="nav-label">Acesso</div>
           <router-link to="/users" class="nav-item" @click="menuOpen = false">
-            <span>Usuários</span><kbd class="nav-kbd">U</kbd>
+            <span>Usuários</span><kbd v-if="atalhos" class="nav-kbd">U</kbd>
           </router-link>
         </div>
       </nav>
@@ -62,6 +62,11 @@
           <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="14" />
           {{ theme === 'dark' ? 'Tema claro' : 'Tema escuro' }}
         </button>
+        <button class="theme-btn" type="button" :aria-pressed="atalhos" @click="alternarAtalhos">
+          <AppIcon name="keyboard" :size="14" />
+          {{ atalhos ? 'Atalhos ligados' : 'Atalhos desligados' }}
+        </button>
+        <router-link to="/privacidade" class="privacidade">Política de privacidade</router-link>
       </div>
     </aside>
 
@@ -87,6 +92,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import { NAV_SHORTCUTS, isEditableTarget } from '@/brand/shortcuts'
 import { formatRole } from '@/brand/format'
+import { readStorage, writeStorage } from '@/brand/storage'
 import AppIcon from '@/components/AppIcon.vue'
 import BackgroundMotion from '@/components/BackgroundMotion.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
@@ -95,6 +101,13 @@ const auth = useAuthStore()
 const router = useRouter()
 const { theme, toggleTheme } = useTheme()
 const menuOpen = ref(false)
+// Atalhos de uma tecla podem ser desligados (WCAG 2.1.4); a escolha persiste.
+const atalhos = ref(readStorage('shortcuts') !== 'off')
+
+function alternarAtalhos() {
+  atalhos.value = !atalhos.value
+  writeStorage('shortcuts', atalhos.value ? 'on' : 'off')
+}
 
 function handleLogout() {
   auth.logout()
@@ -102,6 +115,11 @@ function handleLogout() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && menuOpen.value) {
+    menuOpen.value = false
+    return
+  }
+  if (!atalhos.value || document.querySelector('[aria-modal="true"]')) return
   if (isEditableTarget(e.target as HTMLElement | null)) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
 
@@ -286,6 +304,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 .theme-btn:hover {
   border-color: var(--text);
+}
+
+.privacidade {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* ── Main body ─────────────────────────────── */

@@ -69,6 +69,7 @@ web/
 - **Tema:** `useTheme()` alterna e persiste (`localStorage`, chave `theme`); o script inline de `index.html` aplica `data-theme` antes do Vue montar. O canvas (gráfico e fundo animado) não entende `var(--x)`: lê as cores com `getComputedStyle` e refaz ao trocar de tema.
 - **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`. A exceção é `LandingAbertura.vue`, o SVG animado da abertura da landing (redesenho do símbolo oficial, decorativo e com `aria-hidden`); não crie outro por script para escapar da varredura.
 - **Marca:** `BrandLogo.vue` escolhe o WebP de `assets/brand/` pelo tema (600 px de largura, 3x o tamanho exibido; os masters PNG ficam em `docs/superpowers/specs/assets/mergeye/`); `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
+- **Acessibilidade:** `:focus-visible` global em `tokens.css` (anel `--focus`); não zere o `outline` sem outro indicador. Borda de campo usa `--field-border` (>= 3:1); `tests/contrast.test.ts` cobre texto, pills, borda de campo e foco. `Modal.vue` fecha com Escape e prende o Tab; os atalhos de uma tecla do `AppLayout` podem ser desligados (chave `shortcuts` no storage).
 - **Situação nunca só por cor:** `statusMark()` (`brand/status.ts`) devolve sinal e rótulo: `+` publicada, `−` erro, `~` ignorada.
 - **Armazenamento:** use `readStorage`/`writeStorage`/`removeStorage` (`brand/storage.ts`); `localStorage` bloqueado não lança, o valor vale só na sessão.
 - **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon` e `LandingAbertura`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.
@@ -79,6 +80,7 @@ web/
 |------|------|---------|------------|
 | `/` | landing | sim | LandingView.vue (quem tem sessão é redirecionado para `/dashboard` pelo guard) |
 | `/login` | login | sim | LoginView.vue |
+| `/privacidade` | privacidade | sim | PrivacyView.vue (política de privacidade, linkada na landing, no login e na sidebar) |
 | `/dashboard` | dashboard | não | DashboardView.vue |
 | `/events` | events | não | EventsView.vue |
 | `/clients` | clients | não | ClientsView.vue |
@@ -86,6 +88,8 @@ web/
 | `/ai-configs` | ai-configs | não (super/gestor) | AiConfigView.vue |
 
 `/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).
+
+Cada rota tem `meta.title`; o `router.afterEach` escreve `document.title` como `<título> · Mergeye`.
 
 O navigation guard em `router/index.ts` redireciona para `/login` quando `!auth.isAuthenticated` para rotas sem `meta.public`, e `/` manda quem tem sessão para `/dashboard`.
 

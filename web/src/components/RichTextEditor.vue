@@ -1,16 +1,16 @@
 <template>
   <div class="editor-wrap">
     <div v-if="editor" class="toolbar">
-      <button type="button" :class="{ active: editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">B</button>
-      <button type="button" :class="{ active: editor.isActive('italic') }" @click="editor.chain().focus().toggleItalic().run()">I</button>
+      <button type="button" aria-label="Negrito" :aria-pressed="editor.isActive('bold')" :class="{ active: editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">B</button>
+      <button type="button" aria-label="Itálico" :aria-pressed="editor.isActive('italic')" :class="{ active: editor.isActive('italic') }" @click="editor.chain().focus().toggleItalic().run()">I</button>
       <span class="sep" />
-      <button type="button" :class="{ active: editor.isActive('heading', { level: 2 }) }" @click="editor.chain().focus().toggleHeading({ level: 2 }).run()">H2</button>
-      <button type="button" :class="{ active: editor.isActive('heading', { level: 3 }) }" @click="editor.chain().focus().toggleHeading({ level: 3 }).run()">H3</button>
+      <button type="button" aria-label="Título 2" :aria-pressed="editor.isActive('heading', { level: 2 })" :class="{ active: editor.isActive('heading', { level: 2 }) }" @click="editor.chain().focus().toggleHeading({ level: 2 }).run()">H2</button>
+      <button type="button" aria-label="Título 3" :aria-pressed="editor.isActive('heading', { level: 3 })" :class="{ active: editor.isActive('heading', { level: 3 }) }" @click="editor.chain().focus().toggleHeading({ level: 3 }).run()">H3</button>
       <span class="sep" />
-      <button type="button" :class="{ active: editor.isActive('bulletList') }" @click="editor.chain().focus().toggleBulletList().run()">&#8226; Lista</button>
-      <button type="button" :class="{ active: editor.isActive('orderedList') }" @click="editor.chain().focus().toggleOrderedList().run()">1. Lista</button>
+      <button type="button" aria-label="Lista com marcadores" :aria-pressed="editor.isActive('bulletList')" :class="{ active: editor.isActive('bulletList') }" @click="editor.chain().focus().toggleBulletList().run()">&#8226; Lista</button>
+      <button type="button" aria-label="Lista numerada" :aria-pressed="editor.isActive('orderedList')" :class="{ active: editor.isActive('orderedList') }" @click="editor.chain().focus().toggleOrderedList().run()">1. Lista</button>
       <span class="sep" />
-      <button type="button" :class="{ active: editor.isActive('codeBlock') }" @click="editor.chain().focus().toggleCodeBlock().run()">Código</button>
+      <button type="button" aria-label="Bloco de código" :aria-pressed="editor.isActive('codeBlock')" :class="{ active: editor.isActive('codeBlock') }" @click="editor.chain().focus().toggleCodeBlock().run()">Código</button>
     </div>
     <EditorContent :editor="editor" class="editor-content" />
   </div>
@@ -25,6 +25,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 const props = defineProps<{
   modelValue: string
   placeholder?: string
+  label?: string
 }>()
 
 const emit = defineEmits<{
@@ -37,6 +38,9 @@ const editor = useEditor({
     StarterKit,
     Placeholder.configure({ placeholder: props.placeholder || 'Escreva aqui...' }),
   ],
+  editorProps: {
+    attributes: { ...(props.label ? { 'aria-label': props.label } : {}), 'aria-multiline': 'true', role: 'textbox' },
+  },
   onUpdate: ({ editor: e }) => {
     emit('update:modelValue', e.getHTML())
   },
@@ -55,7 +59,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .editor-wrap {
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--panel-solid);
@@ -92,7 +96,6 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 .editor-content :deep(.tiptap) {
-  outline: none;
   min-height: 120px;
 }
 .editor-content :deep(.tiptap p.is-editor-empty:first-child::before) {
