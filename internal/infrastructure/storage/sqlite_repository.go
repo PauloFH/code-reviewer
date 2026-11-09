@@ -397,26 +397,31 @@ func (r *SQLiteRepository) CountEvents(f domain.ReviewEventFilter) (int64, error
 func (r *SQLiteRepository) GetStats(clientName, sinceStr, untilStr string) (*domain.ReviewStats, error) {
 	stats := &domain.ReviewStats{}
 
-	sinceClause := ""
-	untilClause := ""
+	// since/until vêm da query string: sempre como parâmetro, nunca concatenados no SQL.
+	period := ""
+	periodArgs := []any{}
 	if sinceStr != "" {
-		sinceClause = " AND reviewed_at >= '" + sinceStr + "'"
+		period += " AND reviewed_at >= ?"
+		periodArgs = append(periodArgs, sinceStr)
 	}
 	if untilStr != "" {
-		untilClause = " AND reviewed_at <= '" + untilStr + "'"
+		period += " AND reviewed_at <= ?"
+		periodArgs = append(periodArgs, untilStr)
 	}
 
-	globalQ := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'%s%s`,
-		sinceClause, untilClause)
-	_ = r.db.QueryRow(globalQ).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD)
+	globalQ := `SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'` + period
+	if err := r.db.QueryRow(globalQ, periodArgs...).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD); err != nil {
+		return nil, fmt.Errorf("stats totals: %w", err)
+	}
 
-	last30Q := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')%s%s`,
-		sinceClause, untilClause)
-	_ = r.db.QueryRow(last30Q).Scan(&stats.ReviewsLast30d, &stats.CostLast30d)
+	last30Q := `SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')` + period
+	if err := r.db.QueryRow(last30Q, periodArgs...).Scan(&stats.ReviewsLast30d, &stats.CostLast30d); err != nil {
+		return nil, fmt.Errorf("stats last 30 days: %w", err)
+	}
 
-	byClientQ := fmt.Sprintf(`SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
-		FROM review_events WHERE status='success'%s%s`, sinceClause, untilClause)
-	byClientArgs := []any{}
+	byClientQ := `SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
+		FROM review_events WHERE status='success'` + period
+	byClientArgs := append([]any{}, periodArgs...)
 	if clientName != "" {
 		byClientQ += ` AND client_name = ?`
 		byClientArgs = append(byClientArgs, clientName)
