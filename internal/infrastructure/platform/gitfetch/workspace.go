@@ -3,8 +3,9 @@ package gitfetch
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strings"
 
@@ -16,53 +17,64 @@ const (
 	maxGrepHits  = 200
 )
 
-// localWorkspace is a read-only CodeWorkspace backed by a directory on disk.
+// localWorkspace is a read-only CodeWorkspace confined to a directory: every
+// access goes through an os.Root, so ".." and symlinks committed by the MR
+// cannot reach outside it, and .git (which may hold remote config) is hidden.
 type localWorkspace struct {
-	root string
+	dir  string
+	root *os.Root
+	fsys fs.FS
 }
 
-func newLocalWorkspace(root string) *localWorkspace {
-	return &localWorkspace{root: root}
-}
-
-func (w *localWorkspace) Root() string { return w.root }
-
-// resolve maps a workspace-relative path to an absolute path inside the root,
-// rejecting anything that escapes the root.
-func (w *localWorkspace) resolve(p string) (string, error) {
-	clean := filepath.Clean("/" + filepath.FromSlash(p)) // anchor at root, kill ".."
-	full := filepath.Join(w.root, clean)
-	rel, err := filepath.Rel(w.root, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("path %q escapes workspace", p)
-	}
-	return full, nil
-}
-
-func (w *localWorkspace) ReadFile(path string) ([]byte, error) {
-	full, err := w.resolve(path)
+func openLocalWorkspace(dir string) (*localWorkspace, error) {
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(full)
+	return &localWorkspace{dir: dir, root: root, fsys: root.FS()}, nil
+}
+
+func (w *localWorkspace) Root() string { return w.dir }
+
+func (w *localWorkspace) close() error { return w.root.Close() }
+
+// name maps a workspace-relative path to an fs.FS name, anchoring it at the
+// root so ".." cannot climb above it.
+func (w *localWorkspace) name(p string) (string, error) {
+	clean := strings.TrimPrefix(path.Clean("/"+strings.ReplaceAll(p, `\`, "/")), "/")
+	if clean == "" {
+		return ".", nil
+	}
+	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return "", fmt.Errorf("%q is not accessible", p)
+	}
+	return clean, nil
+}
+
+func (w *localWorkspace) ReadFile(p string) ([]byte, error) {
+	name, err := w.name(p)
+	if err != nil {
+		return nil, err
+	}
+	info, err := fs.Stat(w.fsys, name)
 	if err != nil {
 		return nil, err
 	}
 	if info.IsDir() {
-		return nil, fmt.Errorf("%q is a directory", path)
+		return nil, fmt.Errorf("%q is a directory", p)
 	}
 	if info.Size() > maxFileBytes {
-		return nil, fmt.Errorf("%q too large (%d bytes)", path, info.Size())
+		return nil, fmt.Errorf("%q too large (%d bytes)", p, info.Size())
 	}
-	return os.ReadFile(full)
+	return fs.ReadFile(w.fsys, name)
 }
 
-func (w *localWorkspace) ListDir(path string) ([]domain.DirEntry, error) {
-	full, err := w.resolve(path)
+func (w *localWorkspace) ListDir(p string) ([]domain.DirEntry, error) {
+	name, err := w.name(p)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(full)
+	entries, err := fs.ReadDir(w.fsys, name)
 	if err != nil {
 		return nil, err
 	}
@@ -83,28 +95,26 @@ func (w *localWorkspace) Grep(pattern, pathGlob string) ([]domain.GrepHit, error
 	}
 
 	var hits []domain.GrepHit
-	walkErr := filepath.WalkDir(w.root, func(path string, d os.DirEntry, err error) error {
+	walkErr := fs.WalkDir(w.fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
-		rel, _ := filepath.Rel(w.root, path)
 		if pathGlob != "" {
-			ok, _ := filepath.Match(pathGlob, rel)
-			if !ok {
+			if ok, _ := path.Match(pathGlob, name); !ok {
 				return nil
 			}
 		}
-		info, err := d.Info()
-		if err != nil || info.Size() > maxFileBytes {
+		info, err := fs.Stat(w.fsys, name)
+		if err != nil || info.IsDir() || info.Size() > maxFileBytes {
 			return nil
 		}
-		f, err := os.Open(path)
+		f, err := w.fsys.Open(name)
 		if err != nil {
 			return nil
 		}
@@ -117,9 +127,9 @@ func (w *localWorkspace) Grep(pattern, pathGlob string) ([]domain.GrepHit, error
 			line++
 			text := sc.Text()
 			if re.MatchString(text) {
-				hits = append(hits, domain.GrepHit{Path: rel, Line: line, Text: strings.TrimSpace(text)})
+				hits = append(hits, domain.GrepHit{Path: name, Line: line, Text: strings.TrimSpace(text)})
 				if len(hits) >= maxGrepHits {
-					return filepath.SkipAll
+					return fs.SkipAll
 				}
 			}
 		}
@@ -131,5 +141,4 @@ func (w *localWorkspace) Grep(pattern, pathGlob string) ([]domain.GrepHit, error
 	return hits, nil
 }
 
-// compile-time check
 var _ domain.CodeWorkspace = (*localWorkspace)(nil)

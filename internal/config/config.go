@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
 // AgenticConfig tunes the agentic review's repository checkout.
@@ -31,8 +33,9 @@ type RetryConfig struct {
 }
 
 type Config struct {
-	App               AppConfig
-	AI                AIConfig
+	App AppConfig
+	// AI is the env-configured fallback used when no AIConfig is assigned in the DB.
+	AI                domain.AIConfig
 	Database          DatabaseConfig
 	Log               LogConfig
 	Dashboard         DashboardConfig
@@ -40,25 +43,14 @@ type Config struct {
 	Sandbox           SandboxConfig
 	Retry             RetryConfig
 	ClientsConfigPath string
-	// AIConfigEncKey is the base64-encoded 32-byte master key used to encrypt
-	// frontend-managed AI credentials at rest. Required only when such configs
-	// are persisted (env-based config does not use it).
+	// AIConfigEncKey (base64, 32 bytes) encrypts the stored AI credentials and
+	// client tokens/webhook secrets; required as soon as any is stored.
 	AIConfigEncKey string
 }
 
 type AppConfig struct {
 	Port string
 	Env  string
-}
-
-type AIConfig struct {
-	Provider              string
-	BaseURL               string
-	Token                 string
-	Model                 string
-	TimeoutSeconds        int
-	PricePerMInputTokens  float64
-	PricePerMOutputTokens float64
 }
 
 type DashboardConfig struct {
@@ -76,7 +68,7 @@ type LogConfig struct {
 }
 
 func Load() (*Config, error) {
-	aiTimeout, err := strconv.Atoi(getEnv("AI_TIMEOUT_SECONDS", "120"))
+	aiTimeout, err := strconv.Atoi(getEnv("AI_TIMEOUT_SECONDS", strconv.Itoa(domain.DefaultAITimeoutSeconds)))
 	if err != nil {
 		return nil, fmt.Errorf("AI_TIMEOUT_SECONDS must be an integer: %w", err)
 	}
@@ -100,25 +92,20 @@ func Load() (*Config, error) {
 		}
 	}
 
-	aiBaseURL, aiToken, aiModel, err := loadAIProviderConfig(aiProvider)
+	fallbackAI, err := loadAIProviderConfig(aiProvider)
 	if err != nil {
 		return nil, err
 	}
+	fallbackAI.TimeoutSeconds = aiTimeout
+	fallbackAI.PricePerMInputTokens = priceInput
+	fallbackAI.PricePerMOutputTokens = priceOutput
 
 	cfg := &Config{
 		App: AppConfig{
 			Port: getEnv("APP_PORT", "8080"),
 			Env:  getEnv("APP_ENV", "development"),
 		},
-		AI: AIConfig{
-			Provider:              aiProvider,
-			BaseURL:               aiBaseURL,
-			Token:                 aiToken,
-			Model:                 aiModel,
-			TimeoutSeconds:        aiTimeout,
-			PricePerMInputTokens:  priceInput,
-			PricePerMOutputTokens: priceOutput,
-		},
+		AI: fallbackAI,
 		Database: DatabaseConfig{
 			Path: getEnv("DATABASE_PATH", "./data/reviewer.db"),
 		},
@@ -127,7 +114,7 @@ func Load() (*Config, error) {
 		},
 		Dashboard: DashboardConfig{
 			User:      getEnv("DASHBOARD_USER", "admin"),
-			Password:  getEnv("DASHBOARD_PASSWORD", ""),
+			Password:  getEnv("DASHBOARD_PASSWORD", "admin123"),
 			JWTSecret: getEnv("DASHBOARD_JWT_SECRET", ""),
 		},
 		Agentic: AgenticConfig{
@@ -153,21 +140,29 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-func loadAIProviderConfig(provider string) (baseURL, token, model string, err error) {
+// loadAIProviderConfig maps AI_PROVIDER to an AIConfig. Every non-gemini alias
+// speaks the OpenAI-compatible chat completions wire, so it becomes ProviderOpenAI
+// (even "claude", which in env means a Claude model behind an OpenAI-compatible proxy).
+// Empty BaseURL/Model fall back to the provider table defaults.
+func loadAIProviderConfig(provider string) (domain.AIConfig, error) {
+	cfg := domain.AIConfig{Name: "env", Mode: domain.AIModeAPI}
+	var err error
 	switch provider {
 	case "gemini":
-		return firstEnv("GEMINI_BASE_URL", "AI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-			requireAnyEnv("GEMINI_API_KEY", "AI_TOKEN"),
-			firstEnv("GEMINI_MODEL", "AI_MODEL", "gemini-flash-latest"),
-			nil
+		cfg.Provider = domain.ProviderGemini
+		cfg.BaseURL = firstEnv("GEMINI_BASE_URL", "AI_BASE_URL", "")
+		cfg.Model = firstEnv("GEMINI_MODEL", "AI_MODEL", "")
+		cfg.APIKey, err = requireEnv("GEMINI_API_KEY", "AI_TOKEN")
 	case "chat_completions", "chat-completions", "openai", "claude":
-		return requireEnv("AI_BASE_URL"),
-			requireEnv("AI_TOKEN"),
-			getEnv("AI_MODEL", "claude-sonnet-4"),
-			nil
+		cfg.Provider = domain.ProviderOpenAI
+		cfg.Model = getEnv("AI_MODEL", "claude-sonnet-4")
+		if cfg.BaseURL, err = requireEnv("AI_BASE_URL"); err == nil {
+			cfg.APIKey, err = requireEnv("AI_TOKEN")
+		}
 	default:
-		return "", "", "", fmt.Errorf("AI_PROVIDER must be gemini or chat_completions, got %q", provider)
+		return domain.AIConfig{}, fmt.Errorf("AI_PROVIDER must be gemini or chat_completions, got %q", provider)
 	}
+	return cfg, err
 }
 
 func getEnv(key, fallback string) string {
@@ -184,21 +179,14 @@ func firstEnv(primary, fallbackKey, fallbackValue string) string {
 	return getEnv(fallbackKey, fallbackValue)
 }
 
-func requireEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		panic(fmt.Sprintf("required environment variable %q is not set", key))
-	}
-	return v
-}
-
-func requireAnyEnv(keys ...string) string {
+// requireEnv returns the first set variable among keys.
+func requireEnv(keys ...string) (string, error) {
 	for _, key := range keys {
 		if v := os.Getenv(key); v != "" {
-			return v
+			return v, nil
 		}
 	}
-	panic(fmt.Sprintf("required environment variable %q is not set", strings.Join(keys, " or ")))
+	return "", fmt.Errorf("required environment variable %s is not set", strings.Join(keys, " or "))
 }
 
 // getEnvInt reads an integer env var, returning fallback when unset or invalid.

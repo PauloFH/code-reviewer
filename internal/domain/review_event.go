@@ -31,13 +31,13 @@ type ReviewEvent struct {
 	ReviewedAt       time.Time    `json:"reviewed_at"`
 }
 
-// ReviewEventFilter is used by the repository list method.
 type ReviewEventFilter struct {
 	ClientName string
+	Status     ReviewStatus // empty = any
 	Search     string
 	Since      time.Time
 	Until      time.Time
-	Limit      int // 0 → default 50
+	Limit      int // 0 = repository default
 	Offset     int
 }
 

@@ -2,8 +2,8 @@ package usecase
 
 import (
 	"errors"
-	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -12,60 +12,34 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// ---------- mocks ----------
+// ---------- fakes ----------
 
-type mockRegistry struct {
-	client domain.PlatformClient
+type fakeRegistry map[string]domain.PlatformClient
+
+func (r fakeRegistry) Register(c domain.PlatformClient) { r[c.ClientName()] = c }
+func (r fakeRegistry) Unregister(name string)           { delete(r, name) }
+func (r fakeRegistry) Replace(oldName string, c domain.PlatformClient) {
+	delete(r, oldName)
+	r[c.ClientName()] = c
+}
+func (r fakeRegistry) Get(name string) (domain.PlatformClient, bool) {
+	c, ok := r[name]
+	return c, ok
 }
 
-func (m *mockRegistry) Register(c domain.PlatformClient) { m.client = c }
-func (m *mockRegistry) Unregister(_ string)              {}
-func (m *mockRegistry) Get(name string) (domain.PlatformClient, bool) {
-	if m.client != nil && m.client.ClientName() == name {
-		return m.client, true
-	}
-	return nil, false
-}
-func (m *mockRegistry) All() []domain.PlatformClient {
-	if m.client != nil {
-		return []domain.PlatformClient{m.client}
-	}
-	return nil
-}
-
-type mockEventRepo struct{}
-
-func (m *mockEventRepo) SaveEvent(_ domain.ReviewEvent) error { return nil }
-func (m *mockEventRepo) ListEvents(_ domain.ReviewEventFilter) ([]domain.ReviewEvent, error) {
-	return nil, nil
-}
-func (m *mockEventRepo) CountEvents(_ domain.ReviewEventFilter) (int64, error) { return 0, nil }
-func (m *mockEventRepo) GetStats(_, _, _ string) (*domain.ReviewStats, error)  { return nil, nil }
-func (m *mockEventRepo) GetDailyCosts(_ string, _ int) ([]domain.DailyCostPoint, error) {
-	return nil, nil
-}
-
+// mockClient is a PlatformClient whose diff and note calls can fail the first N times.
 type mockClient struct {
-	name     string
-	username string
-	mr       *domain.MergeRequest
-	mrErr    error
-	diff     string
-	diffErr  error
-	noteErr  error
-	// diffErrUntilCall/noteErrUntilCall, when >0, make the corresponding error
-	// fire only for calls up to that count, succeeding afterwards — used to
-	// exercise retry-then-succeed. Zero means "always fail while the *Err
-	// field is set", matching the original unconditional-failure behavior.
-	diffErrUntilCall int
-	noteErrUntilCall int
-	diffCallCount    int
-	noteCalled       bool
-	noteCount        int
-	noteBodies       []string
-	noteMu           sync.Mutex
-	inlineErr        error
-	inlineComments   []domain.InlineComment
+	name, username string
+	mr             *domain.MergeRequest
+	mrErr          error
+	diff           string
+	diffFails      int
+	noteFails      int
+	inlineErr      error
+
+	diffCalls int
+	notes     []string // every note attempt, failed ones included
+	inline    []domain.InlineComment
 }
 
 func (m *mockClient) Platform() domain.PlatformType          { return domain.PlatformGitLab }
@@ -75,161 +49,129 @@ func (m *mockClient) ValidateWebhook(domain.RawWebhook) bool { return true }
 func (m *mockClient) ParseWebhook(domain.RawWebhook) (*domain.WebhookEvent, error) {
 	return nil, nil
 }
-func (m *mockClient) GetMergeRequest(_ string, _ int64) (*domain.MergeRequest, error) {
+func (m *mockClient) GetMergeRequest(string, int64) (*domain.MergeRequest, error) {
 	return m.mr, m.mrErr
 }
-func (m *mockClient) GetMergeRequestDiff(_ string, _ int64) (string, error) {
-	m.diffCallCount++
-	if m.diffErr != nil && (m.diffErrUntilCall == 0 || m.diffCallCount <= m.diffErrUntilCall) {
-		return "", m.diffErr
+func (m *mockClient) GetMergeRequestDiff(string, int64) (string, error) {
+	m.diffCalls++
+	if m.diffCalls <= m.diffFails {
+		return "", errors.New("diff unavailable")
 	}
 	return m.diff, nil
 }
 func (m *mockClient) CreateMergeRequestNote(_ string, _ int64, body string) error {
-	m.noteMu.Lock()
-	defer m.noteMu.Unlock()
-	m.noteCalled = true
-	m.noteCount++
-	m.noteBodies = append(m.noteBodies, body)
-	if m.noteErr != nil && (m.noteErrUntilCall == 0 || m.noteCount <= m.noteErrUntilCall) {
-		return m.noteErr
+	m.notes = append(m.notes, body)
+	if len(m.notes) <= m.noteFails {
+		return errors.New("cannot post")
 	}
 	return nil
 }
-func (m *mockClient) CreateMergeRequestInlineComment(_ string, _ *domain.MergeRequest, c domain.InlineComment) error {
-	m.inlineComments = append(m.inlineComments, c)
+func (m *mockClient) CreateMergeRequestInlineComment(_ *domain.MergeRequest, c domain.InlineComment) error {
+	m.inline = append(m.inline, c)
 	return m.inlineErr
 }
 
-type mockRepository struct {
-	already    bool
-	alreadyErr error
-	claimErr   error
-	marked     bool
-	cleared    bool
-	history    *domain.ReviewHistory
-	mu         sync.Mutex
+type incrementalClient struct {
+	mockClient
+	from, to string
 }
 
-func (m *mockRepository) ClaimReview(_, _ string, _, _ int64, _ string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.alreadyErr != nil {
-		return false, m.alreadyErr
+func (c *incrementalClient) GetMergeRequestDiffSince(_, from, to string) (string, error) {
+	c.from, c.to = from, to
+	return "incremental", nil
+}
+
+type locatorClient struct{ mockClient }
+
+func (*locatorClient) RepoSource(string) (domain.RepoSource, error) {
+	return domain.RepoSource{RemoteURL: "https://git.example.com/x.git"}, nil
+}
+
+type fakeClaims struct {
+	mu            sync.Mutex
+	claimed       bool
+	claimErr      error
+	history       *domain.ReviewHistory
+	completedSHA  string
+	completedBody string
+}
+
+func (f *fakeClaims) ClaimReview(_, _ string, _, _ int64, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return false, f.claimErr
 	}
-	if m.already || m.marked {
+	if f.claimed {
 		return false, nil
 	}
-	m.marked = true
-	return true, m.claimErr
+	f.claimed = true
+	return true, nil
 }
-func (m *mockRepository) GetReviewHistory(_, _ string, _ int64, _ string) (*domain.ReviewHistory, error) {
-	return m.history, nil
+func (f *fakeClaims) GetReviewHistory(_, _ string, _ int64, _ string) (*domain.ReviewHistory, error) {
+	return f.history, nil
 }
-func (m *mockRepository) CompleteReview(_, _ string, _ int64, _, _, _ string) error { return nil }
-func (m *mockRepository) ClearReview(_, _ string, _ int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.marked = false
-	m.cleared = true
+func (f *fakeClaims) CompleteReview(_, _ string, _ int64, _, headSHA, body string) error {
+	f.completedSHA, f.completedBody = headSHA, body
+	return nil
+}
+func (f *fakeClaims) ClearReview(_, _ string, _ int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.claimed = false
 	return nil
 }
 
-type mockUserRepoUC struct{}
-
-func (m *mockUserRepoUC) GetByUsername(_ string) (*domain.User, error)            { return nil, nil }
-func (m *mockUserRepoUC) GetByID(_ int64) (*domain.User, error)                   { return nil, nil }
-func (m *mockUserRepoUC) ListUsers() ([]domain.User, error)                       { return nil, nil }
-func (m *mockUserRepoUC) CreateUser(u domain.User) (*domain.User, error)          { return &u, nil }
-func (m *mockUserRepoUC) UpdateUser(_ int64, u domain.User) (*domain.User, error) { return &u, nil }
-func (m *mockUserRepoUC) DeleteUser(_ int64) error                                { return nil }
-func (m *mockUserRepoUC) CountUsers() (int, error)                                { return 0, nil }
-func (m *mockUserRepoUC) UserExists(_ string) (bool, error)                       { return false, nil }
-
-type mockAI struct {
-	result    *domain.ReviewResult
-	err       error
-	errUntil  int // when >0, err fires only for calls up to this count
-	callCount int
-	lastInput domain.ReviewInput
+// eventLog is both the event store and the live-feed publisher.
+type eventLog struct {
+	mu        sync.Mutex
+	saved     []domain.ReviewEvent
+	published int
 }
 
-func (m *mockAI) ReviewDiff(in domain.ReviewInput) (*domain.ReviewResult, error) {
-	m.lastInput = in
-	m.callCount++
-	if m.err != nil && (m.errUntil == 0 || m.callCount <= m.errUntil) {
-		return nil, m.err
+func (l *eventLog) SaveEvent(e domain.ReviewEvent) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.saved = append(l.saved, e)
+	return nil
+}
+func (l *eventLog) Publish(domain.ReviewEvent) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.published++
+}
+func (l *eventLog) last() domain.ReviewEvent { return l.saved[len(l.saved)-1] }
+
+type fakeUsers map[string]bool
+
+func (u fakeUsers) GetByUsername(name string) (*domain.User, error) {
+	if !u[name] {
+		return nil, domain.ErrNotFound
 	}
-	return m.result, nil
+	return &domain.User{Username: name}, nil
 }
 
-type blockingAI struct {
-	reached chan struct{}
-	release <-chan struct{}
-	result  *domain.ReviewResult
+type fakeProfiles struct {
+	p   *domain.ReviewProfile
+	err error
 }
 
-func (m *blockingAI) ReviewDiff(domain.ReviewInput) (*domain.ReviewResult, error) {
-	m.reached <- struct{}{}
-	<-m.release
-	return m.result, nil
+func (f fakeProfiles) Resolve(string, string) (*domain.ReviewProfile, error) { return f.p, f.err }
+
+type fakeFetcher struct {
+	err     error
+	sha     string
+	cleaned bool
 }
 
-type mockProfileRepo struct {
-	resolved *domain.ReviewProfile
-	err      error
-}
-
-func (m *mockProfileRepo) ListProfiles() ([]domain.ReviewProfile, error)     { return nil, nil }
-func (m *mockProfileRepo) GetProfile(_ int64) (*domain.ReviewProfile, error) { return nil, nil }
-func (m *mockProfileRepo) CreateProfile(p domain.ReviewProfile) (*domain.ReviewProfile, error) {
-	return &p, nil
-}
-func (m *mockProfileRepo) UpdateProfile(_ int64, p domain.ReviewProfile) (*domain.ReviewProfile, error) {
-	return &p, nil
-}
-func (m *mockProfileRepo) DeleteProfile(_ int64) error                                 { return nil }
-func (m *mockProfileRepo) SetProfileAssignment(_ domain.ReviewProfileAssignment) error { return nil }
-func (m *mockProfileRepo) RemoveProfileAssignment(_, _, _ string) error                { return nil }
-func (m *mockProfileRepo) ListProfileAssignments() ([]domain.ReviewProfileAssignment, error) {
-	return nil, nil
-}
-func (m *mockProfileRepo) ResolveProfile(_, _ string) (*domain.ReviewProfile, error) {
-	return m.resolved, m.err
-}
-
-// ---------- helpers ----------
-
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-func happyMR(username string) *domain.MergeRequest {
-	return &domain.MergeRequest{
-		ID:         1,
-		IID:        1,
-		ProjectRef: "42",
-		Title:      "feat: add feature",
-		WebURL:     "https://gitlab.com/proj/-/merge_requests/1",
-		Reviewers:  []string{username},
+func (f *fakeFetcher) Checkout(_ domain.RepoSource, sha string) (domain.CodeWorkspace, func(), error) {
+	f.sha = sha
+	if f.err != nil {
+		return nil, nil, f.err
 	}
+	return stubWorkspace{}, func() { f.cleaned = true }, nil
 }
 
-func baseEvent() *domain.WebhookEvent {
-	return &domain.WebhookEvent{
-		ClientName: "test-client",
-		ProjectRef: "42",
-		MRIID:      1,
-		MRID:       100,
-		Action:     "open",
-	}
-}
-
-func newUsecase(client *mockClient, repo *mockRepository, ai domain.AIReviewer) *ProcessMergeRequest {
-	return newUsecaseWithProfiles(client, repo, ai, &mockProfileRepo{})
-}
-
-// stubWorkspace is a no-op CodeWorkspace for wiring tests.
 type stubWorkspace struct{}
 
 func (stubWorkspace) ReadFile(string) ([]byte, error)               { return nil, nil }
@@ -237,106 +179,140 @@ func (stubWorkspace) ListDir(string) ([]domain.DirEntry, error)     { return nil
 func (stubWorkspace) Grep(string, string) ([]domain.GrepHit, error) { return nil, nil }
 func (stubWorkspace) Root() string                                  { return "/stub" }
 
-type mockRepoFetcher struct {
-	ws      domain.CodeWorkspace
-	err     error
-	cleaned bool
+type mockAI struct {
+	result *domain.ReviewResult
+	fails  int
+	calls  int
+	last   domain.ReviewInput
 }
 
-func (m *mockRepoFetcher) Checkout(_ domain.RepoSource, _ string) (domain.CodeWorkspace, func(), error) {
-	if m.err != nil {
-		return nil, nil, m.err
+func (m *mockAI) ReviewDiff(in domain.ReviewInput) (*domain.ReviewResult, error) {
+	m.calls++
+	m.last = in
+	if m.calls <= m.fails {
+		return nil, errors.New("AI unavailable")
 	}
-	return m.ws, func() { m.cleaned = true }, nil
+	return m.result, nil
 }
 
-// mockAgenticClient implements PlatformClient + domain.RepoLocator.
-type mockAgenticClient struct {
-	mockClient
+type blockingAI struct {
+	reached chan struct{}
+	release chan struct{}
 }
 
-func (m *mockAgenticClient) RepoSource(_ string) (domain.RepoSource, error) {
-	return domain.RepoSource{RemoteURL: "https://oauth2:t@h/x.git"}, nil
+func (m *blockingAI) ReviewDiff(domain.ReviewInput) (*domain.ReviewResult, error) {
+	m.reached <- struct{}{}
+	<-m.release
+	return &domain.ReviewResult{Body: "LGTM"}, nil
 }
 
-func newUsecaseWithProfiles(client *mockClient, repo *mockRepository, ai domain.AIReviewer, profiles domain.ReviewProfileRepository) *ProcessMergeRequest {
-	reg := &mockRegistry{}
-	if client != nil {
-		reg.client = client
+// ---------- helpers ----------
+
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+// newClient watches "alice", who reviews an MR authored by "carol" at head "new".
+func newClient() *mockClient {
+	return &mockClient{
+		name:     "acme",
+		username: "alice",
+		diff:     "+x",
+		mr: &domain.MergeRequest{
+			ID: 1, IID: 1, ProjectRef: "42", Title: "feat", AuthorUsername: "carol",
+			HeadSHA: "new", Reviewers: []string{"alice"},
+		},
 	}
-	return NewProcessMergeRequest(reg, repo, &mockEventRepo{}, &mockUserRepoUC{}, profiles, nil, ai, nil, 3.0, 15.0, RetryConfig{MaxAttempts: 1}, discardLogger())
+}
+
+func baseEvent() *domain.WebhookEvent {
+	return &domain.WebhookEvent{ClientName: "acme", ProjectRef: "42", MRIID: 1, Action: "open"}
+}
+
+func okAI() *mockAI { return &mockAI{result: &domain.ReviewResult{Body: "LGTM"}} }
+
+// newPipeline wires the use case with fakes; mod may replace any dependency.
+func newPipeline(client domain.PlatformClient, ai domain.AIReviewer, mod func(*ReviewDeps)) (*ProcessMergeRequest, *fakeClaims, *eventLog) {
+	events := &eventLog{}
+	d := ReviewDeps{
+		Registry:  fakeRegistry{client.ClientName(): client},
+		Claims:    &fakeClaims{},
+		Events:    events,
+		Users:     fakeUsers{},
+		Profiles:  fakeProfiles{},
+		Fetcher:   &fakeFetcher{},
+		Reviewer:  ai,
+		Publisher: events,
+		Retry:     RetryConfig{MaxAttempts: 1},
+		Log:       discardLogger(),
+	}
+	if mod != nil {
+		mod(&d)
+	}
+	return NewProcessMergeRequest(d), d.Claims.(*fakeClaims), events
 }
 
 // ---------- tests ----------
 
-func TestExecute_UserNotAssigned_Skips(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       &domain.MergeRequest{Reviewers: []string{"bob"}},
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{}
-	uc := newUsecase(client, repo, ai)
-
-	err := uc.Execute(baseEvent())
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if client.noteCalled {
-		t.Error("expected no comment to be posted when user is not assigned")
-	}
-}
-
-func TestExecute_AlreadyReviewed_Skips(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-	}
-	repo := &mockRepository{already: true}
-	ai := &mockAI{}
-	uc := newUsecase(client, repo, ai)
-
-	err := uc.Execute(baseEvent())
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if client.noteCalled {
-		t.Error("expected no comment to be posted for already-reviewed MR")
-	}
-}
-
-func TestExecute_Idempotency_MarksAfterPosting(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/main.go\n+++ b/main.go\n+// fix",
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "LGTM"}}
-	uc := newUsecase(client, repo, ai)
+func TestExecute_PostsReviewAndRecordsOutcome(t *testing.T) {
+	client := newClient()
+	ai := &mockAI{result: &domain.ReviewResult{
+		Body:    "LGTM",
+		Usage:   domain.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		CostUSD: 0.42,
+	}}
+	uc, claims, events := newPipeline(client, ai, nil)
 
 	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-	if !repo.marked {
-		t.Error("expected MarkAsReviewed to be called after successful review")
+	if ai.last.Diff != "+x" || ai.last.MergeRequest != client.mr {
+		t.Errorf("reviewer got diff %q, mr %+v", ai.last.Diff, ai.last.MergeRequest)
+	}
+	if !slices.Equal(client.notes, []string{"LGTM"}) {
+		t.Errorf("notes = %q, want the review body once", client.notes)
+	}
+	if claims.completedSHA != "new" || claims.completedBody != "LGTM" {
+		t.Errorf("CompleteReview(%q, %q), want head SHA and body", claims.completedSHA, claims.completedBody)
+	}
+	e := events.last()
+	if e.Status != domain.ReviewStatusSuccess || e.CostUSD != 0.42 || e.TotalTokens != 15 || e.MRTitle != "feat" {
+		t.Errorf("event = %+v", e)
+	}
+	if events.published != len(events.saved) {
+		t.Errorf("published %d of %d events", events.published, len(events.saved))
+	}
+}
+
+func TestExecute_SkipsWithoutReviewing(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*mockClient, *fakeClaims)
+	}{
+		{"watched user not assigned", func(c *mockClient, _ *fakeClaims) { c.mr.Reviewers = []string{"bob"} }},
+		{"already claimed", func(_ *mockClient, cl *fakeClaims) { cl.claimed = true }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, claims, ai := newClient(), &fakeClaims{}, okAI()
+			tc.setup(client, claims)
+			uc, _, events := newPipeline(client, ai, func(d *ReviewDeps) { d.Claims = claims })
+
+			if err := uc.Execute(baseEvent()); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if ai.calls != 0 || len(client.notes) != 0 {
+				t.Errorf("reviewed anyway: ai calls %d, notes %q", ai.calls, client.notes)
+			}
+			if got := events.last().Status; got != domain.ReviewStatusSkipped {
+				t.Errorf("status = %q, want skipped", got)
+			}
+		})
 	}
 }
 
 func TestExecute_ConcurrentWebhooksPostOnlyOneReview(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/main.go\n+++ b/main.go\n+// fix",
-	}
-	repo := &mockRepository{}
-	release := make(chan struct{})
-	ai := &blockingAI{reached: make(chan struct{}, 2), release: release, result: &domain.ReviewResult{Body: "LGTM"}}
-	uc := newUsecaseWithProfiles(client, repo, ai, &mockProfileRepo{})
+	client := newClient()
+	ai := &blockingAI{reached: make(chan struct{}, 2), release: make(chan struct{})}
+	uc, _, _ := newPipeline(client, ai, nil)
 
 	errs := make(chan error, 2)
 	go func() { errs <- uc.Execute(baseEvent()) }()
@@ -347,442 +323,273 @@ func TestExecute_ConcurrentWebhooksPostOnlyOneReview(t *testing.T) {
 		if err != nil {
 			t.Fatalf("duplicate webhook failed: %v", err)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("duplicate webhook reached the AI reviewer instead of being skipped")
 	}
-	close(release)
+	close(ai.release)
 	if err := <-errs; err != nil {
 		t.Fatalf("first webhook failed: %v", err)
 	}
-
-	if client.noteCount != 1 {
-		t.Fatalf("duplicate webhook processing posted %d reviews; want 1", client.noteCount)
+	if len(client.notes) != 1 {
+		t.Fatalf("posted %d reviews, want 1", len(client.notes))
 	}
 }
 
-func TestExecute_ReanalyzePassesPreviousReviewAndJustification(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       &domain.MergeRequest{ID: 1, IID: 1, ProjectRef: "42", AuthorUsername: "carol", Reviewers: []string{"alice"}},
-		diff:     "--- a/main.go\n+++ b/main.go\n+// new change",
+func TestExecute_ReviewCommandAuthorization(t *testing.T) {
+	cases := []struct {
+		name, author string
+		users        fakeUsers
+		wantReview   bool
+	}{
+		{"MR author", "carol", nil, true},
+		{"dashboard user", "dave", fakeUsers{"dave": true}, true},
+		{"stranger", "mallory", fakeUsers{"dave": true}, false},
 	}
-	repo := &mockRepository{history: &domain.ReviewHistory{HeadSHA: "old", Body: "A1: validar setor obrigatório."}}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
-	uc := newUsecase(client, repo, ai)
-	event := baseEvent()
-	event.IsReanalyze = true
-	event.CommentAuthor = "carol"
-	event.ReviewJustification = "setor vazio é permitido neste fluxo"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, ai := newClient(), okAI()
+			uc, _, _ := newPipeline(client, ai, func(d *ReviewDeps) { d.Users = tc.users })
+			ev := baseEvent()
+			ev.IsReanalyze, ev.CommentAuthor = true, tc.author
 
-	if err := uc.Execute(event); err != nil {
+			if err := uc.Execute(ev); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := ai.calls > 0 && len(client.notes) == 1; got != tc.wantReview {
+				t.Errorf("reviewed = %v, want %v", got, tc.wantReview)
+			}
+		})
+	}
+}
+
+func TestExecute_JustifiedReanalyze(t *testing.T) {
+	cases := []struct {
+		name, previousSHA, wantDiff, wantFrom string
+	}{
+		{"new commits get an incremental diff", "old", "incremental", "old"},
+		{"same head keeps the full diff", "new", "+x", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &incrementalClient{mockClient: *newClient()}
+			ai := okAI()
+			claims := &fakeClaims{claimed: true, history: &domain.ReviewHistory{HeadSHA: tc.previousSHA, Body: "A1: validar setor."}}
+			uc, _, _ := newPipeline(client, ai, func(d *ReviewDeps) { d.Claims = claims })
+			ev := baseEvent()
+			ev.IsReanalyze, ev.CommentAuthor, ev.ReviewJustification = true, "carol", "setor vazio é permitido"
+
+			if err := uc.Execute(ev); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			in := ai.last
+			if in.PreviousReview != "A1: validar setor." || in.ReviewJustification != "setor vazio é permitido" {
+				t.Errorf("PreviousReview %q, justification %q", in.PreviousReview, in.ReviewJustification)
+			}
+			if in.Diff != tc.wantDiff || client.from != tc.wantFrom {
+				t.Errorf("diff %q (since %q), want %q (since %q)", in.Diff, client.from, tc.wantDiff, tc.wantFrom)
+			}
+			if tc.wantFrom != "" && client.to != "new" {
+				t.Errorf("incremental diff up to %q, want head SHA", client.to)
+			}
+		})
+	}
+}
+
+func TestExecute_PostsInlineCommentsAsReturned(t *testing.T) {
+	comments := []domain.InlineComment{
+		{Path: "main.go", Line: 2, Body: "Adicionar teste."},
+		{Path: "main.go", Line: 99, Body: "Outro achado."},
+	}
+	cases := []struct {
+		name      string
+		inlineErr error
+		wantCalls int
+	}{
+		{"all posted", nil, 2},
+		{"a failure does not stop the rest", errors.New("boom"), 2},
+		{"unsupported platform stops after the first", domain.ErrInlineCommentsUnsupported, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newClient()
+			client.inlineErr = tc.inlineErr
+			uc, claims, _ := newPipeline(client, &mockAI{result: &domain.ReviewResult{Body: "LGTM", InlineComments: comments}}, nil)
+
+			if err := uc.Execute(baseEvent()); err != nil {
+				t.Fatalf("inline comments are best-effort, got %v", err)
+			}
+			if !slices.Equal(client.inline, comments[:tc.wantCalls]) {
+				t.Errorf("inline = %+v, want %+v", client.inline, comments[:tc.wantCalls])
+			}
+			if claims.completedBody != "LGTM" {
+				t.Error("review not completed")
+			}
+		})
+	}
+}
+
+func TestExecute_FailsBeforeClaimWithoutCommenting(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*mockClient, *fakeClaims, *domain.WebhookEvent)
+	}{
+		{"unknown client", func(_ *mockClient, _ *fakeClaims, ev *domain.WebhookEvent) { ev.ClientName = "other" }},
+		{"MR fetch fails", func(c *mockClient, _ *fakeClaims, _ *domain.WebhookEvent) { c.mrErr = errors.New("unreachable") }},
+		{"claim fails", func(_ *mockClient, cl *fakeClaims, _ *domain.WebhookEvent) { cl.claimErr = errors.New("db locked") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, claims, ai, ev := newClient(), &fakeClaims{}, okAI(), baseEvent()
+			tc.setup(client, claims, ev)
+			uc, _, _ := newPipeline(client, ai, func(d *ReviewDeps) { d.Claims = claims })
+
+			if err := uc.Execute(ev); err == nil {
+				t.Fatal("expected error")
+			}
+			if ai.calls != 0 || len(client.notes) != 0 {
+				t.Errorf("ai calls %d, notes %q; want none", ai.calls, client.notes)
+			}
+		})
+	}
+}
+
+func TestExecute_RetriesTransientDiffError(t *testing.T) {
+	client := newClient()
+	client.diffFails = 2
+	uc, _, _ := newPipeline(client, okAI(), func(d *ReviewDeps) {
+		d.Retry = RetryConfig{MaxAttempts: 3, BaseDelay: time.Millisecond}
+	})
+
+	if err := uc.Execute(baseEvent()); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if ai.lastInput.PreviousReview != repo.history.Body {
-		t.Fatalf("PreviousReview = %q", ai.lastInput.PreviousReview)
-	}
-	if ai.lastInput.ReviewJustification != event.ReviewJustification {
-		t.Fatalf("ReviewJustification = %q", ai.lastInput.ReviewJustification)
+	if client.diffCalls != 3 || !slices.Equal(client.notes, []string{"LGTM"}) {
+		t.Errorf("diff calls %d, notes %q", client.diffCalls, client.notes)
 	}
 }
 
-func TestExecute_PostsInlineCommentsAfterMainReview(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,2 @@\n package main\n+func run() {}\n",
+func TestExecute_RetriesExhaustedPostsNoticeAndReleasesClaim(t *testing.T) {
+	cases := []struct {
+		name      string
+		setup     func(*mockClient, *mockAI)
+		wantNotes int
+	}{
+		{"diff", func(c *mockClient, _ *mockAI) { c.diffFails = 99 }, 1},
+		{"AI", func(_ *mockClient, ai *mockAI) { ai.fails = 99 }, 1},
+		// two review attempts plus the best-effort notice
+		{"posting", func(c *mockClient, _ *mockAI) { c.noteFails = 99 }, 3},
 	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{
-		Body: "review body",
-		InlineComments: []domain.InlineComment{
-			{Path: "main.go", Line: 2, Body: "Adicionar teste para run."},
-			{Path: "main.go", Line: 99, Body: "Linha fora do diff."},
-		},
-	}}
-	uc := newUsecase(client, repo, ai)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, ai := newClient(), okAI()
+			tc.setup(client, ai)
+			uc, claims, events := newPipeline(client, ai, func(d *ReviewDeps) {
+				d.Retry = RetryConfig{MaxAttempts: 2, BaseDelay: time.Millisecond}
+			})
 
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(client.inlineComments) != 1 {
-		t.Fatalf("expected 1 inline comment, got %d", len(client.inlineComments))
-	}
-	if client.inlineComments[0].Path != "main.go" || client.inlineComments[0].Line != 2 {
-		t.Fatalf("unexpected inline comment: %+v", client.inlineComments[0])
-	}
-	if !repo.marked {
-		t.Error("expected MarkAsReviewed to be called")
+			if err := uc.Execute(baseEvent()); err == nil {
+				t.Fatal("expected error")
+			}
+			if len(client.notes) != tc.wantNotes {
+				t.Fatalf("notes = %q, want %d", client.notes, tc.wantNotes)
+			}
+			if notice := client.notes[len(client.notes)-1]; !strings.Contains(notice, "/review") || !strings.Contains(notice, "2 tentativa") {
+				t.Errorf("notice = %q, want attempt count and a /review hint", notice)
+			}
+			if claims.claimed || claims.completedBody != "" {
+				t.Error("claim not released; a manual /review would be blocked")
+			}
+			if got := events.last().Status; got != domain.ReviewStatusError {
+				t.Errorf("status = %q, want error", got)
+			}
+		})
 	}
 }
 
-func TestExecute_InlineCommentError_StillReturnsNil(t *testing.T) {
-	client := &mockClient{
-		name:      "test-client",
-		username:  "alice",
-		mr:        happyMR("alice"),
-		diff:      "--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,2 @@\n package main\n+func run() {}\n",
-		inlineErr: errors.New("inline API failed"),
+func TestExecute_ProfileResolution(t *testing.T) {
+	related := &domain.ReviewProfile{Name: "related", IncludeRelated: true}
+	cases := []struct {
+		name                     string
+		profiles                 fakeProfiles
+		requested                string
+		wantRelated, wantAgentic bool
+	}{
+		{"diff-only default", fakeProfiles{}, "", false, false},
+		{"resolved by scope", fakeProfiles{p: related}, "", true, false},
+		{"resolver error falls back to default", fakeProfiles{p: related, err: errors.New("db")}, "", false, false},
+		{"preset overrides scope", fakeProfiles{p: &domain.ReviewProfile{Name: "diff"}}, "full", true, true},
+		{"unknown preset is ignored", fakeProfiles{p: related}, "bogus", true, false},
 	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{
-		Body: "review body",
-		InlineComments: []domain.InlineComment{
-			{Path: "main.go", Line: 2, Body: "Adicionar teste para run."},
-		},
-	}}
-	uc := newUsecase(client, repo, ai)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ai := okAI()
+			uc, _, _ := newPipeline(newClient(), ai, func(d *ReviewDeps) { d.Profiles = tc.profiles })
+			ev := baseEvent()
+			ev.RequestedProfile = tc.requested
 
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("expected nil when inline comments fail best-effort, got %v", err)
-	}
-	if !repo.marked {
-		t.Error("expected MarkAsReviewed to be called")
+			if err := uc.Execute(ev); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			p := ai.last.Profile
+			if p == nil || p.IncludeRelated != tc.wantRelated || p.Agentic != tc.wantAgentic {
+				t.Errorf("profile = %+v, want related=%v agentic=%v", p, tc.wantRelated, tc.wantAgentic)
+			}
+		})
 	}
 }
 
-func TestExecute_GetMergeRequestError_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mrErr:    errors.New("gitlab unreachable"),
-	}
-	uc := newUsecase(client, &mockRepository{}, &mockAI{})
+func TestExecute_RelatedContextFollowsProfile(t *testing.T) {
+	for _, includeRelated := range []bool{true, false} {
+		client := &mockRelatedClient{
+			mockClient:  *newClient(),
+			closes:      []domain.Issue{{IID: 7, Title: "Bug"}},
+			issuesByIID: map[int64]*domain.Issue{7: {IID: 7, Title: "Bug"}},
+		}
+		ai := okAI()
+		uc, _, _ := newPipeline(client, ai, func(d *ReviewDeps) {
+			d.Profiles = fakeProfiles{p: &domain.ReviewProfile{Name: "p", IncludeRelated: includeRelated}}
+		})
 
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when GetMergeRequest fails")
+		if err := uc.Execute(baseEvent()); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if got := ai.last.Related != nil && len(ai.last.Related.Issues) == 1; got != includeRelated {
+			t.Errorf("include_related=%v: related = %+v", includeRelated, ai.last.Related)
+		}
 	}
 }
 
-func TestExecute_GetDiffError_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diffErr:  errors.New("diff endpoint error"),
+func TestExecute_AgenticWorkspace(t *testing.T) {
+	cases := []struct {
+		name          string
+		client        domain.PlatformClient
+		checkoutErr   error
+		wantWorkspace bool
+	}{
+		{"checked out at head", &locatorClient{*newClient()}, nil, true},
+		{"platform without locator", newClient(), nil, false},
+		{"checkout failure degrades to diff", &locatorClient{*newClient()}, errors.New("clone failed"), false},
 	}
-	repo := &mockRepository{already: false}
-	uc := newUsecase(client, repo, &mockAI{})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ai, fetcher := okAI(), &fakeFetcher{err: tc.checkoutErr}
+			uc, claims, _ := newPipeline(tc.client, ai, func(d *ReviewDeps) {
+				d.Profiles = fakeProfiles{p: &domain.ReviewProfile{Name: "deep", Agentic: true}}
+				d.Fetcher = fetcher
+			})
 
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when GetMergeRequestDiff fails")
-	}
-}
-
-func TestExecute_AIError_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/x.go\n+x",
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{err: errors.New("AI API timeout")}
-	uc := newUsecase(client, repo, ai)
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when AI reviewer fails")
-	}
-	if !client.noteCalled {
-		t.Error("expected a failure notice comment when AI fails after exhausting retries")
-	}
-}
-
-func TestExecute_CreateNoteError_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/x.go\n+x",
-		noteErr:  errors.New("cannot post comment"),
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
-	uc := newUsecase(client, repo, ai)
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when CreateMergeRequestNote fails")
-	}
-	if !repo.cleared {
-		t.Error("expected the review claim to be released when posting comment fails")
-	}
-}
-
-func TestExecute_ClaimReviewError_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/x.go\n+x",
-	}
-	repo := &mockRepository{claimErr: errors.New("db locked")}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
-	uc := newUsecase(client, repo, ai)
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when claiming review fails")
-	}
-	if client.noteCalled {
-		t.Error("expected no comment when claiming review fails")
-	}
-}
-
-func TestExecute_IdempotencyCheck_Error_ReturnsError(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-	}
-	repo := &mockRepository{alreadyErr: errors.New("db error")}
-	uc := newUsecase(client, repo, &mockAI{})
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error when ClaimReview fails")
-	}
-}
-
-func TestExecute_UnknownClient_ReturnsError(t *testing.T) {
-	// Registry is empty — client lookup will fail.
-	reg := &mockRegistry{}
-	uc := NewProcessMergeRequest(reg, &mockRepository{}, &mockEventRepo{}, &mockUserRepoUC{}, &mockProfileRepo{}, nil, &mockAI{}, nil, 3.0, 15.0, RetryConfig{MaxAttempts: 1}, discardLogger())
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Error("expected error for unknown client name")
-	}
-}
-
-func TestExecute_ResolvedProfilePassedToReviewer(t *testing.T) {
-	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "related", IncludeRelated: true}}
-	uc := newUsecaseWithProfiles(client, repo, ai, profiles)
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Profile == nil || !ai.lastInput.Profile.IncludeRelated {
-		t.Fatalf("expected resolved related profile passed to reviewer, got %+v", ai.lastInput.Profile)
-	}
-}
-
-func TestExecute_DefaultProfileWhenNoneResolved(t *testing.T) {
-	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, &mockProfileRepo{resolved: nil})
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Profile == nil || ai.lastInput.Profile.IncludeRelated || ai.lastInput.Profile.Agentic {
-		t.Fatalf("expected diff-only default profile, got %+v", ai.lastInput.Profile)
-	}
-}
-
-func TestExecute_RelatedCollectedWhenProfileIncludesRelated(t *testing.T) {
-	mr := happyMR("alice")
-	mr.Description = "Closes #7"
-	client := &mockRelatedClient{
-		mockClient:  mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"},
-		closes:      []domain.Issue{{IID: 7, Title: "Bug"}},
-		issuesByIID: map[int64]*domain.Issue{7: {IID: 7, Title: "Bug"}},
-	}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "related", IncludeRelated: true}}
-	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, profiles)
-	// the registry must return the related-capable client:
-	uc.registry = &mockRegistry{client: client}
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Related == nil || len(ai.lastInput.Related.Issues) != 1 {
-		t.Fatalf("expected related context with 1 issue, got %+v", ai.lastInput.Related)
-	}
-}
-
-func TestExecute_NoRelatedWhenProfileDiffOnly(t *testing.T) {
-	mr := happyMR("alice")
-	mr.Description = "Closes #7"
-	client := &mockRelatedClient{
-		mockClient: mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"},
-		closes:     []domain.Issue{{IID: 7, Title: "Bug"}},
-	}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, &mockProfileRepo{resolved: nil})
-	uc.registry = &mockRegistry{client: client}
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Related != nil {
-		t.Fatalf("expected no related context for diff-only profile, got %+v", ai.lastInput.Related)
-	}
-}
-
-func TestExecute_AgenticCheckoutSetsWorkspace(t *testing.T) {
-	mr := happyMR("alice")
-	client := &mockAgenticClient{mockClient: mockClient{name: "test-client", username: "alice", mr: mr, diff: "--- a/x.go\n+x"}}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "deep", Agentic: true}}
-	fetcher := &mockRepoFetcher{ws: stubWorkspace{}}
-
-	uc := newUsecaseWithProfiles(&client.mockClient, &mockRepository{}, ai, profiles)
-	uc.registry = &mockRegistry{client: client}
-	uc.repoFetcher = fetcher
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Workspace == nil {
-		t.Fatal("expected workspace set for agentic profile")
-	}
-	if !fetcher.cleaned {
-		t.Error("expected cleanup to be called after Execute")
-	}
-}
-
-func TestExecute_AgenticNoLocatorFallsBack(t *testing.T) {
-	// plain mockClient does NOT implement RepoLocator → no workspace, no error
-	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "deep", Agentic: true}}
-
-	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, profiles)
-	uc.repoFetcher = &mockRepoFetcher{ws: stubWorkspace{}}
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Workspace != nil {
-		t.Fatal("expected no workspace when client lacks RepoLocator")
-	}
-}
-
-func TestExecute_CommandPresetOverridesScope(t *testing.T) {
-	// MR author issues "/review full" — authorized because they are the author.
-	client := &mockClient{name: "test-client", username: "alice", mr: happyMR("alice"), diff: "--- a/x.go\n+x"}
-	client.mr.AuthorUsername = "carol"
-	ai := &mockAI{result: &domain.ReviewResult{Body: "ok"}}
-	profiles := &mockProfileRepo{resolved: &domain.ReviewProfile{Name: "diff"}}
-	uc := newUsecaseWithProfiles(client, &mockRepository{}, ai, profiles)
-
-	ev := baseEvent()
-	ev.IsReanalyze = true
-	ev.CommentAuthor = "carol"
-	ev.RequestedProfile = "full"
-
-	if err := uc.Execute(ev); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ai.lastInput.Profile == nil || !ai.lastInput.Profile.IncludeRelated || !ai.lastInput.Profile.Agentic {
-		t.Fatalf("expected /review full to override to related+agentic, got %+v", ai.lastInput.Profile)
-	}
-}
-
-// ---------- retry tests ----------
-
-const testRetryDelay = time.Millisecond
-
-func TestExecute_DiffTransientError_RetriesThenSucceeds(t *testing.T) {
-	client := &mockClient{
-		name:             "test-client",
-		username:         "alice",
-		mr:               happyMR("alice"),
-		diff:             "--- a/x.go\n+x",
-		diffErr:          errors.New("temporary network blip"),
-		diffErrUntilCall: 2, // fails twice, succeeds on the 3rd attempt
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "LGTM"}}
-	uc := newUsecase(client, repo, ai)
-	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
-
-	if err := uc.Execute(baseEvent()); err != nil {
-		t.Fatalf("expected retry to recover from transient diff error, got %v", err)
-	}
-	if client.diffCallCount != 3 {
-		t.Fatalf("expected 3 diff fetch attempts, got %d", client.diffCallCount)
-	}
-	if client.noteCount != 1 {
-		t.Fatalf("expected exactly 1 comment posted (the review), got %d", client.noteCount)
-	}
-}
-
-func TestExecute_DiffError_ExhaustsRetries_PostsFailureNotice(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diffErr:  errors.New("diff endpoint always down"),
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{}
-	uc := newUsecase(client, repo, ai)
-	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Fatal("expected error when diff fetch exhausts retries")
-	}
-	if client.diffCallCount != 3 {
-		t.Fatalf("expected 3 diff fetch attempts, got %d", client.diffCallCount)
-	}
-	if client.noteCount != 1 {
-		t.Fatalf("expected 1 failure notice comment posted, got %d", client.noteCount)
-	}
-	if len(client.noteBodies) != 1 || !strings.Contains(client.noteBodies[0], "/review") {
-		t.Fatalf("expected failure notice inviting a manual /review retry, got %+v", client.noteBodies)
-	}
-	if !repo.cleared {
-		t.Error("expected the review claim to be released so a manual /review can retry")
-	}
-}
-
-func TestExecute_AIError_ExhaustsRetries_PostsFailureNotice(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/x.go\n+x",
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{err: errors.New("AI API always times out")}
-	uc := newUsecase(client, repo, ai)
-	uc.retry = RetryConfig{MaxAttempts: 3, BaseDelay: testRetryDelay}
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Fatal("expected error when AI reviewer exhausts retries")
-	}
-	if ai.callCount != 3 {
-		t.Fatalf("expected 3 AI review attempts, got %d", ai.callCount)
-	}
-	if client.noteCount != 1 {
-		t.Fatalf("expected 1 failure notice comment posted, got %d", client.noteCount)
-	}
-}
-
-func TestExecute_CreateNoteError_ExhaustsRetries_AttemptsFailureNoticeToo(t *testing.T) {
-	client := &mockClient{
-		name:     "test-client",
-		username: "alice",
-		mr:       happyMR("alice"),
-		diff:     "--- a/x.go\n+x",
-		noteErr:  errors.New("cannot post comment"),
-	}
-	repo := &mockRepository{}
-	ai := &mockAI{result: &domain.ReviewResult{Body: "review body"}}
-	uc := newUsecase(client, repo, ai)
-	uc.retry = RetryConfig{MaxAttempts: 2, BaseDelay: testRetryDelay}
-
-	if err := uc.Execute(baseEvent()); err == nil {
-		t.Fatal("expected error when posting the review exhausts retries")
-	}
-	// 2 attempts to post the review + 1 best-effort attempt at the failure notice.
-	if client.noteCount != 3 {
-		t.Fatalf("expected 3 CreateMergeRequestNote calls (2 retries + 1 notice attempt), got %d", client.noteCount)
-	}
-	if !repo.cleared {
-		t.Error("expected the review claim to be released when posting comment fails")
+			if err := uc.Execute(baseEvent()); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := ai.last.Workspace != nil; got != tc.wantWorkspace {
+				t.Errorf("workspace set = %v, want %v", got, tc.wantWorkspace)
+			}
+			if tc.wantWorkspace && (fetcher.sha != "new" || !fetcher.cleaned) {
+				t.Errorf("checkout sha %q, cleaned %v; want head SHA and cleanup", fetcher.sha, fetcher.cleaned)
+			}
+			if claims.completedBody != "LGTM" {
+				t.Error("review not completed")
+			}
+		})
 	}
 }

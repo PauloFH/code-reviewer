@@ -16,18 +16,12 @@ type RetryConfig struct {
 	BaseDelay time.Duration
 }
 
-// DefaultRetryConfig matches the documented default: 3 attempts, 2s base delay.
-func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{MaxAttempts: 3, BaseDelay: 2 * time.Second}
-}
+func (c RetryConfig) attempts() int { return max(c.MaxAttempts, 1) }
 
 // run executes fn, retrying on error up to MaxAttempts times with exponential
 // backoff between tries. Returns the last error when every attempt fails.
 func (c RetryConfig) run(log *slog.Logger, op string, fn func() error) error {
-	attempts := c.MaxAttempts
-	if attempts < 1 {
-		attempts = 1
-	}
+	attempts := c.attempts()
 
 	var err error
 	for attempt := 1; attempt <= attempts; attempt++ {

@@ -1,23 +1,19 @@
 import { http } from './http'
+import type { Role } from '@/domain'
 
 export interface User {
   id: number
   username: string
-  role: 'super' | 'gestor' | 'padrao'
+  role: Role
   created_at: string
   updated_at: string
 }
 
-export interface CreateUserInput {
-  username: string
-  password: string
-  role: 'super' | 'gestor' | 'padrao'
-}
-
-export interface UpdateUserInput {
+// Senha vazia na edição mantém a atual.
+export interface UserInput {
   username: string
   password?: string
-  role: 'super' | 'gestor' | 'padrao'
+  role: Role
 }
 
 export async function listUsers(): Promise<User[]> {
@@ -25,17 +21,12 @@ export async function listUsers(): Promise<User[]> {
   return res.data
 }
 
-export async function createUser(data: CreateUserInput): Promise<User> {
+export async function createUser(data: UserInput): Promise<User> {
   const res = await http.post('/users', data)
   return res.data
 }
 
-export async function getUser(id: number): Promise<User> {
-  const res = await http.get(`/users/${id}`)
-  return res.data
-}
-
-export async function updateUser(id: number, data: UpdateUserInput): Promise<User> {
+export async function updateUser(id: number, data: UserInput): Promise<User> {
   const res = await http.put(`/users/${id}`, data)
   return res.data
 }

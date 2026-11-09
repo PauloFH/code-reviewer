@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useTheme } from '@/composables/useTheme'
+import { cssVar, useTheme } from '@/composables/useTheme'
 
 const props = withDefaults(defineProps<{ intensity?: number }>(), { intensity: 1 })
 
@@ -36,15 +36,14 @@ function size() {
   ctx.setTransform(r, 0, 0, r, 0, 0)
 }
 
-// Canvas não entende var(--x): as cores são lidas do CSS a cada quadro, para acompanhar o tema.
+// As cores são lidas a cada quadro, para acompanhar o tema.
 function draw(ms: number) {
   const c = ctx
   if (!c) return
   const t = ms / 1000
-  const st = getComputedStyle(document.documentElement)
-  const red = st.getPropertyValue('--danger').trim()
-  const green = st.getPropertyValue('--ok').trim()
-  const mid = st.getPropertyValue('--merge-mid').trim()
+  const red = cssVar('--danger')
+  const green = cssVar('--ok')
+  const mid = cssVar('--merge-mid')
   const light = theme.value === 'light'
   const k = props.intensity
   const a = (v: number) => Math.min(1, v * k)

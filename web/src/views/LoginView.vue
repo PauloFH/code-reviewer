@@ -6,7 +6,7 @@
         <BrandLogo variant="horizontal" class="brand-logo" />
       </div>
 
-      <form @submit.prevent="handleLogin">
+      <form class="form" @submit.prevent="handleLogin">
         <h1>Entrar</h1>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
@@ -118,42 +118,6 @@ h1 {
   margin-bottom: 0.5rem;
 }
 
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.field input {
-  padding: 10px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: 14px;
-  font-family: var(--font-sans);
-  transition: border-color 0.12s;
-}
-
-.field input:focus {
-  border-color: var(--accent);
-}
-
-.field input::placeholder {
-  color: var(--muted-2);
-}
-
 .btn.primary {
   width: 100%;
   justify-content: center;
@@ -169,15 +133,5 @@ form {
 
 .aviso a {
   text-decoration: underline;
-}
-
-.error {
-  color: var(--danger);
-  font-size: 13px;
-  padding: 8px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  overflow-wrap: anywhere;
 }
 </style>

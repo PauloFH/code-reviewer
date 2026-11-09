@@ -1,79 +1,145 @@
+// Package github implements GitHub and the GitHub-compatible REST/webhook
+// dialect that Gitea also speaks. projectRef is "owner/repo".
 package github
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
+	"github.com/paulofh/code-reviewer/internal/infrastructure/platform/forge"
 )
 
-// Client implements domain.PlatformClient for GitHub (cloud and GitHub Enterprise).
-// projectRef must be "owner/repo".
 type Client struct {
-	name     string
-	baseURL  string
-	token    string
-	secret   string
-	username string
-	http     *http.Client
+	forge.Identity
+	api *forge.API
 }
 
-func New(name, baseURL, token, secret, username string, timeout time.Duration) *Client {
+func New(c domain.Client, timeout time.Duration) *Client {
 	return &Client{
-		name:     name,
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		token:    token,
-		secret:   secret,
-		username: username,
-		http:     &http.Client{Timeout: timeout},
+		Identity: forge.Identity{Client: c},
+		api: forge.NewAPI(c.BaseURL, timeout, func(req *http.Request) {
+			req.Header.Set("Authorization", "Bearer "+c.Token)
+			req.Header.Set("Accept", "application/vnd.github+json")
+			req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+		}),
 	}
 }
 
-func (c *Client) Platform() domain.PlatformType { return domain.PlatformGitHub }
-func (c *Client) ClientName() string            { return c.name }
-func (c *Client) WatchedUsername() string       { return c.username }
+func (c *Client) ValidateWebhook(w domain.RawWebhook) bool {
+	return forge.ValidHMAC(c.Client.WebhookSecret, w.Body, w.Header("X-Hub-Signature-256"), "sha256=")
+}
 
-// ---------- API methods ----------
+func (c *Client) ParseWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error) {
+	return ParsePullRequestEvent(c.Client.Name, w.Header("X-GitHub-Event"), w.Body)
+}
 
 func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeRequest, error) {
-	owner, repo, err := splitRef(projectRef)
+	return GetPullRequest(c.api, projectRef, mrIID)
+}
+
+// GitHub serves a pull request's files in pages of at most 100 and stops
+// listing after 3000 files.
+const (
+	filesPerPage = 100
+	maxFilePages = 3000 / filesPerPage
+)
+
+func (c *Client) GetMergeRequestDiff(projectRef string, mrIID int64) (string, error) {
+	var diff strings.Builder
+	for page := 1; page <= maxFilePages; page++ {
+		var files []struct {
+			Filename string `json:"filename"`
+			Patch    string `json:"patch"`
+		}
+		path := fmt.Sprintf("/repos/%s/pulls/%d/files?per_page=%d&page=%d", projectRef, mrIID, filesPerPage, page)
+		if err := c.api.GetJSON(path, &files); err != nil {
+			return "", fmt.Errorf("github GetMergeRequestDiff: %w", err)
+		}
+		for _, f := range files {
+			if f.Patch != "" { // binary or too large for GitHub to inline
+				diff.WriteString(forge.FileDiff(f.Filename, f.Filename, f.Patch))
+			}
+		}
+		if len(files) < filesPerPage {
+			break
+		}
+	}
+	return diff.String(), nil
+}
+
+func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body string) error {
+	return CreateIssueComment(c.api, projectRef, mrIID, body)
+}
+
+func (c *Client) CreateMergeRequestInlineComment(mr *domain.MergeRequest, comment domain.InlineComment) error {
+	if mr.HeadSHA == "" {
+		return fmt.Errorf("github CreateInlineComment: missing head SHA")
+	}
+	err := c.api.PostJSON(fmt.Sprintf("/repos/%s/pulls/%d/comments", mr.ProjectRef, mr.IID), map[string]any{
+		"body":      comment.Body,
+		"commit_id": mr.HeadSHA,
+		"path":      comment.Path,
+		"line":      comment.Line,
+		"side":      "RIGHT",
+	})
 	if err != nil {
+		return fmt.Errorf("github CreateInlineComment: %w", err)
+	}
+	return nil
+}
+
+// ParsePullRequestEvent normalises a pull_request webhook; eventType is the
+// value of the platform's event header.
+func ParsePullRequestEvent(clientName, eventType string, body []byte) (*domain.WebhookEvent, error) {
+	if eventType != "pull_request" {
+		return nil, fmt.Errorf("unsupported event %q", eventType)
+	}
+	var payload struct {
+		Action     string `json:"action"`
+		Number     int64  `json:"number"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("parsing webhook body: %w", err)
+	}
+	return &domain.WebhookEvent{
+		ClientName: clientName,
+		ProjectRef: payload.Repository.FullName,
+		MRIID:      payload.Number,
+		Action:     payload.Action,
+	}, nil
+}
+
+func GetPullRequest(api *forge.API, projectRef string, number int64) (*domain.MergeRequest, error) {
+	if _, _, err := forge.SplitOwnerRepo(projectRef); err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", c.baseURL, owner, repo, mrIID)
-
+	type login struct {
+		Login string `json:"login"`
+	}
 	var raw struct {
-		ID        int64  `json:"id"`
-		Number    int64  `json:"number"`
-		Title     string `json:"title"`
-		Body      string `json:"body"`
-		State     string `json:"state"`
-		HTMLURL   string `json:"html_url"`
-		CreatedAt string `json:"created_at"`
-		UpdatedAt string `json:"updated_at"`
-		User      struct {
-			Login string `json:"login"`
-		} `json:"user"`
-		Head struct {
+		ID      int64  `json:"id"`
+		Number  int64  `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		State   string `json:"state"`
+		HTMLURL string `json:"html_url"`
+		User    login  `json:"user"`
+		Head    struct {
 			SHA string `json:"sha"`
 		} `json:"head"`
-		RequestedReviewers []struct {
-			Login string `json:"login"`
-		} `json:"requested_reviewers"`
-		Assignees []struct {
-			Login string `json:"login"`
-		} `json:"assignees"`
+		RequestedReviewers []login `json:"requested_reviewers"`
+		Assignees          []login `json:"assignees"`
 	}
-
-	if err := c.get(url, &raw); err != nil {
-		return nil, fmt.Errorf("github GetMergeRequest: %w", err)
+	if err := api.GetJSON(fmt.Sprintf("/repos/%s/pulls/%d", projectRef, number), &raw); err != nil {
+		return nil, fmt.Errorf("GetMergeRequest: %w", err)
 	}
-
 	mr := &domain.MergeRequest{
 		ID:             raw.ID,
 		IID:            raw.Number,
@@ -84,7 +150,6 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 		State:          raw.State,
 		WebURL:         raw.HTMLURL,
 		HeadSHA:        raw.Head.SHA,
-		DiffHeadSHA:    raw.Head.SHA,
 	}
 	for _, r := range raw.RequestedReviewers {
 		mr.Reviewers = append(mr.Reviewers, r.Login)
@@ -92,141 +157,17 @@ func (c *Client) GetMergeRequest(projectRef string, mrIID int64) (*domain.MergeR
 	for _, a := range raw.Assignees {
 		mr.Assignees = append(mr.Assignees, a.Login)
 	}
-	mr.CreatedAt, _ = time.Parse(time.RFC3339, raw.CreatedAt)
-	mr.UpdatedAt, _ = time.Parse(time.RFC3339, raw.UpdatedAt)
 	return mr, nil
 }
 
-func (c *Client) GetMergeRequestDiff(projectRef string, mrIID int64) (string, error) {
-	owner, repo, err := splitRef(projectRef)
-	if err != nil {
-		return "", err
-	}
-	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files", c.baseURL, owner, repo, mrIID)
-
-	var files []struct {
-		Filename string `json:"filename"`
-		Patch    string `json:"patch"`
-	}
-
-	if err := c.get(url, &files); err != nil {
-		return "", fmt.Errorf("github GetMergeRequestDiff: %w", err)
-	}
-
-	var sb strings.Builder
-	for _, f := range files {
-		if f.Patch == "" {
-			continue
-		}
-		fmt.Fprintf(&sb, "--- a/%s\n+++ b/%s\n%s\n", f.Filename, f.Filename, f.Patch)
-	}
-	return sb.String(), nil
-}
-
-func (c *Client) CreateMergeRequestNote(projectRef string, mrIID int64, body string) error {
-	owner, repo, err := splitRef(projectRef)
-	if err != nil {
+// CreateIssueComment posts a conversation comment; the issues endpoint serves
+// pull requests too.
+func CreateIssueComment(api *forge.API, projectRef string, number int64, body string) error {
+	if _, _, err := forge.SplitOwnerRepo(projectRef); err != nil {
 		return err
 	}
-	// GitHub: issue comments endpoint works for both issues and PRs
-	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", c.baseURL, owner, repo, mrIID)
-	payload := map[string]string{"body": body}
-
-	b, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	c.setHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("github CreateNote: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("github CreateNote: status %d: %s", resp.StatusCode, body)
+	if err := api.PostJSON(fmt.Sprintf("/repos/%s/issues/%d/comments", projectRef, number), map[string]string{"body": body}); err != nil {
+		return fmt.Errorf("CreateNote: %w", err)
 	}
 	return nil
-}
-
-func (c *Client) CreateMergeRequestInlineComment(projectRef string, mr *domain.MergeRequest, comment domain.InlineComment) error {
-	if mr.HeadSHA == "" {
-		return fmt.Errorf("github CreateInlineComment: missing head SHA")
-	}
-
-	owner, repo, err := splitRef(projectRef)
-	if err != nil {
-		return err
-	}
-
-	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments", c.baseURL, owner, repo, mr.IID)
-	payload := map[string]any{
-		"body":      comment.Body,
-		"commit_id": mr.HeadSHA,
-		"path":      comment.Path,
-		"line":      comment.Line,
-		"side":      "RIGHT",
-	}
-
-	b, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	c.setHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("github CreateInlineComment: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("github CreateInlineComment: status %d: %s", resp.StatusCode, body)
-	}
-
-	return nil
-}
-
-// ---------- helpers ----------
-
-func splitRef(ref string) (owner, repo string, err error) {
-	parts := strings.SplitN(ref, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("github: invalid project ref %q (expected owner/repo)", ref)
-	}
-	return parts[0], parts[1], nil
-}
-
-func (c *Client) get(url string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	c.setHeaders(req)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("status %d: %s", resp.StatusCode, body)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 }

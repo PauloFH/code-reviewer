@@ -1,34 +1,31 @@
 package gitlab
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-func TestRepoSourcePathRef(t *testing.T) {
-	c := New("test", "https://gitlab.example.com", "secret-token", "wh", "bot", 30*time.Second, "")
+func TestRepoSourceKeepsTokenOutOfURL(t *testing.T) {
+	c := New(domain.Client{BaseURL: "https://gitlab.example.com", Token: "secret-token"}, time.Second, "")
 
 	src, err := c.RepoSource("grp/sub/repo")
 	if err != nil {
 		t.Fatalf("RepoSource: %v", err)
 	}
-	// must be an authenticated HTTPS URL ending in the repo path + .git
-	if !strings.HasPrefix(src.RemoteURL, "https://oauth2:") {
-		t.Fatalf("RemoteURL missing oauth2 userinfo: %q", src.RemoteURL)
+	if src.RemoteURL != "https://gitlab.example.com/grp/sub/repo.git" {
+		t.Errorf("RemoteURL = %q", src.RemoteURL)
 	}
-	if !strings.Contains(src.RemoteURL, "@gitlab.example.com/") {
-		t.Fatalf("RemoteURL missing host: %q", src.RemoteURL)
+	if want := "Basic " + base64.StdEncoding.EncodeToString([]byte("oauth2:secret-token")); src.AuthHeader != want {
+		t.Errorf("AuthHeader = %q, want %q", src.AuthHeader, want)
 	}
-	if !strings.HasSuffix(src.RemoteURL, "/grp/sub/repo.git") {
-		t.Fatalf("RemoteURL missing repo path: %q", src.RemoteURL)
-	}
-	if !strings.Contains(src.RemoteURL, "secret-token") {
-		t.Fatalf("RemoteURL missing token: %q", src.RemoteURL)
+	if src.LocalPath != "" {
+		t.Errorf("LocalPath should be empty without reposPath, got %q", src.LocalPath)
 	}
 }
 
@@ -41,55 +38,65 @@ func TestHashedRepoPath(t *testing.T) {
 	}
 }
 
-// Sanity-check: the hardcoded hash in tests matches stdlib.
-func TestHashedRepoPathMatchesStdlib(t *testing.T) {
-	sum := sha256.Sum256([]byte("1"))
-	if hex.EncodeToString(sum[:]) != "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b" {
-		t.Fatal("sha256 of '1' does not match expected constant")
-	}
-}
-
-func TestRepoSourceWithLocalReposPath(t *testing.T) {
+func TestRepoSourceResolvesNumericRefAndLocalPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/1" {
+			http.NotFound(w, r)
+			return
+		}
 		_, _ = w.Write([]byte(`{"id":1,"path_with_namespace":"grp/repo"}`))
 	}))
 	defer srv.Close()
 
-	c := New("test", srv.URL, "tok", "wh", "bot", 30*time.Second, "/repos")
-	src, err := c.RepoSource("grp/repo")
+	src, err := New(domain.Client{BaseURL: srv.URL, Token: "tok"}, time.Second, "/repos").RepoSource("1")
 	if err != nil {
 		t.Fatalf("RepoSource: %v", err)
 	}
-	if src.RemoteURL == "" || !strings.HasSuffix(src.RemoteURL, "/grp/repo.git") {
-		t.Fatalf("RemoteURL inesperado: %q", src.RemoteURL)
+	if src.RemoteURL != srv.URL+"/grp/repo.git" {
+		t.Errorf("RemoteURL = %q", src.RemoteURL)
 	}
-	wantLocal := "/repos/@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git"
-	if src.LocalPath != wantLocal {
-		t.Fatalf("LocalPath = %q, want %q", src.LocalPath, wantLocal)
+	if want := "/repos/@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git"; src.LocalPath != want {
+		t.Errorf("LocalPath = %q, want %q", src.LocalPath, want)
 	}
 }
 
-func TestRepoSourceWithoutReposPathHasNoLocal(t *testing.T) {
-	c := New("test", "https://gitlab.example.com", "tok", "wh", "bot", 30*time.Second, "")
-	src, err := c.RepoSource("grp/repo")
+func TestGetMergeRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/api/v4/projects/grp%2Frepo/merge_requests/7" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("PRIVATE-TOKEN"); got != "tok" {
+			t.Errorf("PRIVATE-TOKEN = %q, want %q", got, "tok")
+		}
+		_, _ = w.Write([]byte(`{"iid":7,"author":{"username":"alice"},
+			"diff_refs":{"base_sha":"b","start_sha":"s","head_sha":"h"},
+			"reviewers":[{"username":"bot"}],"assignees":[]}`))
+	}))
+	defer srv.Close()
+
+	mr, err := New(domain.Client{BaseURL: srv.URL, Token: "tok"}, time.Second, "").GetMergeRequest("grp/repo", 7)
 	if err != nil {
-		t.Fatalf("RepoSource: %v", err)
+		t.Fatalf("GetMergeRequest: %v", err)
 	}
-	if src.LocalPath != "" {
-		t.Fatalf("LocalPath should be empty without reposPath, got %q", src.LocalPath)
+	if mr.IID != 7 || mr.AuthorUsername != "alice" || mr.HeadSHA != "h" || mr.DiffBaseSHA != "b" || mr.DiffStartSHA != "s" {
+		t.Errorf("unexpected MR: %+v", mr)
+	}
+	if !mr.IsUserAssigned("bot") {
+		t.Errorf("reviewer not mapped: %v", mr.Reviewers)
 	}
 }
 
 func TestGetMergeRequestDiffSince(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("from") != "old" || r.URL.Query().Get("to") != "new" {
-			t.Fatalf("unexpected compare query: %s", r.URL.RawQuery)
+			t.Errorf("unexpected compare query: %s", r.URL.RawQuery)
 		}
 		_, _ = w.Write([]byte(`{"diffs":[{"old_path":"a.go","new_path":"a.go","diff":"+new"}]}`))
 	}))
 	defer srv.Close()
 
-	diff, err := New("test", srv.URL, "tok", "wh", "bot", 30*time.Second, "").GetMergeRequestDiffSince("group/repo", "old", "new")
+	diff, err := New(domain.Client{BaseURL: srv.URL}, time.Second, "").GetMergeRequestDiffSince("group/repo", "old", "new")
 	if err != nil {
 		t.Fatalf("GetMergeRequestDiffSince: %v", err)
 	}

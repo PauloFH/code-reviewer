@@ -22,7 +22,7 @@ issues:
   exclude-rules:
     # SQL is assembled from fixed literal fragments; all user-supplied values are
     # bound as ? parameters, so these G201/G202 reports are false positives.
-    - path: internal/infrastructure/storage/sqlite_repository.go
+    - path: internal/infrastructure/storage/(library|events)\.go
       linters:
         - gosec
       text: "G20[12]"

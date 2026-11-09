@@ -63,11 +63,11 @@ func TestNewEncryptorInvalidKey(t *testing.T) {
 
 func TestRepoFieldHelpersRequireKey(t *testing.T) {
 	r := &SQLiteRepository{} // no encryptor configured
-	if _, err := r.encryptField("secret"); err != errNoEncryptionKey {
-		t.Fatalf("encryptField without key: got %v want errNoEncryptionKey", err)
+	if _, err := r.encryptField("secret"); err != ErrNoEncryptionKey {
+		t.Fatalf("encryptField without key: got %v want ErrNoEncryptionKey", err)
 	}
-	if _, err := r.decryptField("secret"); err != errNoEncryptionKey {
-		t.Fatalf("decryptField without key: got %v want errNoEncryptionKey", err)
+	if _, err := r.decryptField("secret"); err != ErrNoEncryptionKey {
+		t.Fatalf("decryptField without key: got %v want ErrNoEncryptionKey", err)
 	}
 	// Empty values never need a key.
 	if v, err := r.encryptField(""); err != nil || v != "" {

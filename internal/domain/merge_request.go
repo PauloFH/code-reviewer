@@ -1,11 +1,9 @@
 package domain
 
-import "time"
-
 type MergeRequest struct {
 	ID             int64
 	IID            int64
-	ProjectRef     string // numeric string for GitLab, "owner/repo" for GitHub/Gitea
+	ProjectRef     string
 	Title          string
 	Description    string
 	AuthorUsername string
@@ -16,9 +14,6 @@ type MergeRequest struct {
 	HeadSHA        string
 	DiffBaseSHA    string
 	DiffStartSHA   string
-	DiffHeadSHA    string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
 }
 
 func (mr *MergeRequest) IsUserAssigned(username string) bool {

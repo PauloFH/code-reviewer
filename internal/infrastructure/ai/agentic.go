@@ -7,11 +7,8 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// maxToolOutputBytes caps a single tool result fed back to the model.
 const maxToolOutputBytes = 16_000
 
-// defaultAgenticMaxIterations bounds the tool-use loop when the profile/env
-// does not specify a limit.
 const defaultAgenticMaxIterations = 12
 
 // wrapUpWarningIterations is how many iterations before the hard cutoff the
@@ -24,11 +21,14 @@ const wrapUpWarningIterations = 2
 // actually a review.
 const minValidReviewBodyChars = 20
 
-const wrapUpNudge = "Você está perto do limite de iterações desta revisão. Comece a concluir: faça só as leituras estritamente necessárias e prepare-se para responder com a revisão final completa em uma única mensagem, no formato JSON especificado, sem mais chamadas de ferramentas. Quando responder, a mensagem deve conter EXCLUSIVAMENTE o objeto JSON — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
+// jsonOnly ends every nudge: the answer must be the bare JSON object.
+const jsonOnly = " A mensagem deve conter EXCLUSIVAMENTE o objeto JSON, começando direto em '{' — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
 
-const lastTurnNudge = "Este é o seu último turno possível — não há mais chamadas de ferramentas disponíveis. Responda AGORA com a revisão final completa, no formato JSON especificado, com base em tudo que você já observou do repositório. A mensagem deve conter EXCLUSIVAMENTE o objeto JSON, começando direto em '{' — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
+const wrapUpNudge = "Você está perto do limite de iterações desta revisão. Comece a concluir: faça só as leituras estritamente necessárias e prepare-se para responder com a revisão final completa em uma única mensagem, no formato JSON especificado, sem mais chamadas de ferramentas. Quando responder, siga o formato à risca." + jsonOnly
 
-const correctionNudge = "A resposta anterior não pôde ser interpretada como uma revisão válida (vazia ou incompleta). Responda novamente, desta vez com a revisão final completa no formato JSON especificado. A mensagem deve conter EXCLUSIVAMENTE o objeto JSON, começando direto em '{' — sem markdown, sem crases, sem nenhum texto, raciocínio ou resumo antes ou depois dele."
+const lastTurnNudge = "Este é o seu último turno possível — não há mais chamadas de ferramentas disponíveis. Responda AGORA com a revisão final completa, no formato JSON especificado, com base em tudo que você já observou do repositório." + jsonOnly
+
+const correctionNudge = "A resposta anterior não pôde ser interpretada como uma revisão válida (vazia ou incompleta). Responda novamente, desta vez com a revisão final completa no formato JSON especificado." + jsonOnly
 
 // toolSpec is a provider-agnostic tool definition (JSON schema for the input).
 type toolSpec struct {
@@ -37,14 +37,15 @@ type toolSpec struct {
 	Schema      map[string]any
 }
 
-// toolCall is a request from the model to run a tool.
+// toolCall is a request from the model to run a tool. ArgsErr is set when the
+// provider sent arguments that are not valid JSON; the model gets the error back.
 type toolCall struct {
-	ID    string
-	Name  string
-	Input map[string]any
+	ID      string
+	Name    string
+	Input   map[string]any
+	ArgsErr error
 }
 
-// toolResult is the outcome of executing a toolCall, fed back to the model.
 type toolResult struct {
 	ID     string
 	Name   string
@@ -58,7 +59,6 @@ type Sandbox interface {
 	Run(workdir, command string) (output string, exitCode int, err error)
 }
 
-// readToolSpecs returns the read-only tools exposed to the agentic reviewer.
 func readToolSpecs() []toolSpec {
 	stringProp := func(desc string) map[string]any {
 		return map[string]any{"type": "string", "description": desc}
@@ -109,8 +109,6 @@ func runToolSpec() toolSpec {
 	}
 }
 
-// toolSpecsFor returns the tools available to the agentic reviewer; the run tool
-// is included only when sandboxed execution is enabled.
 func toolSpecsFor(execution bool) []toolSpec {
 	specs := readToolSpecs()
 	if execution {
@@ -119,7 +117,6 @@ func toolSpecsFor(execution bool) []toolSpec {
 	return specs
 }
 
-// toolExecutor runs tool calls against a CodeWorkspace.
 type toolExecutor struct {
 	ws      domain.CodeWorkspace
 	sandbox Sandbox
@@ -190,22 +187,11 @@ func truncate(s string) string {
 	return s[:maxToolOutputBytes] + "\n[...truncado...]"
 }
 
-// agenticStep is one response from a driver: either a final answer or tool calls.
+// agenticStep is one response from a conversation: either a final answer or tool calls.
 type agenticStep struct {
 	Final string
 	Calls []toolCall
 	Usage domain.TokenUsage
-}
-
-// agenticDriver owns the provider-specific conversation. step sends accumulated
-// tool results (nil on the first call) and returns the model's next move.
-// nudge, when non-empty, is appended as an extra instruction in the same
-// turn (alongside tool results, or alone if there are none). allowTools
-// false omits the tool definitions from the request, so the model cannot
-// request another tool call and must answer in text — used to force
-// termination on the last available turn.
-type agenticDriver interface {
-	step(results []toolResult, nudge string, allowTools bool) (agenticStep, error)
 }
 
 // runAgenticLoop drives a tool-use conversation to a final review.
@@ -221,7 +207,7 @@ type agenticDriver interface {
 //     minValidReviewBodyChars) is not accepted outright: the model gets one
 //     corrective nudge asking it to redo the final answer properly before
 //     whatever it returns is accepted.
-func runAgenticLoop(driver agenticDriver, exec *toolExecutor, maxIter int) (*domain.ReviewResult, error) {
+func runAgenticLoop(conv conversation, exec *toolExecutor, maxIter int) (*domain.ReviewResult, error) {
 	if maxIter <= 0 {
 		maxIter = defaultAgenticMaxIterations
 	}
@@ -241,7 +227,7 @@ func runAgenticLoop(driver agenticDriver, exec *toolExecutor, maxIter int) (*dom
 			nudge = wrapUpNudge
 		}
 
-		st, err := driver.step(results, nudge, allowTools)
+		st, err := conv.step(results, nudge, allowTools)
 		nudge = ""
 		if err != nil {
 			return nil, err
@@ -268,7 +254,13 @@ func runAgenticLoop(driver agenticDriver, exec *toolExecutor, maxIter int) (*dom
 
 		results = make([]toolResult, 0, len(st.Calls))
 		for _, c := range st.Calls {
-			results = append(results, toolResult{ID: c.ID, Name: c.Name, Output: exec.run(c.Name, c.Input)})
+			var out string
+			if c.ArgsErr != nil {
+				out = "error: argumentos da ferramenta não são JSON válido: " + c.ArgsErr.Error()
+			} else {
+				out = exec.run(c.Name, c.Input)
+			}
+			results = append(results, toolResult{ID: c.ID, Name: c.Name, Output: out})
 		}
 	}
 	return nil, fmt.Errorf("ai: agentic loop exceeded %d iterations", maxIter)

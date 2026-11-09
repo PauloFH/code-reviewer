@@ -1,12 +1,22 @@
 import { http } from './http'
+import { libraryApi } from './library'
+import type { AIMode } from '@/domain'
 
-export type AIProvider = 'openai' | 'claude' | 'gemini' | 'deepseek'
-export type AIMode = 'api' | 'account'
+// Catálogo de provedores vindo do backend: rótulos, defaults e quem aceita login de conta.
+export interface AIProviderInfo {
+  id: string
+  label: string
+  default_base_url: string
+  default_model: string
+  supports_account: boolean
+  // 0 = o provedor decide o limite de saída.
+  default_max_tokens: number
+}
 
 export interface AIConfig {
   id: number
   name: string
-  provider: AIProvider
+  provider: string
   mode: AIMode
   base_url: string
   model: string
@@ -21,9 +31,10 @@ export interface AIConfig {
   updated_at: string
 }
 
+// api_key ausente na edição mantém a credencial atual; o servidor nunca devolve chave nem token.
 export interface AIConfigInput {
   name: string
-  provider: AIProvider
+  provider: string
   mode: AIMode
   base_url: string
   model: string
@@ -34,22 +45,6 @@ export interface AIConfigInput {
   timeout_seconds: number
 }
 
-export interface AIConfigAssignment {
-  id: number
-  config_id: number
-  config_name: string
-  scope: 'global' | 'client' | 'project'
-  client_name: string
-  project_ref: string
-}
-
-export interface AIAssignmentInput {
-  config_id: number
-  scope: 'global' | 'client' | 'project'
-  client_name: string
-  project_ref: string
-}
-
 export interface OAuthStartResponse {
   authorize_url: string
   state: string
@@ -57,53 +52,22 @@ export interface OAuthStartResponse {
 
 export interface TestResult {
   review_markdown: string
-  inline_comments: { Path: string; Line: number; Body: string }[] | null
-  usage: { PromptTokens: number; CompletionTokens: number; TotalTokens: number }
+  inline_comments: { path: string; line: number; body: string }[] | null
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 }
 
-// The test endpoint always answers 200: ok=false carries the real failure cause
-// in `error` (a 5xx would be swallowed by the CDN). On ok=true the success
-// fields of TestResult are present.
+// O teste sempre responde 200: ok=false traz a causa real em `error`, porque a CDN
+// engoliria o corpo de um 5xx. Com ok=true, os campos de TestResult vêm preenchidos.
 export interface TestResponse extends Partial<TestResult> {
   ok: boolean
   error?: string
 }
 
-export async function listConfigs(): Promise<AIConfig[]> {
-  const res = await http.get('/ai-configs')
+export const aiConfigsApi = libraryApi<AIConfig, AIConfigInput>('/ai-configs')
+
+export async function listProviders(): Promise<AIProviderInfo[]> {
+  const res = await http.get('/ai-configs/providers')
   return res.data
-}
-
-export async function getConfig(id: number): Promise<AIConfig> {
-  const res = await http.get(`/ai-configs/${id}`)
-  return res.data
-}
-
-export async function createConfig(data: AIConfigInput): Promise<AIConfig> {
-  const res = await http.post('/ai-configs', data)
-  return res.data
-}
-
-export async function updateConfig(id: number, data: AIConfigInput): Promise<AIConfig> {
-  const res = await http.put(`/ai-configs/${id}`, data)
-  return res.data
-}
-
-export async function deleteConfig(id: number): Promise<void> {
-  await http.delete(`/ai-configs/${id}`)
-}
-
-export async function listConfigAssignments(): Promise<AIConfigAssignment[]> {
-  const res = await http.get('/ai-configs/assignments')
-  return res.data
-}
-
-export async function setConfigAssignment(data: AIAssignmentInput): Promise<void> {
-  await http.put('/ai-configs/assignments', data)
-}
-
-export async function removeConfigAssignment(scope: string, clientName: string, projectRef: string): Promise<void> {
-  await http.delete('/ai-configs/assignments', { params: { scope, client_name: clientName, project_ref: projectRef } })
 }
 
 export async function startClaudeOAuth(): Promise<OAuthStartResponse> {

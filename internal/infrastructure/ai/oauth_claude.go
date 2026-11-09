@@ -9,16 +9,11 @@ import (
 	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/oauth"
 	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/pkce"
 	"git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go/storage"
+
+	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
 const pendingAuthTTL = 15 * time.Minute
-
-// OAuthTokens is the result of an authorization-code exchange or refresh.
-type OAuthTokens struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    time.Time
-}
 
 // ClaudeOAuth drives the Claude subscription OAuth flow via the claude-oauth-go
 // SDK. Pending verifiers are held in memory keyed by state; they are short-lived
@@ -35,8 +30,11 @@ type pendingAuth struct {
 }
 
 func NewClaudeOAuth() *ClaudeOAuth {
-	store := &memoryStore{}
-	client, _ := oauth.New(oauth.Config{Store: store})
+	client, err := oauth.New(oauth.Config{Store: &memoryStore{}})
+	if err != nil {
+		// oauth.New only fails without a Store, which is always set above.
+		panic(fmt.Sprintf("ai: building oauth client: %v", err))
+	}
 	return &ClaudeOAuth{
 		client:  client,
 		pending: make(map[string]pendingAuth),
@@ -55,7 +53,7 @@ func (o *ClaudeOAuth) BuildAuthorizeURL() (authURL, state string, err error) {
 
 // Exchange swaps an authorization code for tokens. The verifier is looked up by
 // the state issued in BuildAuthorizeURL.
-func (o *ClaudeOAuth) Exchange(state, pastedCode string) (*OAuthTokens, error) {
+func (o *ClaudeOAuth) Exchange(state, pastedCode string) (*domain.OAuthTokens, error) {
 	verifier, ok := o.take(state)
 	if !ok {
 		return nil, fmt.Errorf("ai: unknown or expired oauth state")
@@ -66,7 +64,7 @@ func (o *ClaudeOAuth) Exchange(state, pastedCode string) (*OAuthTokens, error) {
 		return nil, fmt.Errorf("ai: oauth exchange: %w", err)
 	}
 
-	return &OAuthTokens{
+	return &domain.OAuthTokens{
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
 		ExpiresAt:    token.ExpiresAt,
@@ -74,19 +72,22 @@ func (o *ClaudeOAuth) Exchange(state, pastedCode string) (*OAuthTokens, error) {
 }
 
 // Refresh obtains a new access token from a refresh token.
-func (o *ClaudeOAuth) Refresh(refreshToken string) (*OAuthTokens, error) {
+func (o *ClaudeOAuth) Refresh(refreshToken string) (*domain.OAuthTokens, error) {
 	store := &memoryStore{token: &storage.Token{
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(-time.Hour),
 	}}
-	client, _ := oauth.New(oauth.Config{Store: store})
+	client, err := oauth.New(oauth.Config{Store: store})
+	if err != nil {
+		return nil, fmt.Errorf("ai: oauth refresh: %w", err)
+	}
 
 	token, err := client.Refresh(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("ai: oauth refresh: %w", err)
 	}
 
-	return &OAuthTokens{
+	return &domain.OAuthTokens{
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
 		ExpiresAt:    token.ExpiresAt,

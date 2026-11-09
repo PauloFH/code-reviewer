@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"time"
 )
@@ -16,11 +15,10 @@ type DockerSandbox struct {
 	cpus    string
 	memory  string
 	timeout time.Duration
-	log     *slog.Logger
 }
 
-func NewDockerSandbox(image, cpus, memory string, timeout time.Duration, log *slog.Logger) *DockerSandbox {
-	return &DockerSandbox{image: image, cpus: cpus, memory: memory, timeout: timeout, log: log}
+func NewDockerSandbox(image, cpus, memory string, timeout time.Duration) *DockerSandbox {
+	return &DockerSandbox{image: image, cpus: cpus, memory: memory, timeout: timeout}
 }
 
 // buildDockerArgs assembles the `docker run` argv. Kept pure for testing.

@@ -1,56 +1,51 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { loginAPI, getMeAPI } from '@/api/auth'
+import axios from 'axios'
+import { loginAPI, getMeAPI, type UserInfo } from '@/api/auth'
+import { bindAuth } from '@/api/http'
 import { readStorage, writeStorage, removeStorage } from '@/brand/storage'
-
-export interface UserInfo {
-  id: number
-  username: string
-  role: 'super' | 'gestor' | 'padrao'
-}
+import { roleCan, type Capability } from '@/domain'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(readStorage('jwt'))
   const user = ref<UserInfo | null>(null)
-  const userLoaded = ref(false)
 
   const isAuthenticated = computed(() => !!token.value)
-  const isSuper = computed(() => user.value?.role === 'super')
-  const isGestor = computed(() => user.value?.role === 'gestor')
-  const canManageUsers = computed(() => isSuper.value)
-  const canManageResources = computed(() => isSuper.value || isGestor.value)
+  const can = (need: Capability | undefined) => roleCan(user.value?.role, need)
 
   async function login(username: string, password: string) {
     const t = await loginAPI(username, password)
     token.value = t
     writeStorage('jwt', t)
-    await fetchMe()
+    await loadUser()
   }
 
-  async function fetchMe() {
-    if (!token.value) {
-      user.value = null
-      userLoaded.value = true
-      return
-    }
+  async function loadUser() {
+    if (!token.value) return
     try {
-      const data = await getMeAPI()
-      user.value = data
-    } catch {
+      user.value = await getMeAPI()
+    } catch (e) {
       user.value = null
-    } finally {
-      userLoaded.value = true
+      // Token vencido: sai sem recarregar, porque /auth/me também roda em páginas públicas.
+      if (axios.isAxiosError(e) && e.response?.status === 401) logout()
     }
   }
 
   function logout() {
     token.value = null
     user.value = null
-    userLoaded.value = true
     removeStorage('jwt')
   }
 
-  const initPromise = token.value ? fetchMe() : Promise.resolve().then(() => { userLoaded.value = true })
+  bindAuth(
+    () => token.value,
+    () => {
+      logout()
+      window.location.href = '/login'
+    },
+  )
 
-  return { token, user, userLoaded, isAuthenticated, isSuper, isGestor, canManageUsers, canManageResources, login, logout, fetchMe, initPromise }
+  const initPromise = loadUser()
+
+  return { token, user, isAuthenticated, can, login, logout, initPromise }
 })

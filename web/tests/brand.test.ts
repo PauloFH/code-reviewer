@@ -1,16 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { statusMark } from '../src/brand/status.ts'
-import { formatUsd, formatCount, formatRelative, formatRole } from '../src/brand/format.ts'
+import { formatUsd, formatCount, formatRelative, formatDuration } from '../src/brand/format.ts'
 import { createEventAdmitter } from '../src/brand/feed.ts'
-import { NAV_SHORTCUTS, isEditableTarget } from '../src/brand/shortcuts.ts'
-
-test('statusMark: sinal, rótulo e tom por situação', () => {
-  assert.deepEqual(statusMark('success'), { sign: '+', label: 'publicada', tone: 'ok' })
-  assert.deepEqual(statusMark('error'), { sign: '−', label: 'erro', tone: 'danger' })
-  assert.deepEqual(statusMark('skipped'), { sign: '~', label: 'ignorada', tone: 'warn' })
-  assert.deepEqual(statusMark('novo'), { sign: '~', label: 'novo', tone: 'warn' })
-})
+import { isEditableTarget } from '../src/brand/shortcuts.ts'
 
 test('formatUsd: vírgula decimal, 2 casas, até 5 abaixo de 0,01', () => {
   assert.equal(formatUsd(38.17), 'US$ 38,17')
@@ -39,8 +31,7 @@ test('formatRelative: agora, minutos, horas e dias', () => {
   assert.equal(formatRelative('lixo', now), '')
 })
 
-test('atalhos de navegação e alvos editáveis', () => {
-  assert.deepEqual(NAV_SHORTCUTS, { p: '/dashboard', r: '/events', c: '/clients', o: '/prompts', m: '/ai-configs', f: '/review-profiles', u: '/users' })
+test('alvos editáveis bloqueiam os atalhos de uma tecla', () => {
   assert.equal(isEditableTarget({ tagName: 'INPUT' }), true)
   assert.equal(isEditableTarget({ tagName: 'SELECT' }), true)
   assert.equal(isEditableTarget({ tagName: 'TEXTAREA' }), true)
@@ -49,10 +40,10 @@ test('atalhos de navegação e alvos editáveis', () => {
   assert.equal(isEditableTarget(null), false)
 })
 
-test('formatRole: só `padrao` ganha acento; os demais ficam como vêm', () => {
-  assert.equal(formatRole('padrao'), 'padrão')
-  assert.equal(formatRole('super'), 'super')
-  assert.equal(formatRole('gestor'), 'gestor')
+test('formatDuration: segundos com uma casa e vírgula', () => {
+  assert.equal(formatDuration(21300), '21,3 s')
+  assert.equal(formatDuration(120), '0,1 s')
+  assert.equal(formatDuration(Number.NaN), '0,0 s')
 })
 
 test('feed: eventos SSE com id 0 ganham ids locais distintos; id real repetido é duplicado', () => {

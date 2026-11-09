@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const html = readFileSync(join(import.meta.dirname, '../index.html'), 'utf8')
+const useTheme = readFileSync(join(import.meta.dirname, '../src/composables/useTheme.ts'), 'utf8')
 // Script inline que roda antes do módulo principal (sem src, sem type=module).
 const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
 assert.equal(inline.length, 1, 'esperado exatamente um script inline em index.html')
@@ -33,4 +34,11 @@ test('localStorage que lança erro não propaga e não define atributo', () => {
     },
   })
   assert.deepEqual(attrs, {})
+})
+
+test('a chave que useTheme grava é a mesma que o script inline lê', () => {
+  const gravada = useTheme.match(/writeStorage\('([^']+)'/)?.[1]
+  const lida = inline[0].match(/localStorage\.getItem\('([^']+)'\)/)?.[1]
+  assert.ok(gravada, 'writeStorage não encontrado em useTheme.ts')
+  assert.equal(gravada, lida)
 })

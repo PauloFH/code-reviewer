@@ -69,8 +69,8 @@ const EMAIL = 'paulorfholanda@gmail.com'
       <h2>Com quem compartilhamos</h2>
       <ul>
         <li>
-          <b>Anthropic</b> (Claude) e <b>OpenAI</b>, nos Estados Unidos: recebem o conteúdo do merge request para gerar
-          a revisão.
+          <b>Anthropic</b> (Claude), <b>OpenAI</b> e <b>Google</b> (Gemini), nos Estados Unidos, e <b>DeepSeek</b>, na
+          China: o provedor de IA configurado recebe o conteúdo do merge request para gerar a revisão.
         </li>
         <li><b>Cloudflare</b>: intermedia o acesso ao site, como descrito acima.</li>
         <li><b>Oracle Cloud</b>, em São Paulo: hospeda o servidor e o banco de dados; os dados guardados ficam no Brasil.</li>

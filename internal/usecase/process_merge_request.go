@@ -9,84 +9,54 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// EventPublisher is a subset of the SSE broadcaster interface.
-// Defined here to keep the usecase free of transport-layer imports.
+// EventPublisher feeds the dashboard live feed.
 type EventPublisher interface {
 	Publish(e domain.ReviewEvent)
 }
 
 // RepoFetcher checks out the MR working tree for agentic review.
-// Satisfied by gitfetch.GitWorkspaceFetcher.
 type RepoFetcher interface {
 	Checkout(src domain.RepoSource, sha string) (domain.CodeWorkspace, func(), error)
 }
 
-// ProcessMergeRequest is the central usecase. It receives a normalised
-// WebhookEvent from the transport layer and orchestrates:
-//
-//  1. Resolve the platform client from the registry
-//  2. Fetch full MR details
-//  3. Verify the watched user was assigned/requested as reviewer
-//  4. Check idempotency — skip if already reviewed
-//  5. Fetch the MR diff
-//  6. Send diff to the AI reviewer
-//  7. Post the review as a comment on the MR
-//  8. Persist the record to prevent future duplicates
-//  9. Save a ReviewEvent for analytics (best-effort)
-type ProcessMergeRequest struct {
-	registry       domain.ClientRegistry
-	repository     domain.ReviewRepository
-	eventRepo      domain.ReviewEventRepository
-	userRepo       domain.UserRepository
-	profileRepo    domain.ReviewProfileRepository
-	related        *RelatedCollector
-	repoFetcher    RepoFetcher
-	reviewer       domain.AIReviewer
-	publisher      EventPublisher
-	pricePerMInput float64
-	pricePerMOut   float64
-	retry          RetryConfig
-	log            *slog.Logger
-}
-
-func NewProcessMergeRequest(
-	registry domain.ClientRegistry,
-	repository domain.ReviewRepository,
-	eventRepo domain.ReviewEventRepository,
-	userRepo domain.UserRepository,
-	profileRepo domain.ReviewProfileRepository,
-	repoFetcher RepoFetcher,
-	reviewer domain.AIReviewer,
-	publisher EventPublisher,
-	pricePerMInput, pricePerMOut float64,
-	retry RetryConfig,
-	log *slog.Logger,
-) *ProcessMergeRequest {
-	return &ProcessMergeRequest{
-		registry:       registry,
-		repository:     repository,
-		eventRepo:      eventRepo,
-		userRepo:       userRepo,
-		profileRepo:    profileRepo,
-		related:        NewRelatedCollector(log),
-		repoFetcher:    repoFetcher,
-		reviewer:       reviewer,
-		publisher:      publisher,
-		pricePerMInput: pricePerMInput,
-		pricePerMOut:   pricePerMOut,
-		retry:          retry,
-		log:            log,
+// ReviewDeps are the collaborators of the review pipeline; all are required.
+type ReviewDeps struct {
+	Registry domain.ClientRegistry
+	Claims   domain.ReviewRepository
+	Events   interface {
+		SaveEvent(domain.ReviewEvent) error
 	}
+	Users interface {
+		GetByUsername(string) (*domain.User, error)
+	}
+	Profiles interface {
+		Resolve(clientName, projectRef string) (*domain.ReviewProfile, error)
+	}
+	Fetcher   RepoFetcher
+	Reviewer  domain.AIReviewer
+	Publisher EventPublisher
+	Retry     RetryConfig
+	Log       *slog.Logger
 }
 
-// Execute runs the full review pipeline for a single webhook event.
-// Returns nil when the event was processed (or intentionally skipped).
-// Returns a non-nil error only when a recoverable step failed and the
-// caller should signal an error back to the platform.
+// ProcessMergeRequest reviews an MR once per watched user: it claims the MR,
+// gathers the context the resolved profile asks for, has the AI review it,
+// posts the result and records the outcome for the dashboard.
+type ProcessMergeRequest struct {
+	ReviewDeps
+	related *RelatedCollector
+}
+
+func NewProcessMergeRequest(d ReviewDeps) *ProcessMergeRequest {
+	return &ProcessMergeRequest{ReviewDeps: d, related: NewRelatedCollector(d.Log)}
+}
+
+// Execute runs the pipeline for one event. It returns nil when the event was
+// reviewed or intentionally skipped.
 func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	start := time.Now()
 
-	log := uc.log.With(
+	log := uc.Log.With(
 		slog.String("client", event.ClientName),
 		slog.String("project", event.ProjectRef),
 		slog.Int64("mr_iid", event.MRIID),
@@ -95,7 +65,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	log.Info("webhook received")
 
-	client, ok := uc.registry.Get(event.ClientName)
+	client, ok := uc.Registry.Get(event.ClientName)
 	if !ok {
 		return fmt.Errorf("client %q not found in registry", event.ClientName)
 	}
@@ -103,7 +73,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	username := client.WatchedUsername()
 
 	var mr *domain.MergeRequest
-	err := uc.retry.run(log, "fetching MR", func() error {
+	err := uc.Retry.run(log, "fetching MR", func() error {
 		var fetchErr error
 		mr, fetchErr = client.GetMergeRequest(event.ProjectRef, event.MRIID)
 		return fetchErr
@@ -111,6 +81,8 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	if err != nil {
 		log.Error("error fetching merge request from platform", slog.String("error", err.Error()))
 		uc.saveEvent(event, mr, domain.ReviewStatusError, err.Error(), nil, start)
+		// No failure note here: until the MR is read we don't know the watched
+		// user is on it, and a comment could land on an unrelated MR.
 		return fmt.Errorf("fetching MR: %w", err)
 	}
 
@@ -122,11 +94,13 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	log.Info("watched user is assigned", slog.String("username", username))
 
-	// Validate re-analyze permission from MR comment
-	if event.IsReanalyze && event.CommentAuthor != "" {
-		isAuthor := event.CommentAuthor == mr.AuthorUsername
-		isRegistered, _ := uc.userRepo.UserExists(event.CommentAuthor)
-		if !isAuthor && !isRegistered {
+	// Only the MR author or a dashboard user may trigger a review from a comment.
+	if event.IsReanalyze && event.CommentAuthor != "" && event.CommentAuthor != mr.AuthorUsername {
+		_, err := uc.Users.GetByUsername(event.CommentAuthor)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			log.Error("checking /review author", slog.String("error", err.Error()))
+		}
+		if err != nil {
 			log.Info("unauthorized /review command", slog.String("comment_author", event.CommentAuthor))
 			uc.saveEvent(event, mr, domain.ReviewStatusSkipped, "unauthorized /review command", nil, start)
 			return nil
@@ -135,16 +109,15 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 
 	previousReview := ""
 	previousHeadSHA := ""
-	// Re-analyze: clear idempotency record
 	if event.IsReanalyze {
 		var previous *domain.ReviewHistory
 		if event.ReviewJustification != "" {
-			previous, err = uc.repository.GetReviewHistory(event.ClientName, event.ProjectRef, event.MRIID, username)
+			previous, err = uc.Claims.GetReviewHistory(event.ClientName, event.ProjectRef, event.MRIID, username)
 			if err != nil {
 				log.Warn("failed to load previous review", slog.String("error", err.Error()))
 			}
 		}
-		if err := uc.repository.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
+		if err := uc.Claims.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
 			log.Error("failed to clear review record", slog.String("error", err.Error()))
 		}
 		if previous != nil {
@@ -153,7 +126,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		}
 	}
 
-	claimed, err := uc.repository.ClaimReview(event.ClientName, event.ProjectRef, event.MRIID, mr.ID, username)
+	claimed, err := uc.Claims.ClaimReview(event.ClientName, event.ProjectRef, event.MRIID, mr.ID, username)
 	if err != nil {
 		log.Error("error claiming review", slog.String("error", err.Error()))
 		return fmt.Errorf("claiming review: %w", err)
@@ -168,7 +141,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		if reviewPosted {
 			return
 		}
-		if err := uc.repository.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
+		if err := uc.Claims.ClearReview(event.ClientName, event.ProjectRef, event.MRIID); err != nil {
 			log.Error("failed to release review claim", slog.String("error", err.Error()))
 		}
 	}()
@@ -176,7 +149,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	log.Info("fetching diff")
 
 	var diff string
-	err = uc.retry.run(log, "fetching diff", func() error {
+	err = uc.Retry.run(log, "fetching diff", func() error {
 		var fetchErr error
 		diff, fetchErr = client.GetMergeRequestDiff(event.ProjectRef, event.MRIID)
 		return fetchErr
@@ -187,6 +160,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		uc.notifyFailure(log, client, event, "buscar o diff", err)
 		return fmt.Errorf("fetching diff: %w", err)
 	}
+	// A justified re-review of new commits only needs what changed since the last review.
 	if previousHeadSHA != "" && previousHeadSHA != mr.HeadSHA {
 		if provider, ok := client.(domain.IncrementalDiffProvider); ok {
 			if incremental, err := provider.GetMergeRequestDiffSince(event.ProjectRef, previousHeadSHA, mr.HeadSHA); err != nil {
@@ -223,9 +197,9 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 	log.Info("sending diff to AI reviewer", slog.String("profile", profile.Name))
 
 	var result *domain.ReviewResult
-	err = uc.retry.run(log, "generating review", func() error {
+	err = uc.Retry.run(log, "generating review", func() error {
 		var reviewErr error
-		result, reviewErr = uc.reviewer.ReviewDiff(domain.ReviewInput{
+		result, reviewErr = uc.Reviewer.ReviewDiff(domain.ReviewInput{
 			MergeRequest:        mr,
 			Diff:                diff,
 			ClientName:          event.ClientName,
@@ -245,7 +219,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		return fmt.Errorf("generating review: %w", err)
 	}
 
-	if err := uc.retry.run(log, "posting comment", func() error {
+	if err := uc.Retry.run(log, "posting comment", func() error {
 		return client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, result.Body)
 	}); err != nil {
 		log.Error("error posting comment to platform", slog.String("error", err.Error()))
@@ -254,7 +228,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		return fmt.Errorf("posting comment: %w", err)
 	}
 	reviewPosted = true
-	if err := uc.repository.CompleteReview(event.ClientName, event.ProjectRef, event.MRIID, username, mr.HeadSHA, result.Body); err != nil {
+	if err := uc.Claims.CompleteReview(event.ClientName, event.ProjectRef, event.MRIID, username, mr.HeadSHA, result.Body); err != nil {
 		log.Error("failed to save review history", slog.String("error", err.Error()))
 	}
 
@@ -263,7 +237,7 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 		slog.Int("total_tokens", result.Usage.TotalTokens),
 	)
 
-	uc.postInlineComments(log, client, event.ProjectRef, mr, diff, result.InlineComments)
+	uc.postInlineComments(log, client, mr, result.InlineComments)
 
 	uc.saveEvent(event, mr, domain.ReviewStatusSuccess, "", result, start)
 
@@ -276,34 +250,18 @@ func (uc *ProcessMergeRequest) Execute(event *domain.WebhookEvent) error {
 // Failures posting the notice itself are only logged — the caller already has
 // an error to return.
 func (uc *ProcessMergeRequest) notifyFailure(log *slog.Logger, client domain.PlatformClient, event *domain.WebhookEvent, stage string, cause error) {
-	attempts := uc.retry.MaxAttempts
-	if attempts < 1 {
-		attempts = 1
-	}
 	body := fmt.Sprintf(
 		"⚠️ Não foi possível concluir a revisão automática (%s) após %d tentativa(s): %s\n\nComente `/review` para tentar novamente mais tarde.",
-		stage, attempts, cause.Error(),
+		stage, uc.Retry.attempts(), cause.Error(),
 	)
 	if err := client.CreateMergeRequestNote(event.ProjectRef, event.MRIID, body); err != nil {
 		log.Error("failed to post failure notice to MR", slog.String("error", err.Error()))
 	}
 }
 
-func (uc *ProcessMergeRequest) postInlineComments(
-	log *slog.Logger,
-	client domain.PlatformClient,
-	projectRef string,
-	mr *domain.MergeRequest,
-	diff string,
-	comments []domain.InlineComment,
-) {
-	comments = filterInlineComments(comments, diff)
-	if len(comments) == 0 {
-		return
-	}
-
+func (uc *ProcessMergeRequest) postInlineComments(log *slog.Logger, client domain.PlatformClient, mr *domain.MergeRequest, comments []domain.InlineComment) {
 	for _, comment := range comments {
-		err := client.CreateMergeRequestInlineComment(projectRef, mr, comment)
+		err := client.CreateMergeRequestInlineComment(mr, comment)
 		if err == nil {
 			log.Info("inline review comment posted",
 				slog.String("path", comment.Path),
@@ -330,13 +288,11 @@ func (uc *ProcessMergeRequest) postInlineComments(
 // when nothing is assigned. A valid "/review <preset>" override replaces it.
 func (uc *ProcessMergeRequest) resolveProfile(log *slog.Logger, event *domain.WebhookEvent) domain.ReviewProfile {
 	profile := domain.DefaultReviewProfile()
-	if uc.profileRepo != nil {
-		resolved, err := uc.profileRepo.ResolveProfile(event.ClientName, event.ProjectRef)
-		if err != nil {
-			log.Error("resolving review profile, using diff-only default", slog.String("error", err.Error()))
-		} else if resolved != nil {
-			profile = *resolved
-		}
+	resolved, err := uc.Profiles.Resolve(event.ClientName, event.ProjectRef)
+	if err != nil {
+		log.Error("resolving review profile, using diff-only default", slog.String("error", err.Error()))
+	} else if resolved != nil {
+		profile = *resolved
 	}
 	if event.RequestedProfile != "" {
 		if preset, ok := domain.ProfileFromPreset(event.RequestedProfile); ok {
@@ -352,9 +308,6 @@ func (uc *ProcessMergeRequest) resolveProfile(log *slog.Logger, event *domain.We
 // checkoutWorkspace clones the MR working tree for agentic review. Best-effort:
 // returns ok=false (and the review proceeds without a workspace) on any problem.
 func (uc *ProcessMergeRequest) checkoutWorkspace(log *slog.Logger, client domain.PlatformClient, event *domain.WebhookEvent, mr *domain.MergeRequest) (domain.CodeWorkspace, func(), bool) {
-	if uc.repoFetcher == nil {
-		return nil, nil, false
-	}
 	locator, ok := client.(domain.RepoLocator)
 	if !ok {
 		log.Warn("agentic profile but platform has no RepoLocator; proceeding without workspace",
@@ -366,7 +319,7 @@ func (uc *ProcessMergeRequest) checkoutWorkspace(log *slog.Logger, client domain
 		log.Error("resolving repo source for agentic review", slog.String("error", err.Error()))
 		return nil, nil, false
 	}
-	ws, cleanup, err := uc.repoFetcher.Checkout(src, mr.DiffHeadSHA)
+	ws, cleanup, err := uc.Fetcher.Checkout(src, mr.HeadSHA)
 	if err != nil {
 		log.Error("checking out working tree, proceeding without workspace", slog.String("error", err.Error()))
 		return nil, nil, false
@@ -374,8 +327,7 @@ func (uc *ProcessMergeRequest) checkoutWorkspace(log *slog.Logger, client domain
 	return ws, cleanup, true
 }
 
-// saveEvent persists a ReviewEvent and publishes it to the SSE broadcaster.
-// Both operations are best-effort — failures are logged but never propagate.
+// saveEvent records the outcome for the dashboard; failures are only logged.
 func (uc *ProcessMergeRequest) saveEvent(
 	event *domain.WebhookEvent,
 	mr *domain.MergeRequest,
@@ -384,46 +336,29 @@ func (uc *ProcessMergeRequest) saveEvent(
 	result *domain.ReviewResult,
 	start time.Time,
 ) {
-	var usage domain.TokenUsage
-	priceIn, priceOut := uc.pricePerMInput, uc.pricePerMOut
-	if result != nil {
-		usage = result.Usage
-		if result.PricePerMInputTokens > 0 {
-			priceIn = result.PricePerMInputTokens
-		}
-		if result.PricePerMOutputTokens > 0 {
-			priceOut = result.PricePerMOutputTokens
-		}
-	}
-
 	e := domain.ReviewEvent{
-		ClientName:       event.ClientName,
-		ProjectRef:       event.ProjectRef,
-		MRIID:            event.MRIID,
-		Status:           status,
-		ErrorMessage:     errMsg,
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		TotalTokens:      usage.TotalTokens,
-		CostUSD:          CalculateCost(usage, priceIn, priceOut),
-		DurationMS:       time.Since(start).Milliseconds(),
-		ReviewedAt:       time.Now().UTC(),
+		ClientName:   event.ClientName,
+		ProjectRef:   event.ProjectRef,
+		MRIID:        event.MRIID,
+		Status:       status,
+		ErrorMessage: errMsg,
+		DurationMS:   time.Since(start).Milliseconds(),
+		ReviewedAt:   time.Now().UTC(),
 	}
-
+	if result != nil {
+		e.PromptTokens = result.Usage.PromptTokens
+		e.CompletionTokens = result.Usage.CompletionTokens
+		e.TotalTokens = result.Usage.TotalTokens
+		e.CostUSD = result.CostUSD
+	}
 	if mr != nil {
 		e.MRID = mr.ID
 		e.MRTitle = mr.Title
 		e.MRURL = mr.WebURL
 		e.AuthorUsername = mr.AuthorUsername
 	}
-
-	if uc.eventRepo != nil {
-		if err := uc.eventRepo.SaveEvent(e); err != nil {
-			uc.log.Error("failed to save review event", slog.String("error", err.Error()))
-		}
+	if err := uc.Events.SaveEvent(e); err != nil {
+		uc.Log.Error("failed to save review event", slog.String("error", err.Error()))
 	}
-
-	if uc.publisher != nil {
-		uc.publisher.Publish(e)
-	}
+	uc.Publisher.Publish(e)
 }

@@ -49,79 +49,63 @@ func TestClientSecretsAreEncryptedAtRest(t *testing.T) {
 	}
 }
 
-func TestEncryptPlaintextClientSecretsMigratesLegacyRows(t *testing.T) {
-	repo := newTestRepo(t)
+func TestOpenEncryptsLegacyPlaintextRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	repo := newTestRepoAt(t, path)
 	// Linha como o código antigo gravava: texto puro, secrets_encrypted=0 (default da migration010).
 	if _, err := repo.db.Exec(`INSERT INTO clients(name,platform,base_url,token,webhook_secret,username,created_at,updated_at)
 		VALUES('old','github','https://api.github.com','ghp-antigo','whsec-antigo','bot',datetime('now'),datetime('now'))`); err != nil {
 		t.Fatalf("insert legacy row: %v", err)
 	}
-
-	got, err := repo.GetClient("old")
-	if err != nil || got.Token != "ghp-antigo" {
+	if got, err := repo.GetClient("old"); err != nil || got.Token != "ghp-antigo" {
 		t.Fatalf("legacy row must stay readable before migration: %+v %v", got, err)
 	}
+	_ = repo.Close()
 
-	n, err := repo.EncryptPlaintextClientSecrets()
-	if err != nil || n != 1 {
-		t.Fatalf("EncryptPlaintextClientSecrets = %d, %v; want 1, nil", n, err)
+	for range 2 { // reopening must not encrypt twice
+		repo = newTestRepoAt(t, path)
+		if token, _, encrypted := rawClientSecrets(t, repo, "old"); !encrypted || token == "ghp-antigo" { //nolint:gosec // G101: test fixture, not a real credential
+			t.Fatalf("legacy row still plaintext: token=%q encrypted=%v", token, encrypted)
+		}
+		if got, err := repo.GetClient("old"); err != nil || got.Token != "ghp-antigo" || got.WebhookSecret != "whsec-antigo" {
+			t.Fatalf("migration lost secrets: %+v %v", got, err)
+		}
+		_ = repo.Close()
 	}
-	if token, _, encrypted := rawClientSecrets(t, repo, "old"); !encrypted || token == "ghp-antigo" { //nolint:gosec // G101: test fixture, not a real credential
-		t.Fatalf("legacy row still plaintext: token=%q encrypted=%v", token, encrypted)
-	}
-	got, err = repo.GetClient("old")
-	if err != nil || got.Token != "ghp-antigo" || got.WebhookSecret != "whsec-antigo" {
-		t.Fatalf("migration lost secrets: %+v %v", got, err)
-	}
+}
 
-	if n, err := repo.EncryptPlaintextClientSecrets(); err != nil || n != 0 {
-		t.Fatalf("second run = %d, %v; want 0, nil (no double encryption)", n, err)
+func newTestRepoAt(t *testing.T, path string) *SQLiteRepository {
+	t.Helper()
+	repo, err := openAt(t, path, testEncKey)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
 	}
-	if got, _ := repo.GetClient("old"); got.Token != "ghp-antigo" {
-		t.Fatalf("second run corrupted token: %q", got.Token)
-	}
+	return repo
 }
 
 func TestClientSecretsRequireEncryptionKey(t *testing.T) {
-	repo, err := New(filepath.Join(t.TempDir(), "nokey.db"))
+	repo, err := openAt(t, filepath.Join(t.TempDir(), "nokey.db"), "")
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() { _ = repo.Close() })
-
 	_, err = repo.CreateClient(domain.Client{Name: "x", Platform: "gitlab", BaseURL: "u", Token: "t", WebhookSecret: "s", Username: "bot"})
-	if !errors.Is(err, errNoEncryptionKey) {
-		t.Fatalf("CreateClient without key = %v; want errNoEncryptionKey", err)
+	if !errors.Is(err, ErrNoEncryptionKey) {
+		t.Fatalf("CreateClient without key = %v; want ErrNoEncryptionKey", err)
 	}
 }
 
-func TestClientSecretsWithWrongKeyFailInsteadOfReturningGarbage(t *testing.T) {
+func TestOpenRefusesKeyThatCannotReadStoredSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keys.db")
-	repo, err := New(path)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := repo.UseEncryptionKey(testEncKey); err != nil {
-		t.Fatalf("UseEncryptionKey: %v", err)
-	}
+	repo := newTestRepoAt(t, path)
 	if _, err := repo.CreateClient(domain.Client{Name: "x", Platform: "gitlab", BaseURL: "u", Token: "t", WebhookSecret: "s", Username: "bot"}); err != nil {
 		t.Fatalf("CreateClient: %v", err)
 	}
 	_ = repo.Close()
 
-	other, err := New(path)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
+	if _, err := openAt(t, path, "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="); err == nil {
+		t.Fatal("Open with the wrong key must fail")
 	}
-	t.Cleanup(func() { _ = other.Close() })
-	if err := other.UseEncryptionKey("AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="); err != nil {
-		t.Fatalf("UseEncryptionKey(other): %v", err)
-	}
-	if _, err := other.ListClients(); err == nil {
-		t.Fatal("ListClients with the wrong key must fail")
-	}
-	// A linha já cifrada não pode ser cifrada de novo com a chave errada.
-	if n, err := other.EncryptPlaintextClientSecrets(); err != nil || n != 0 {
-		t.Fatalf("EncryptPlaintextClientSecrets with wrong key = %d, %v; want 0, nil", n, err)
+	if _, err := openAt(t, path, ""); err == nil {
+		t.Fatal("Open without a key must fail when secrets are stored")
 	}
 }

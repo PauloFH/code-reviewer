@@ -32,6 +32,11 @@ defineProps<{ stats: ReviewStats }>()
 </script>
 
 <style scoped>
+.kpi-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .kpis {
   border-radius: 0;
 }
@@ -42,6 +47,7 @@ defineProps<{ stats: ReviewStats }>()
 
 .kpi-value {
   margin-top: 8px;
+  color: var(--text);
   font-family: var(--font-sans);
   font-size: clamp(22px, 7vw, 32px);
   white-space: nowrap;
@@ -53,5 +59,8 @@ defineProps<{ stats: ReviewStats }>()
 
 .kpi-foot {
   margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
 }
 </style>

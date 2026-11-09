@@ -10,9 +10,9 @@ import (
 	"io"
 )
 
-// errNoEncryptionKey is returned when an AI config or a platform client holds a secret but no
-// AI_CONFIG_ENC_KEY was configured at boot.
-var errNoEncryptionKey = errors.New("storage: AI_CONFIG_ENC_KEY is required to read/write stored credentials (AI configs and client tokens)")
+// ErrNoEncryptionKey is returned when a secret must be read or written but
+// Open got no key.
+var ErrNoEncryptionKey = errors.New("storage: an encryption key is required to read/write stored credentials (AI configs and client tokens)")
 
 // encryptor seals and opens secrets with AES-256-GCM. The stored format is
 // base64(nonce || ciphertext).
@@ -20,14 +20,13 @@ type encryptor struct {
 	gcm cipher.AEAD
 }
 
-// newEncryptor builds an encryptor from a base64-encoded 32-byte key.
 func newEncryptor(base64Key string) (*encryptor, error) {
 	key, err := base64.StdEncoding.DecodeString(base64Key)
 	if err != nil {
-		return nil, fmt.Errorf("storage: AI_CONFIG_ENC_KEY is not valid base64: %w", err)
+		return nil, fmt.Errorf("storage: encryption key is not valid base64: %w", err)
 	}
 	if len(key) != 32 {
-		return nil, fmt.Errorf("storage: AI_CONFIG_ENC_KEY must decode to 32 bytes, got %d", len(key))
+		return nil, fmt.Errorf("storage: encryption key must decode to 32 bytes, got %d", len(key))
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -72,7 +71,7 @@ func (r *SQLiteRepository) encryptField(plaintext string) (string, error) {
 		return "", nil
 	}
 	if r.enc == nil {
-		return "", errNoEncryptionKey
+		return "", ErrNoEncryptionKey
 	}
 	return r.enc.encrypt(plaintext)
 }
@@ -83,7 +82,29 @@ func (r *SQLiteRepository) decryptField(b64 string) (string, error) {
 		return "", nil
 	}
 	if r.enc == nil {
-		return "", errNoEncryptionKey
+		return "", ErrNoEncryptionKey
 	}
 	return r.enc.decrypt(b64)
+}
+
+func (r *SQLiteRepository) encryptEach(fields ...*string) error {
+	for _, f := range fields {
+		v, err := r.encryptField(*f)
+		if err != nil {
+			return err
+		}
+		*f = v
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) decryptEach(fields ...*string) error {
+	for _, f := range fields {
+		v, err := r.decryptField(*f)
+		if err != nil {
+			return err
+		}
+		*f = v
+	}
+	return nil
 }

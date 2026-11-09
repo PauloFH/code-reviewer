@@ -59,7 +59,7 @@ cp .env.example .env
 | `AI_BASE_URL` | — | URL base para provider `chat_completions` |
 | `AI_TOKEN` | — | Token para provider `chat_completions` |
 | `AI_MODEL` | `claude-sonnet-4` | Modelo para provider `chat_completions` |
-| `AI_TIMEOUT_SECONDS` | `120` | Timeout para chamadas à IA |
+| `AI_TIMEOUT_SECONDS` | `120` | Timeout para chamadas à IA e à API das plataformas Git |
 | `AI_PRICE_PER_M_INPUT_TOKENS` | `3.0` | Preço por milhão de tokens de entrada (USD) |
 | `AI_PRICE_PER_M_OUTPUT_TOKENS` | `15.0` | Preço por milhão de tokens de saída (USD) |
 | `DATABASE_PATH` | `./data/reviewer.db` | Caminho do arquivo SQLite |
@@ -183,7 +183,7 @@ curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | `POST` | `/api/v1/auth/login` | Retorna JWT |
-| `GET` | `/api/v1/events` | Lista eventos (paginado; filtros: `client`, `since`, `until`) |
+| `GET` | `/api/v1/events` | Lista eventos (paginado; filtros: `client`, `status`, `search`, `since`, `until`) |
 | `GET` | `/api/v1/events/stats` | Agregados globais e por cliente |
 | `GET` | `/api/v1/events/daily` | Custo diário (`?days=30`, `?client=nome`) |
 | `GET` | `/api/v1/events/stream` | Live feed SSE (`?token=JWT`) |
@@ -201,6 +201,7 @@ curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
 | `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição (upsert) |
 | `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
 | `GET` | `/api/v1/ai-configs` | Lista configs de IA (segredos mascarados) |
+| `GET` | `/api/v1/ai-configs/providers` | Providers suportados, com base URL e modelo default |
 | `POST` | `/api/v1/ai-configs` | Cria config de IA |
 | `GET/PUT/DELETE` | `/api/v1/ai-configs/{id}` | Lê / atualiza / remove config |
 | `POST` | `/api/v1/ai-configs/{id}/test` | Roda um review de diff de exemplo na config |
@@ -208,7 +209,7 @@ curl -N "http://localhost:8080/api/v1/events/stream?token=$TOKEN"
 | `POST` | `/api/v1/ai-configs/oauth/claude/start` | Inicia OAuth (retorna authorize_url + state) |
 | `POST` | `/api/v1/ai-configs/oauth/claude/exchange` | Troca código por tokens e persiste |
 
-Rotas de `clients`, `prompts` e `ai-configs` exigem JWT + papel `super`/`gestor`; `users` exige `super`.
+As rotas de atribuição (`/prompts/assignments`, `/ai-configs/assignments`, `/review-profiles/assignments`) usam o mesmo formato: `{target_id, scope, client_name, project_ref}`. Rotas de `clients`, `prompts`, `review-profiles` e `ai-configs` exigem JWT + papel `super`/`gestor`; `users` exige `super`.
 
 ---
 
@@ -340,7 +341,7 @@ go tool cover -html=coverage.out -o coverage.html
 │   ├── config/                                # Leitura de env vars e clients.json
 │   ├── domain/                                # Entidades e interfaces (Strategy)
 │   ├── infrastructure/
-│   │   ├── ai/                                # Resolver + transportes (gemini/chat/anthropic) + OAuth + prompt builder
+│   │   ├── ai/                                # Reviewer + adaptadores (gemini/chat/anthropic) + OAuth + prompt e diff
 │   │   ├── logger/                            # slog estruturado em JSON
 │   │   ├── platform/
 │   │   │   ├── factory.go                     # Cria PlatformClient pelo tipo
@@ -367,14 +368,10 @@ go tool cover -html=coverage.out -o coverage.html
 
 ## Adicionando uma nova plataforma
 
-1. Crie o pacote `internal/infrastructure/platform/<nome>/`.
-2. Implemente `client.go` satisfazendo `domain.PlatformClient`.
-3. Implemente `webhook.go` com `ValidateWebhook` e `ParseWebhook`.
-4. Adicione a constante em `domain/platform.go`.
-5. Adicione o `case` em `infrastructure/platform/factory.go`.
-6. Atualize a validação em `config/clients.go`.
-
-Nenhuma outra parte do código precisa ser alterada.
+1. Adicione a constante e a entrada em `Platforms` em `internal/domain/platform.go` (a validação de clients deriva daí).
+2. Crie `internal/infrastructure/platform/<nome>/` implementando `domain.PlatformClient` sobre `platform/forge`.
+3. Adicione o `case` em `Factory.Build` (`internal/infrastructure/platform/factory.go`).
+4. Adicione a plataforma em `PLATFORMS` (`web/src/domain.ts`).
 
 ---
 

@@ -1,106 +1,43 @@
 # CLAUDE.md — web/
 
-## Stack
-
-Vue 3 + TypeScript + Vite. Pinia for state, axios for HTTP, Chart.js / vue-chartjs for the cost graph, Tiptap for rich text editing. No UI library — o estilo é CSS escrito à mão sobre os tokens de `src/assets/tokens.css` (identidade **Mergeye**, nome visível do produto; o repositório, o módulo Go e o binário continuam `code-reviewer`).
+Painel do **Mergeye** (nome visível; repositório, módulo Go e binário continuam `code-reviewer`). Vue 3 + TypeScript + Vite, Pinia, axios, Chart.js, Tiptap. Sem biblioteca de UI: CSS à mão sobre `src/assets/tokens.css`.
 
 ## Comandos
 
 ```bash
 cd web
-
-# Desenvolvimento (hot-reload, proxies /api → :8080)
-npm run dev
-
-# Build para o binário Go (output em ../internal/transport/http/frontend/dist)
-npm run build
-
-# Type-check sem emitir
+npm run dev          # :5173, proxy /api → :8080
+npm run build        # vue-tsc + vite; grava em ../internal/transport/http/frontend/dist
 npm run type-check
-
-# Lint
 npm run lint
-
-# Testes (node --test em tests/*.test.ts): formatação, status, contraste AA dos tokens,
-# armazenamento, tema e a varredura final (tests/sweep.test.ts)
-npm test
-
-# API fictícia em :8080 para desenvolver a interface sem o backend (use --empty para o estado vazio)
-node tests/mock-api.mjs
+npm test             # node --test tests/*.test.ts
+node tests/mock-api.mjs [--empty]   # API fictícia em :8080, sem backend
 ```
+
+`npm test` roda no Node puro (type stripping): os testes só importam módulos `.ts` sem dependências (`src/domain.ts`, `src/brand/*`), nunca `.vue` nem algo que importe Vue ou `@/`. Regra testável vai para um desses módulos.
 
 ## Integração com o Go
 
-`vite.config.ts` aponta `build.outDir` para `../internal/transport/http/frontend/dist`. O frontend.go embute essa pasta via `//go:embed frontend/dist`. Logo:
+O Go embute `frontend/dist` (`//go:embed`). Só `dist/index.html` é versionado (`dist/assets/` está no `.gitignore`), para `go build` funcionar sem npm.
 
-1. `npm run build` gera os artefatos no lugar que o Go espera.
-2. `go build ./...` ou `go run ./cmd/server` inclui o SPA automaticamente.
-3. Em dev, use `npm run dev` (porta 5173) com o proxy Vite apontando para o servidor Go em `:8080`.
+## Contrato com o backend
 
-O diretório `dist/assets/` está no `.gitignore`; apenas `dist/index.html` é commitado para que `go build` funcione sem precisar de npm instalado.
-
-## Estrutura
-
-```
-web/
-├── index.html            # Template HTML root (Vite entry)
-├── package.json
-├── vite.config.ts        # outDir + proxy
-├── tsconfig.json
-├── tests/                # node --test + mock-api.mjs (API fictícia, fora do build)
-└── src/
-    ├── main.ts           # createApp + Pinia + router + mount; importa fonts.css e tokens.css e inicia a coleta de Web Vitals
-    ├── App.vue           # <router-view /> + <ToastContainer />
-    ├── assets/           # tokens.css (tokens, temas e classes globais), brand/ (logos WebP) e fonts/ (woff2 self-hosted)
-    ├── brand/            # funções puras: formatação pt-BR, statusMark, atalhos, readStorage, geometria da abertura da landing
-    ├── composables/      # useTheme (tema claro/escuro)
-    ├── router/           # Rotas e navigation guard
-    ├── stores/           # Pinia: auth, toast
-    ├── api/              # axios + funções de API + tipos TypeScript
-    ├── components/       # Componentes reutilizáveis (AppIcon, BrandLogo, BackgroundMotion, ...)
-    └── views/            # Páginas carregadas pelo router
-```
-
-## Identidade visual (Mergeye)
-
-- **Tokens:** `src/assets/tokens.css` define as variáveis CSS (`--bg`, `--panel`, `--text`, `--accent`, `--ok`, `--danger`, `--ink`, `--spectrum`, ...). O tema escuro é o `:root`; o claro é `[data-theme="light"]`, que só redefine o que muda. Cores literais (`#hex`, `rgba(`) ficam só nesse arquivo; as views e os componentes usam `var(--x)`.
-- **Fontes:** Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), servidas pelo próprio app: `src/assets/fonts.css` + `src/assets/fonts/*.woff2` (OFL), importados no `main.ts`. Sem CDN externo (`tests/fonts.test.ts` garante).
-- **Classes globais:** `tokens.css` também traz as classes compartilhadas (`.btn`, `.pill`, `.card`, `.table`, `.page-head`, `.kpis`, `.filterbar`, `.seg`, `.feed-*`, `.empty`, ...). Estilo específico de um componente continua em `<style scoped>`.
-- **Tema:** `useTheme()` alterna e persiste (`localStorage`, chave `theme`); o script inline de `index.html` aplica `data-theme` antes do Vue montar. O canvas (gráfico e fundo animado) não entende `var(--x)`: lê as cores com `getComputedStyle` e refaz ao trocar de tema.
-- **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`. A exceção é `LandingAbertura.vue`, o SVG animado da abertura da landing (redesenho do símbolo oficial, decorativo e com `aria-hidden`); não crie outro por script para escapar da varredura.
-- **Marca:** `BrandLogo.vue` escolhe o WebP de `assets/brand/` pelo tema (600 px de largura, 3x o tamanho exibido; os masters PNG ficam em `docs/superpowers/specs/assets/mergeye/`); `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
-- **Acessibilidade:** `:focus-visible` global em `tokens.css` (anel `--focus`); não zere o `outline` sem outro indicador. Borda de campo usa `--field-border` (>= 3:1); `tests/contrast.test.ts` cobre texto, pills, borda de campo e foco. `Modal.vue` fecha com Escape e prende o Tab; os atalhos de uma tecla do `AppLayout` podem ser desligados (chave `shortcuts` no storage).
-- **Situação nunca só por cor:** `statusMark()` (`brand/status.ts`) devolve sinal e rótulo: `+` publicada, `−` erro, `~` ignorada.
-- **Armazenamento:** use `readStorage`/`writeStorage`/`removeStorage` (`brand/storage.ts`); `localStorage` bloqueado não lança, o valor vale só na sessão.
-- **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon` e `LandingAbertura`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.
-
-## Roteamento
-
-| Path | Nome | Público | Componente |
-|------|------|---------|------------|
-| `/` | landing | sim | LandingView.vue (quem tem sessão é redirecionado para `/dashboard` pelo guard) |
-| `/login` | login | sim | LoginView.vue |
-| `/privacidade` | privacidade | sim | PrivacyView.vue (política de privacidade, linkada na landing, no login e na sidebar) |
-| `/dashboard` | dashboard | não | DashboardView.vue |
-| `/events` | events | não | EventsView.vue |
-| `/clients` | clients | não | ClientsView.vue |
-| `/prompts` | prompts | não | PromptsView.vue |
-| `/ai-configs` | ai-configs | não (super/gestor) | AiConfigView.vue |
-
-`/dashboard`, `/events` e `/clients` são filhos de `AppLayout.vue` (layout com sidebar).
-
-Cada rota tem `meta.title`; o `router.afterEach` escreve `document.title` como `<título> · Mergeye`.
-
-O navigation guard em `router/index.ts` redireciona para `/login` quando `!auth.isAuthenticated` para rotas sem `meta.public`, e `/` manda quem tem sessão para `/dashboard`.
-
-## Alias de path
-
-`@` aponta para `src/`. Use `@/api/events`, `@/stores/auth`, etc.
+- `src/domain.ts` espelha valores do Go (papéis, plataformas, escopos, situações, modos de IA) e a navegação. Mudou no backend, mude ali; rotas, menu, atalhos e rótulos derivam dessa tabela.
+- Tipos em `src/api/*` espelham as structs Go (json snake_case). Provedores de IA vêm de `GET /ai-configs/providers`, não de lista fixa.
+- Erro do backend é texto puro (`http.Error`): mostre com `apiErrorMessage(e, fallback)`, que só usa o corpo em 4xx `text/plain` (5xx e HTML da CDN caem no fallback).
+- 401 faz logout e manda para `/login`, exceto em chamadas com `skipAuthRedirect` (login e `/auth/me`, onde o 401 é resposta esperada).
+- Clientes só são listáveis por gestor/super: busque com `useClients()`, que não chama a API para os outros papéis.
+- `tests/mock-api.mjs` acompanha o contrato: mudou um endpoint, mude o mock.
 
 ## Convenções
 
-- Componentes em PascalCase; arquivos `.vue` com nome idêntico ao componente.
-- Tipos TypeScript exportados dos módulos `@/api/*` — nunca defina tipos inline nas views.
-- Scoped CSS nos componentes; estilos compartilhados vêm das classes globais e dos tokens de `src/assets/tokens.css`. Nada de cor literal nos `.vue`.
-- Props com tipos explícitos via `defineProps<{...}>()`. Emits via `defineEmits<{...}>()`.
-- `defineExpose` apenas quando o pai precisar chamar métodos do filho (ex.: `ClientForm`).
+- Prompts, perfis e modelos de IA são bibliotecas atribuíveis por escopo: API via `libraryApi(prefix)` e página via `useLibrary`; o que é só de modelos de IA (provedores, OAuth, teste) fica na `AiConfigView`.
+- Formulários em modal usam `FormModal` + `useSubmit`: o form recebe uma prop `save` assíncrona, aguarda e mostra o erro ele mesmo; o pai fecha o modal quando `save` resolve.
+- Classe em `tokens.css` só quando mais de um componente usa (`.btn`, `.card`, `.table`, `.form`, `.field`, `.error`, `.page`, `.empty-state`, `.sr-only`, ...); classe com um único dono fica no `<style scoped>` dele.
+- Cor literal (`#hex`, `rgba(`) só em `tokens.css`; o resto usa `var(--x)`. Canvas lê o token resolvido com `cssVar()` e redesenha ao trocar o tema.
+- `<svg` só em `AppIcon.vue` e `LandingAbertura.vue`.
+- Situação nunca só por cor: sinal + rótulo (`statusMark`).
+- `localStorage` via `brand/storage.ts` (armazenamento bloqueado não lança).
+- Interface toda em PT-BR. `tests/sweep.test.ts` barra marca antiga, cor literal em `.vue`, `<svg` fora do lugar e texto do glossário em inglês; `tests/contrast.test.ts` exige AA dos tokens nos dois temas.
+- Acessibilidade: não zere `outline` sem outro indicador; botões de rodapé de modal usam `form="<id>"` para o navegador validar `required`; atalhos de uma tecla podem ser desligados (WCAG 2.1.4).
+- `PrivacyView.vue` descreve o que o serviço coleta e com quem compartilha: mudou isso (novo provedor de IA, nova coleta), atualize a página e a data no topo.

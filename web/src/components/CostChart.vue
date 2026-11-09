@@ -22,13 +22,16 @@ import {
   type ScriptableContext,
 } from 'chart.js'
 import { getDailyCosts, type DailyCostPoint } from '@/api/events'
+import { apiErrorMessage } from '@/api/http'
+import { useToastStore } from '@/stores/toast'
 import { formatUsd } from '@/brand/format'
-import { useTheme } from '@/composables/useTheme'
+import { cssVar, useTheme } from '@/composables/useTheme'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
-const props = defineProps<{ client?: string; days?: number }>()
+const props = defineProps<{ client?: string; days: number }>()
 const { theme } = useTheme()
+const toast = useToastStore()
 
 const points = ref<DailyCostPoint[]>([])
 const loading = ref(false)
@@ -40,26 +43,26 @@ watch(() => props.days, load)
 async function load() {
   loading.value = true
   try {
-    points.value = await getDailyCosts(props.client, props.days || 30)
+    points.value = await getDailyCosts(props.client, props.days)
+  } catch (e) {
+    toast.push(apiErrorMessage(e, 'Erro ao carregar o custo diário'), 'error')
   } finally {
     loading.value = false
   }
 }
 
-// O canvas não entende var(--x): as cores são resolvidas aqui e refeitas quando o tema muda.
+// Refeito quando o tema muda, para o canvas acompanhar as cores.
 const colors = computed(() => {
   void theme.value
-  const css = getComputedStyle(document.documentElement)
-  const v = (name: string) => css.getPropertyValue(name).trim()
   return {
-    danger: v('--danger'),
-    mid: v('--merge-mid'),
-    ok: v('--ok'),
-    text: v('--text'),
-    muted: v('--muted'),
-    panel: v('--panel-solid'),
-    border: v('--hairline-strong'),
-    mono: v('--font-mono'),
+    danger: cssVar('--danger'),
+    mid: cssVar('--merge-mid'),
+    ok: cssVar('--ok'),
+    text: cssVar('--text'),
+    muted: cssVar('--muted'),
+    panel: cssVar('--panel-solid'),
+    border: cssVar('--hairline-strong'),
+    mono: cssVar('--font-mono'),
   }
 })
 

@@ -29,7 +29,18 @@ export function formatRelative(iso: string, now: Date = new Date()): string {
   return d === 1 ? 'há 1 dia' : `há ${d} dias`
 }
 
-// Só exibição: o valor enviado à API continua `padrao`.
-export function formatRole(role: string): string {
-  return role === 'padrao' ? 'padrão' : role
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR')
+}
+
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+export function formatDuration(ms: number): string {
+  return num(finite(ms) / 1000, 1, 1) + ' s'
+}
+
+export function mrTitle(e: { mr_title: string; mr_iid: number }): string {
+  return e.mr_title || '#' + e.mr_iid
 }

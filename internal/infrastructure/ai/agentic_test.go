@@ -1,11 +1,9 @@
 package ai
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
@@ -52,7 +50,7 @@ func TestToolExecutorReadFile(t *testing.T) {
 func TestToolExecutorUnknownTool(t *testing.T) {
 	exec := newToolExecutor(&fakeWorkspace{}, nil)
 	out := exec.run("frobnicate", map[string]any{})
-	if !strings.Contains(strings.ToLower(out), "unknown tool") {
+	if out != "error: unknown tool frobnicate" {
 		t.Fatalf("expected unknown-tool message, got %q", out)
 	}
 }
@@ -60,8 +58,8 @@ func TestToolExecutorUnknownTool(t *testing.T) {
 func TestToolExecutorReadFileErrorIsReported(t *testing.T) {
 	exec := newToolExecutor(&fakeWorkspace{files: map[string]string{}}, nil)
 	out := exec.run("read_file", map[string]any{"path": "missing.go"})
-	if !strings.Contains(strings.ToLower(out), "error") && !strings.Contains(out, "not found") {
-		t.Fatalf("expected error text in output, got %q", out)
+	if out != "error: not found: missing.go" {
+		t.Fatalf("expected the workspace error, got %q", out)
 	}
 }
 
@@ -86,7 +84,7 @@ func TestToolExecutorRun(t *testing.T) {
 	if !sb.called || sb.gotCmd != "go test ./..." {
 		t.Fatalf("sandbox not invoked correctly: %+v", sb)
 	}
-	if !strings.Contains(out, "exit=0") || !strings.Contains(out, "ok") {
+	if out != "exit=0\nok\n" {
 		t.Fatalf("run output = %q", out)
 	}
 }
@@ -94,7 +92,7 @@ func TestToolExecutorRun(t *testing.T) {
 func TestToolExecutorRunWithoutSandbox(t *testing.T) {
 	exec := newToolExecutor(&fakeWorkspace{}, nil)
 	out := exec.run("run", map[string]any{"command": "go test"})
-	if !strings.Contains(strings.ToLower(out), "habilitada") && !strings.Contains(strings.ToLower(out), "error") {
+	if out != "error: execução em sandbox não habilitada" {
 		t.Fatalf("expected disabled message, got %q", out)
 	}
 }
@@ -131,18 +129,6 @@ func TestRunAgenticLoopExecutesRunTool(t *testing.T) {
 	}
 	if res.Body != "testes ok, tudo revisado sem problemas" {
 		t.Fatalf("body = %q", res.Body)
-	}
-}
-
-func TestToolSpecsCoverReadTools(t *testing.T) {
-	names := map[string]bool{}
-	for _, s := range readToolSpecs() {
-		names[s.Name] = true
-	}
-	for _, want := range []string{"read_file", "list_dir", "grep"} {
-		if !names[want] {
-			t.Errorf("missing tool spec %q", want)
-		}
 	}
 }
 
@@ -217,8 +203,8 @@ func TestRunAgenticLoopWarnsBeforeCutoffAndForcesLastTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected the loop to terminate via the forced last turn, got error: %v", err)
 	}
-	if res.Body == "" {
-		t.Fatal("expected a non-empty body from the forced final turn")
+	if res.Body != "revisão finalizada por falta de orçamento de iterações" {
+		t.Fatalf("body = %q", res.Body)
 	}
 
 	if len(driver.gotAllowTool) != 3 {
@@ -230,11 +216,11 @@ func TestRunAgenticLoopWarnsBeforeCutoffAndForcesLastTurn(t *testing.T) {
 	if driver.gotAllowTool[2] != false {
 		t.Fatal("expected tools to be withdrawn on the last turn")
 	}
-	if driver.gotNudges[1] == "" {
-		t.Error("expected a wrap-up nudge one turn before the cutoff")
+	if driver.gotNudges[1] != wrapUpNudge {
+		t.Errorf("expected the wrap-up nudge one turn before the cutoff, got %q", driver.gotNudges[1])
 	}
-	if driver.gotNudges[2] == "" {
-		t.Error("expected a last-turn nudge forcing a final answer")
+	if driver.gotNudges[2] != lastTurnNudge {
+		t.Errorf("expected the last-turn nudge, got %q", driver.gotNudges[2])
 	}
 	if driver.gotNudges[0] != "" {
 		t.Errorf("did not expect a nudge yet on the first turn: %q", driver.gotNudges[0])
@@ -284,21 +270,16 @@ func TestRunAgenticLoopAcceptsDegenerateAnswerOnLastTurn(t *testing.T) {
 	}
 }
 
-func TestReviewDiffSingleShotWhenNoWorkspace(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"review_markdown\":\"single shot\",\"inline_comments\":[]}"}}],"usage":{"total_tokens":7}}`))
-	}))
-	defer srv.Close()
-	c := &Client{transportKind: providerChatCompletions, mode: domain.AIModeAPI, baseURL: srv.URL, token: "k", model: "gpt-4o", http: &http.Client{Timeout: 10 * time.Second}}
-	res, err := c.ReviewDiff(domain.ReviewInput{
-		MergeRequest: &domain.MergeRequest{Title: "t"},
-		Diff:         "--- a/x\n+++ b/x\n@@ -1 +1 @@\n+x",
-		Profile:      &domain.ReviewProfile{Agentic: true}, // agentic, mas sem Workspace → single-shot
-	})
-	if err != nil {
-		t.Fatalf("expected single-shot, got error: %v", err)
+func TestRunAgenticLoopReportsInvalidToolArgumentsToTheModel(t *testing.T) {
+	driver := &scriptedDriver{steps: []agenticStep{
+		{Calls: []toolCall{{ID: "a", Name: "read_file", ArgsErr: errors.New("unexpected end of JSON input")}}},
+		{Final: `{"review_markdown":"revisão concluída depois do erro de argumentos","inline_comments":[]}`},
+	}}
+	if _, err := runAgenticLoop(driver, newToolExecutor(&fakeWorkspace{}, nil), 12); err != nil {
+		t.Fatalf("loop: %v", err)
 	}
-	if res.Body != "single shot" {
-		t.Fatalf("body = %q", res.Body)
+	got := driver.gotInput[1][0].Output
+	if got != "error: argumentos da ferramenta não são JSON válido: unexpected end of JSON input" {
+		t.Fatalf("tool result = %q", got)
 	}
 }

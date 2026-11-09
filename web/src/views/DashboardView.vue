@@ -9,14 +9,14 @@
       <div class="page-actions">
         <div class="seg" role="group" aria-label="Período">
           <button
-            v-for="p in periods"
-            :key="p"
+            v-for="p in PERIODS"
+            :key="p.days"
             type="button"
-            :class="{ on: period === p }"
-            :aria-pressed="period === p"
-            @click="setPeriod(p)"
+            :class="{ on: days === p.days }"
+            :aria-pressed="days === p.days"
+            @click="days = p.days"
           >
-            {{ p }}
+            {{ p.label }}
           </button>
         </div>
         <button class="btn" type="button" @click="refresh">
@@ -49,13 +49,13 @@
               <h2 class="card-title">Custo diário</h2>
               <div class="card-sub">em dólar · {{ periodLabel }}</div>
             </div>
-            <select v-model="filterClient" class="client-select" aria-label="Filtrar por cliente" @change="loadStats">
+            <select v-if="clients.length" v-model="filterClient" class="client-select" aria-label="Filtrar por cliente" @change="loadStats">
               <option value="">todos os clientes</option>
-              <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
+              <option v-for="c in clients" :key="c.name" :value="c.name">{{ c.name }}</option>
             </select>
           </div>
           <div class="card-body chart-wrap">
-            <CostChart :key="refreshes" :client="filterClient || undefined" :days="periodDays" />
+            <CostChart :key="refreshes" :client="filterClient || undefined" :days="days" />
           </div>
         </section>
 
@@ -66,7 +66,7 @@
               <div class="card-sub">parte do custo total</div>
             </div>
           </div>
-          <div class="card-body flush">
+          <div class="card-body">
             <ClientStats :stats="stats.by_client" />
             <div v-if="!stats.by_client.length" class="vazio">
               Sem dados ainda.
@@ -80,11 +80,11 @@
         <div class="card-head">
           <div>
             <h2 class="card-title">Ao vivo</h2>
-            <div class="card-sub">eventos recebidos em tempo real</div>
+            <div class="card-sub">eventos recebidos em tempo real{{ filterClient ? ` · ${filterClient}` : '' }}</div>
           </div>
           <span class="vivo" :class="{ off: !connected }">{{ connected ? 'conectado' : 'desconectado' }}</span>
         </div>
-        <LiveFeed :key="refreshes" @connection="connected = $event" />
+        <LiveFeed :key="`${refreshes}-${filterClient}`" :client="filterClient || undefined" @connection="connected = $event" />
       </section>
     </template>
   </div>
@@ -96,33 +96,30 @@ import StatsCards from '@/components/StatsCards.vue'
 import ClientStats from '@/components/ClientStats.vue'
 import CostChart from '@/components/CostChart.vue'
 import LiveFeed from '@/components/LiveFeed.vue'
-import { getStats, type ReviewStats } from '@/api/events'
-import { listClients } from '@/api/clients'
 import AppIcon from '@/components/AppIcon.vue'
+import { getStats, type ReviewStats } from '@/api/events'
+import { apiErrorMessage } from '@/api/http'
+import { useToastStore } from '@/stores/toast'
+import { useClients } from '@/composables/useClients'
 
+// O período só muda o gráfico; os indicadores são sempre do total e dos últimos 30 dias.
+const PERIODS = [
+  { label: '24h', days: 1 },
+  { label: '7d', days: 7 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+]
+
+const toast = useToastStore()
+const clients = useClients()
 const stats = ref<ReviewStats | null>(null)
 const loadingStats = ref(false)
-const periods = ['24h', '7d', '30d', '90d']
-const period = ref('7d')
+const days = ref(7)
 const connected = ref(false)
 const filterClient = ref('')
-const clients = ref<string[]>([])
 
-const periodDays = computed(() => {
-  const map: Record<string, number> = { '24h': 1, '7d': 7, '30d': 30, '90d': 90 }
-  return map[period.value] || 7
-})
-
-const periodLabel = computed(() =>
-  periodDays.value === 1 ? 'último dia' : `últimos ${periodDays.value} dias`,
-)
-
+const periodLabel = computed(() => (days.value === 1 ? 'último dia' : `últimos ${days.value} dias`))
 const today = new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
-
-// Os indicadores não dependem do período; só o gráfico, que observa `days`.
-function setPeriod(p: string) {
-  period.value = p
-}
 
 // "Atualizar" refaz indicadores e gráfico e reconecta o feed (o EventSource não volta sozinho após erro HTTP).
 const refreshes = ref(0)
@@ -135,30 +132,18 @@ async function loadStats() {
   loadingStats.value = true
   try {
     stats.value = await getStats(filterClient.value || undefined)
+  } catch (e) {
+    toast.push(apiErrorMessage(e, 'Erro ao carregar indicadores'), 'error')
   } finally {
     loadingStats.value = false
   }
 }
 
-async function loadClients() {
-  try {
-    const c = await listClients()
-    clients.value = c.map((cl: { name: string }) => cl.name)
-  } catch {
-    // ignore
-  }
-}
-
-onMounted(() => {
-  loadStats()
-  loadClients()
-})
+onMounted(loadStats)
 </script>
 
 <style scoped>
 .page {
-  display: flex;
-  flex-direction: column;
   gap: 24px;
 }
 
@@ -185,23 +170,26 @@ onMounted(() => {
 }
 
 .seg {
-  padding: 0;
+  display: inline-flex;
   background: var(--panel);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
 
 .seg button {
+  background: transparent;
+  border: 0;
   padding: 7px 11px;
+  font: inherit;
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--text);
-  border-radius: 0;
+  cursor: pointer;
 }
 
 .seg button.on {
   background: var(--text);
   color: var(--bg);
-  box-shadow: none;
 }
 
 .btn {

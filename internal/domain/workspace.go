@@ -14,8 +14,7 @@ type GrepHit struct {
 }
 
 // CodeWorkspace gives the agentic review read-only access to a checked-out
-// working tree. All paths are relative to the workspace root; implementations
-// MUST reject paths that escape the root (path traversal).
+// working tree. Paths are relative to the root and must not escape it.
 type CodeWorkspace interface {
 	ReadFile(path string) ([]byte, error)
 	ListDir(path string) ([]DirEntry, error)
@@ -25,13 +24,12 @@ type CodeWorkspace interface {
 
 // RepoSource describes where a project's repository can be cloned from.
 type RepoSource struct {
-	RemoteURL string // authenticated HTTPS clone URL (Fase 1)
-	LocalPath string // local bare-repo path (Fase 2; empty if N/A)
+	RemoteURL  string // HTTPS clone URL, without credentials
+	AuthHeader string // Authorization header value for RemoteURL
+	LocalPath  string // local bare-repo path; empty when unavailable
 }
 
-// RepoLocator is an OPTIONAL capability a PlatformClient may implement to
-// describe where a project's repository can be obtained. Mirrors the
-// RelatedContextProvider optional-interface pattern.
+// RepoLocator is an optional PlatformClient capability.
 type RepoLocator interface {
 	RepoSource(projectRef string) (RepoSource, error)
 }

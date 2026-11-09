@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,205 +30,104 @@ func main() {
 		slog.Error("loading config", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-
 	log := applogger.New(cfg.Log.Level)
-
-	// ── Storage ───────────────────────────────────────────────────────────────
-	repo, err := storage.New(cfg.Database.Path)
-	if err != nil {
-		log.Error("initialising database", slog.String("error", err.Error()))
+	slog.SetDefault(log)
+	fail := func(msg string, err error) {
+		log.Error(msg, slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+
+	repo, err := storage.Open(cfg.Database.Path, cfg.AIConfigEncKey, log)
+	if errors.Is(err, storage.ErrNoEncryptionKey) {
+		fail("opening database — set AI_CONFIG_ENC_KEY", err)
+	}
+	if err != nil {
+		fail("opening database — is AI_CONFIG_ENC_KEY correct?", err)
 	}
 	defer repo.Close()
 
-	// ── Credential encryption ─────────────────────────────────────────────────
-	// Antes de qualquer leitura de clients: tokens e webhook secrets ficam cifrados com a mesma chave das configs de IA.
-	if cfg.AIConfigEncKey != "" {
-		if err := repo.UseEncryptionKey(cfg.AIConfigEncKey); err != nil {
-			log.Error("configuring credential encryption", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	}
-	// Valida a chave contra os segredos de IA já cifrados ANTES de migrar os clients: com a chave errada,
-	// a migração cifraria os tokens com ela e eles ficariam ilegíveis mesmo depois de corrigir a chave.
-	if _, err := repo.ListConfigs(); err != nil {
-		log.Error("reading AI configs — is AI_CONFIG_ENC_KEY set and correct?", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
-	if n, err := repo.EncryptPlaintextClientSecrets(); err != nil {
-		log.Error("encrypting client secrets — is AI_CONFIG_ENC_KEY set?", slog.String("error", err.Error()))
-		os.Exit(1)
-	} else if n > 0 {
-		log.Info("encrypted plaintext client secrets", slog.Int("count", n))
+	if err := seedSuperUser(repo, cfg.Dashboard, log); err != nil {
+		fail("seeding super user", err)
 	}
 
-	// ── Seed super user on first boot ─────────────────────────────────────────
-	userCount, err := repo.CountUsers()
+	factory := platform.Factory{
+		Timeout:         time.Duration(cfg.AI.TimeoutSeconds) * time.Second, // AI_TIMEOUT_SECONDS also bounds platform calls
+		GitLabReposPath: cfg.Agentic.GitLabReposPath,
+	}
+	registry, err := loadClients(repo, factory, cfg.ClientsConfigPath, log)
 	if err != nil {
-		log.Error("counting users", slog.String("error", err.Error()))
-		os.Exit(1)
+		fail("loading platform clients", err)
 	}
-	if userCount == 0 {
-		seedUser := cfg.Dashboard.User
-		seedPass := cfg.Dashboard.Password
-		if seedUser == "" {
-			seedUser = "admin"
-		}
-		if seedPass == "" {
-			seedPass = "admin123"
-		}
-		hash, err := transport.HashPassword(seedPass)
-		if err != nil {
-			log.Error("hashing super user password", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		_, err = repo.CreateUser(domain.User{
-			Username: seedUser,
-			Password: hash,
-			Role:     domain.RoleSuper,
-		})
-		if err != nil {
-			log.Error("seeding super user", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		log.Info("seeded super user", slog.String("username", seedUser))
-	}
-
-	// ── Platform clients ──────────────────────────────────────────────────────
-	// On first boot: if the clients table is empty, seed from clients.json.
-	count, err := repo.CountClients()
-	if err != nil {
-		log.Error("counting clients in db", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
-
-	aiTimeout := time.Duration(cfg.AI.TimeoutSeconds) * time.Second
-
-	if count == 0 {
-		clientCfgs, err := config.LoadClients(cfg.ClientsConfigPath)
-		if err != nil && !os.IsNotExist(err) {
-			log.Warn("could not load clients.json for seeding", slog.String("error", err.Error()))
-		} else if err == nil {
-			domainClients := configClientsToDomain(clientCfgs)
-			if err := repo.SeedFromConfigs(domainClients); err != nil {
-				log.Error("seeding clients from config", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-			log.Info("seeded clients from clients.json", slog.Int("count", len(domainClients)))
-		}
-	}
-
-	// Load all clients from DB and build the platform registry.
-	dbClients, err := repo.ListClients()
-	if err != nil {
-		log.Error("loading clients from db", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
-
-	factory := platform.NewFactory(cfg.Agentic.GitLabReposPath)
-	registry := platform.NewRegistry()
-	for _, c := range dbClients {
-		pc, err := factory.BuildFromDomain(c, aiTimeout)
-		if err != nil {
-			log.Error("building platform client",
-				slog.String("name", c.Name),
-				slog.String("error", err.Error()),
-			)
-			os.Exit(1)
-		}
-		registry.Register(pc)
-		log.Info("registered platform client",
-			slog.String("name", pc.ClientName()),
-			slog.String("platform", string(pc.Platform())),
-			slog.String("watching", pc.WatchedUsername()),
-		)
-	}
-
-	// ── AI reviewer ───────────────────────────────────────────────────────────
-	// envClient is the fallback used when no AI config is assigned in the DB.
-	envClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
-	claudeOAuth := ai.NewClaudeOAuth()
 
 	var execSandbox ai.Sandbox
 	if cfg.Sandbox.Image != "" {
 		execSandbox = sandbox.NewDockerSandbox(
 			cfg.Sandbox.Image, cfg.Sandbox.CPUs, cfg.Sandbox.Memory,
-			time.Duration(cfg.Sandbox.TimeoutSeconds)*time.Second, log,
+			time.Duration(cfg.Sandbox.TimeoutSeconds)*time.Second,
 		)
 		log.Info("execution sandbox enabled", slog.String("image", cfg.Sandbox.Image))
 	}
+	claudeOAuth := ai.NewClaudeOAuth()
+	reviewer := ai.NewReviewer(repo.AIConfigs(), repo.Prompts(), claudeOAuth, cfg.AI, execSandbox, log)
 
-	reviewer := ai.NewResolvingReviewer(
-		repo, repo, claudeOAuth, envClient,
-		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
-		execSandbox, log,
-	)
-
-	// ── SSE broadcaster ───────────────────────────────────────────────────────
 	broadcaster := transport.NewEventBroadcaster()
-
-	// ── Usecases ──────────────────────────────────────────────────────────────
-	agenticFetcher := gitfetch.NewGitWorkspaceFetcher(
-		cfg.Agentic.WorkspaceDir,
-		cfg.Agentic.CloneDepth,
-		time.Duration(cfg.Agentic.TimeoutSeconds)*time.Second,
-		log,
-	)
-
-	uc := usecase.NewProcessMergeRequest(
-		registry, repo, repo, repo, repo, agenticFetcher, reviewer, broadcaster,
-		cfg.AI.PricePerMInputTokens, cfg.AI.PricePerMOutputTokens,
-		usecase.RetryConfig{
+	reviews := usecase.NewProcessMergeRequest(usecase.ReviewDeps{
+		Registry: registry,
+		Claims:   repo,
+		Events:   repo,
+		Users:    repo,
+		Profiles: repo.ReviewProfiles(),
+		Fetcher: gitfetch.NewGitWorkspaceFetcher(
+			cfg.Agentic.WorkspaceDir, cfg.Agentic.CloneDepth,
+			time.Duration(cfg.Agentic.TimeoutSeconds)*time.Second, log,
+		),
+		Reviewer:  reviewer,
+		Publisher: broadcaster,
+		Retry: usecase.RetryConfig{
 			MaxAttempts: cfg.Retry.MaxAttempts,
 			BaseDelay:   time.Duration(cfg.Retry.BaseDelaySeconds) * time.Second,
 		},
-		log,
-	)
+		Log: log,
+	})
 
-	clientMgmtSvc := usecase.NewClientManagementService(
-		repo, registry, factory, aiTimeout, log,
-	)
+	jwtSecret := []byte(cfg.Dashboard.JWTSecret)
+	if len(jwtSecret) == 0 {
+		log.Warn("DASHBOARD_JWT_SECRET is not set; using a random secret, so sessions end on restart")
+		jwtSecret = make([]byte, 32)
+		_, _ = rand.Read(jwtSecret) // never fails, see crypto/rand.Read
+	}
 
-	// ── HTTP handlers ─────────────────────────────────────────────────────────
-	authHandler := transport.NewAuthHandler(
-		repo,
-		cfg.Dashboard.JWTSecret,
-	)
-	apiHandler := transport.NewAPIHandler(repo, repo, clientMgmtSvc, uc)
-	promptHandler := transport.NewPromptHandler(repo)
-	reviewProfileHandler := transport.NewReviewProfileHandler(repo)
-	aiConfigHandler := transport.NewAIConfigHandler(repo, claudeOAuthAdapter{inner: claudeOAuth}, reviewer)
-	userHandler := transport.NewUserHandler(repo)
-
-	router, webhookHandler := transport.NewRouter(uc, registry, authHandler, apiHandler, promptHandler, reviewProfileHandler, aiConfigHandler, userHandler, broadcaster, log)
+	server := transport.NewServer(transport.Deps{
+		Reviews:        reviews,
+		Registry:       registry,
+		Clients:        usecase.NewClientManagementService(repo, registry, factory, log),
+		Users:          repo,
+		Events:         repo,
+		Prompts:        repo.Prompts(),
+		ReviewProfiles: repo.ReviewProfiles(),
+		AIConfigs:      repo.AIConfigs(),
+		ClaudeOAuth:    claudeOAuth,
+		ConfigTester:   reviewer,
+		Broadcaster:    broadcaster,
+		JWTSecret:      jwtSecret,
+		Log:            log,
+	})
 
 	srv := &http.Server{
-		Addr:    ":" + cfg.App.Port,
-		Handler: router,
-		// SSE connections can be long-lived; write timeout must not kill them.
-		// Set a large but finite value; individual SSE handlers respect ctx.Done().
-		ReadTimeout:  15 * time.Second,
+		Addr:        ":" + cfg.App.Port,
+		Handler:     server.Handler,
+		ReadTimeout: 15 * time.Second,
+		// No write timeout: the SSE stream is long-lived and ends with its request context.
 		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Retenção declarada na política de privacidade: o histórico de revisões vive 12 meses.
-	go func() {
-		for {
-			if n, err := repo.PurgeEventsBefore(time.Now().AddDate(-1, 0, 0)); err != nil {
-				log.Error("review events purge failed", slog.String("error", err.Error()))
-			} else if n > 0 {
-				log.Info("review events purged", slog.Int64("count", n))
-			}
-			time.Sleep(24 * time.Hour)
-		}
-	}()
+	go purgeOldEvents(repo, log)
 
 	go func() {
 		log.Info("server starting", slog.String("addr", srv.Addr), slog.String("env", cfg.App.Env))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("server error", slog.String("error", err.Error()))
-			os.Exit(1)
+			fail("server error", err)
 		}
 	}()
 
@@ -240,43 +141,77 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error("forced shutdown", slog.String("error", err.Error()))
 	}
-	// Webhook processing (including its own retries) runs in background
-	// goroutines detached from the HTTP request — wait for them too so a
-	// deploy does not silently drop an in-flight review.
-	webhookHandler.Shutdown(ctx)
+	// Reviews run detached from their request; wait so a deploy does not drop one.
+	server.Shutdown(ctx)
 }
 
-// claudeOAuthAdapter adapts *ai.ClaudeOAuth to the transport.ClaudeOAuthFlow
-// interface, flattening the token struct into primitive return values so the
-// transport layer does not depend on the ai package's types.
-type claudeOAuthAdapter struct {
-	inner *ai.ClaudeOAuth
-}
-
-func (a claudeOAuthAdapter) BuildAuthorizeURL() (string, string, error) {
-	return a.inner.BuildAuthorizeURL()
-}
-
-func (a claudeOAuthAdapter) Exchange(state, code string) (string, string, time.Time, error) {
-	tokens, err := a.inner.Exchange(state, code)
-	if err != nil {
-		return "", "", time.Time{}, err
+func seedSuperUser(repo *storage.SQLiteRepository, d config.DashboardConfig, log *slog.Logger) error {
+	n, err := repo.CountUsers()
+	if err != nil || n > 0 {
+		return err
 	}
-	return tokens.AccessToken, tokens.RefreshToken, tokens.ExpiresAt, nil
+	hash, err := transport.HashPassword(d.Password)
+	if err != nil {
+		return err
+	}
+	if _, err := repo.CreateUser(domain.User{Username: d.User, Password: hash, Role: domain.RoleSuper}); err != nil {
+		return err
+	}
+	log.Info("seeded super user", slog.String("username", d.User))
+	return nil
 }
 
-// configClientsToDomain converts config.ClientConfig slice to domain.Client slice.
-func configClientsToDomain(cfgs []config.ClientConfig) []domain.Client {
-	out := make([]domain.Client, len(cfgs))
-	for i, c := range cfgs {
-		out[i] = domain.Client{
-			Name:          c.Name,
-			Platform:      domain.PlatformType(c.Platform),
-			BaseURL:       c.BaseURL,
-			Token:         c.Token,
-			WebhookSecret: c.WebhookSecret,
-			Username:      c.Username,
+// loadClients seeds the database from clients.json on first boot and builds
+// the live registry from the stored clients.
+func loadClients(repo *storage.SQLiteRepository, factory platform.Factory, seedPath string, log *slog.Logger) (*platform.Registry, error) {
+	count, err := repo.CountClients()
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		seed, err := config.LoadClients(seedPath)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			log.Warn("could not load clients.json for seeding", slog.String("error", err.Error()))
+		default:
+			if err := repo.SeedClients(seed); err != nil {
+				return nil, err
+			}
+			log.Info("seeded clients from clients.json", slog.Int("count", len(seed)))
 		}
 	}
-	return out
+
+	stored, err := repo.ListClients()
+	if err != nil {
+		return nil, err
+	}
+	registry := platform.NewRegistry()
+	for _, c := range stored {
+		pc, err := factory.Build(c)
+		if err != nil {
+			// A row saved before clients were validated must not take the whole service down.
+			log.Error("skipping invalid client; fix it in the dashboard", slog.String("name", c.Name), slog.String("error", err.Error()))
+			continue
+		}
+		registry.Register(pc)
+		log.Info("registered platform client",
+			slog.String("name", pc.ClientName()),
+			slog.String("platform", string(pc.Platform())),
+			slog.String("watching", pc.WatchedUsername()),
+		)
+	}
+	return registry, nil
+}
+
+// purgeOldEvents enforces the 12-month retention promised by the privacy policy.
+func purgeOldEvents(repo *storage.SQLiteRepository, log *slog.Logger) {
+	for {
+		if n, err := repo.PurgeEventsBefore(time.Now().AddDate(-1, 0, 0)); err != nil {
+			log.Error("review events purge failed", slog.String("error", err.Error()))
+		} else if n > 0 {
+			log.Info("review events purged", slog.Int64("count", n))
+		}
+		time.Sleep(24 * time.Hour)
+	}
 }
