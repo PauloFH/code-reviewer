@@ -397,38 +397,37 @@ func (r *SQLiteRepository) CountEvents(f domain.ReviewEventFilter) (int64, error
 func (r *SQLiteRepository) GetStats(clientName, sinceStr, untilStr string) (*domain.ReviewStats, error) {
 	stats := &domain.ReviewStats{}
 
-	// since/until vêm da query string: sempre como parâmetro, nunca concatenados no SQL.
-	period := ""
-	periodArgs := []any{}
+	// Filtro comum aos totais, aos 30 dias e à lista por cliente. Tudo vem da query string:
+	// sempre como parâmetro, nunca concatenado no SQL.
+	filter := ""
+	filterArgs := []any{}
+	if clientName != "" {
+		filter += " AND client_name = ?"
+		filterArgs = append(filterArgs, clientName)
+	}
 	if sinceStr != "" {
-		period += " AND reviewed_at >= ?"
-		periodArgs = append(periodArgs, sinceStr)
+		filter += " AND reviewed_at >= ?"
+		filterArgs = append(filterArgs, sinceStr)
 	}
 	if untilStr != "" {
-		period += " AND reviewed_at <= ?"
-		periodArgs = append(periodArgs, untilStr)
+		filter += " AND reviewed_at <= ?"
+		filterArgs = append(filterArgs, untilStr)
 	}
 
-	globalQ := `SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'` + period
-	if err := r.db.QueryRow(globalQ, periodArgs...).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD); err != nil {
+	globalQ := `SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success'` + filter
+	if err := r.db.QueryRow(globalQ, filterArgs...).Scan(&stats.TotalReviews, &stats.TotalTokens, &stats.TotalCostUSD); err != nil {
 		return nil, fmt.Errorf("stats totals: %w", err)
 	}
 
-	last30Q := `SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')` + period
-	if err := r.db.QueryRow(last30Q, periodArgs...).Scan(&stats.ReviewsLast30d, &stats.CostLast30d); err != nil {
+	last30Q := `SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM review_events WHERE status='success' AND reviewed_at >= datetime('now','-30 days')` + filter
+	if err := r.db.QueryRow(last30Q, filterArgs...).Scan(&stats.ReviewsLast30d, &stats.CostLast30d); err != nil {
 		return nil, fmt.Errorf("stats last 30 days: %w", err)
 	}
 
 	byClientQ := `SELECT client_name, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)
-		FROM review_events WHERE status='success'` + period
-	byClientArgs := append([]any{}, periodArgs...)
-	if clientName != "" {
-		byClientQ += ` AND client_name = ?`
-		byClientArgs = append(byClientArgs, clientName)
-	}
-	byClientQ += ` GROUP BY client_name ORDER BY client_name`
+		FROM review_events WHERE status='success'` + filter + ` GROUP BY client_name ORDER BY client_name`
 
-	rows, err := r.db.Query(byClientQ, byClientArgs...)
+	rows, err := r.db.Query(byClientQ, filterArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("stats by client: %w", err)
 	}
