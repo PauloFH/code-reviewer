@@ -1,184 +1,159 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 	"github.com/paulofh/code-reviewer/internal/usecase"
 )
 
-// APIHandler serves all /api/v1/ routes.
-type APIHandler struct {
-	eventRepo  domain.ReviewEventRepository
-	reviewRepo domain.ReviewRepository
-	clientSvc  *usecase.ClientManagementService
-	uc         mrUsecase
+type apiHandler struct {
+	events  domain.ReviewEventRepository
+	clients *usecase.ClientManagementService
+	jobs    *jobs
 }
 
-func NewAPIHandler(
-	eventRepo domain.ReviewEventRepository,
-	reviewRepo domain.ReviewRepository,
-	clientSvc *usecase.ClientManagementService,
-	uc mrUsecase,
-) *APIHandler {
-	return &APIHandler{eventRepo: eventRepo, reviewRepo: reviewRepo, clientSvc: clientSvc, uc: uc}
-}
-
-// ── Events ────────────────────────────────────────────────────────────────────
-
-func (h *APIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+// eventFilter reads the dashboard filters; since/until are RFC 3339.
+func eventFilter(w http.ResponseWriter, r *http.Request) (domain.ReviewEventFilter, bool) {
+	q := r.URL.Query()
 	f := domain.ReviewEventFilter{
-		ClientName: r.URL.Query().Get("client"),
-		Search:     r.URL.Query().Get("search"),
-		Limit:      intQuery(r, "limit", 50),
+		ClientName: q.Get("client"),
+		Status:     domain.ReviewStatus(q.Get("status")),
+		Search:     q.Get("search"),
+		Limit:      intQuery(r, "limit", 0),
 		Offset:     intQuery(r, "offset", 0),
 	}
-	if s := r.URL.Query().Get("since"); s != "" {
-		f.Since, _ = time.Parse(time.RFC3339, s)
+	for key, dst := range map[string]*time.Time{"since": &f.Since, "until": &f.Until} {
+		if v := q.Get(key); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				http.Error(w, key+" must be an RFC 3339 timestamp", http.StatusBadRequest)
+				return f, false
+			}
+			*dst = t
+		}
 	}
-	if s := r.URL.Query().Get("until"); s != "" {
-		f.Until, _ = time.Parse(time.RFC3339, s)
-	}
-
-	events, err := h.eventRepo.ListEvents(f)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	total, err := h.eventRepo.CountEvents(f)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items": events,
-		"total": total,
-	})
+	return f, true
 }
 
-func (h *APIHandler) GetStats(w http.ResponseWriter, r *http.Request) {
-	clientName := r.URL.Query().Get("client")
-	sinceStr := r.URL.Query().Get("since")
-	untilStr := r.URL.Query().Get("until")
-	stats, err := h.eventRepo.GetStats(clientName, sinceStr, untilStr)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+func (h *apiHandler) listEvents(w http.ResponseWriter, r *http.Request) {
+	f, ok := eventFilter(w, r)
+	if !ok {
 		return
 	}
-	if stats != nil && stats.ByClient == nil {
+	events, err := h.events.ListEvents(f)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	total, err := h.events.CountEvents(f)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if events == nil {
+		events = []domain.ReviewEvent{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events, "total": total})
+}
+
+func (h *apiHandler) stats(w http.ResponseWriter, r *http.Request) {
+	f, ok := eventFilter(w, r)
+	if !ok {
+		return
+	}
+	stats, err := h.events.GetStats(f)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if stats.ByClient == nil {
 		stats.ByClient = []domain.ClientStat{}
 	}
 	writeJSON(w, http.StatusOK, stats)
 }
 
-func (h *APIHandler) GetDailyCosts(w http.ResponseWriter, r *http.Request) {
-	clientName := r.URL.Query().Get("client")
-	days := intQuery(r, "days", 30)
-	points, err := h.eventRepo.GetDailyCosts(clientName, days)
+func (h *apiHandler) dailyCosts(w http.ResponseWriter, r *http.Request) {
+	points, err := h.events.GetDailyCosts(r.URL.Query().Get("client"), intQuery(r, "days", 30))
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeError(w, err)
 		return
-	}
-	if points == nil {
-		points = []domain.DailyCostPoint{}
 	}
 	writeJSON(w, http.StatusOK, points)
 }
 
-// ── Clients ───────────────────────────────────────────────────────────────────
-
-func (h *APIHandler) ListClients(w http.ResponseWriter, r *http.Request) {
-	clients, err := h.clientSvc.ListClients()
+func (h *apiHandler) listClients(w http.ResponseWriter, r *http.Request) {
+	clients, err := h.clients.ListClients()
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, redactClients(clients))
+	for i := range clients {
+		clients[i] = redactClient(clients[i])
+	}
+	writeJSON(w, http.StatusOK, clients)
 }
 
-func (h *APIHandler) GetClient(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	client, err := h.clientSvc.GetClient(name)
+func (h *apiHandler) getClient(w http.ResponseWriter, r *http.Request) {
+	client, err := h.clients.GetClient(r.PathValue("name"))
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if client == nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, redactClient(*client))
 }
 
-func (h *APIHandler) CreateClient(w http.ResponseWriter, r *http.Request) {
+func (h *apiHandler) createClient(w http.ResponseWriter, r *http.Request) {
 	var c domain.Client
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeJSON(w, r, &c) {
 		return
 	}
-	created, err := h.clientSvc.CreateClient(c)
+	created, err := h.clients.CreateClient(c)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, redactClient(*created))
 }
 
-func (h *APIHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
+func (h *apiHandler) updateClient(w http.ResponseWriter, r *http.Request) {
 	oldName := r.PathValue("name")
 	var c domain.Client
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeJSON(w, r, &c) {
 		return
 	}
-
-	// Secrets are redacted on read (see redactClient), so the dashboard never
-	// holds the real token/secret. Preserve the stored values when the update
-	// omits them (empty) or echoes back the redaction sentinel, otherwise
-	// editing any other field would wipe the credentials.
-	if isRedactedOrEmpty(c.Token) || isRedactedOrEmpty(c.WebhookSecret) {
-		existing, err := h.clientSvc.GetClient(oldName)
+	// Reads never return the real token/secret, so an empty or redacted value
+	// means "keep the stored one"; otherwise editing any other field would wipe them.
+	if keepSecret(c.Token) || keepSecret(c.WebhookSecret) {
+		existing, err := h.clients.GetClient(oldName)
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			writeError(w, err)
 			return
 		}
-		if existing == nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if isRedactedOrEmpty(c.Token) {
+		if keepSecret(c.Token) {
 			c.Token = existing.Token
 		}
-		if isRedactedOrEmpty(c.WebhookSecret) {
+		if keepSecret(c.WebhookSecret) {
 			c.WebhookSecret = existing.WebhookSecret
 		}
 	}
-
-	updated, err := h.clientSvc.UpdateClient(oldName, c)
+	updated, err := h.clients.UpdateClient(oldName, c)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, redactClient(*updated))
 }
 
-func (h *APIHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := h.clientSvc.DeleteClient(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+func (h *apiHandler) deleteClient(w http.ResponseWriter, r *http.Request) {
+	if err := h.clients.DeleteClient(r.PathValue("name")); err != nil {
+		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-// redactedSecret is the placeholder returned in place of real credentials on
-// read. UpdateClient treats an incoming value equal to it as "unchanged".
 const redactedSecret = "***"
 
 func redactClient(c domain.Client) domain.Client {
@@ -187,70 +162,28 @@ func redactClient(c domain.Client) domain.Client {
 	return c
 }
 
-// isRedactedOrEmpty reports whether an incoming secret should be treated as
-// "keep the stored value" rather than a real new secret.
-func isRedactedOrEmpty(s string) bool {
-	return s == "" || s == redactedSecret
-}
+func keepSecret(s string) bool { return s == "" || s == redactedSecret }
 
-func redactClients(clients []domain.Client) []domain.Client {
-	out := make([]domain.Client, len(clients))
-	for i, c := range clients {
-		out[i] = redactClient(c)
+// reanalyze re-runs the review of an MR from the dashboard.
+func (h *apiHandler) reanalyze(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClientName string `json:"client_name"`
+		ProjectRef string `json:"project_ref"`
+		MRIID      int64  `json:"mr_iid"`
 	}
-	return out
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func intQuery(r *http.Request, key string, def int) int {
-	if v := r.URL.Query().Get(key); v != "" {
-		n, err := strconv.Atoi(v)
-		if err == nil {
-			return n
-		}
-	}
-	return def
-}
-
-// ── Re-analyze ───────────────────────────────────────────────────────────────
-
-type reanalyzeRequest struct {
-	ClientName string `json:"client_name"`
-	ProjectRef string `json:"project_ref"`
-	MRIID      int64  `json:"mr_iid"`
-}
-
-func (h *APIHandler) Reanalyze(w http.ResponseWriter, r *http.Request) {
-	var req reanalyzeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-
 	if req.ClientName == "" || req.ProjectRef == "" || req.MRIID == 0 {
-		http.Error(w, "client_name, project_ref, and mr_iid are required", http.StatusBadRequest)
+		writeError(w, domain.Invalid("client_name, project_ref, and mr_iid are required"))
 		return
 	}
-
-	if err := h.reviewRepo.ClearReview(req.ClientName, req.ProjectRef, req.MRIID); err != nil {
-		http.Error(w, "failed to clear review record", http.StatusInternalServerError)
-		return
-	}
-
-	event := &domain.WebhookEvent{
+	h.jobs.run(&domain.WebhookEvent{
 		ClientName:  req.ClientName,
 		ProjectRef:  req.ProjectRef,
 		MRIID:       req.MRIID,
 		Action:      "reanalyze",
 		IsReanalyze: true,
-	}
-
-	go func() { _ = h.uc.Execute(event) }()
-
+	})
 	w.WriteHeader(http.StatusAccepted)
 }

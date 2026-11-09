@@ -55,19 +55,25 @@ const prompts = EMPTY ? [] : [
   { id: 2, name: 'Segurança', system_prompt: '<p>Foque em vulnerabilidades.</p>', output_template: '## Riscos', created_at: stamp, updated_at: stamp },
 ]
 const promptAssignments = EMPTY ? [] : [
-  { id: 1, prompt_id: 1, prompt_name: 'Padrão', scope: 'global', client_name: '', project_ref: '' },
-  { id: 2, prompt_id: 2, prompt_name: 'Segurança', scope: 'client', client_name: 'globex', project_ref: '' },
+  { id: 1, target_id: 1, target_name: 'Padrão', scope: 'global', client_name: '', project_ref: '' },
+  { id: 2, target_id: 2, target_name: 'Segurança', scope: 'client', client_name: 'globex', project_ref: '' },
 ]
 const aiConfigs = EMPTY ? [] : [
   { id: 1, name: 'Claude Sonnet', provider: 'claude', mode: 'api', base_url: '', model: 'claude-sonnet-5-5', has_api_key: true, account_connected: false, oauth_expires_at: '', price_per_m_input_tokens: 3, price_per_m_output_tokens: 15, max_tokens: 8192, timeout_seconds: 120, created_at: stamp, updated_at: stamp },
   { id: 2, name: 'Gemini', provider: 'gemini', mode: 'api', base_url: '', model: 'gemini-2.5-pro', has_api_key: true, account_connected: false, oauth_expires_at: '', price_per_m_input_tokens: 1.25, price_per_m_output_tokens: 10, max_tokens: 8192, timeout_seconds: 120, created_at: stamp, updated_at: stamp },
 ]
-const aiAssignments = EMPTY ? [] : [{ id: 1, config_id: 1, config_name: 'Claude Sonnet', scope: 'global', client_name: '', project_ref: '' }]
+const aiAssignments = EMPTY ? [] : [{ id: 1, target_id: 1, target_name: 'Claude Sonnet', scope: 'global', client_name: '', project_ref: '' }]
+const aiProviders = [
+  { id: 'openai', label: 'OpenAI', default_base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', supports_account: false, default_max_tokens: 0 },
+  { id: 'claude', label: 'Claude (Anthropic)', default_base_url: 'https://api.anthropic.com', default_model: 'claude-sonnet-4-5', supports_account: true, default_max_tokens: 4096 },
+  { id: 'gemini', label: 'Google Gemini', default_base_url: 'https://generativelanguage.googleapis.com/v1beta', default_model: 'gemini-flash-latest', supports_account: false, default_max_tokens: 0 },
+  { id: 'deepseek', label: 'DeepSeek', default_base_url: 'https://api.deepseek.com/v1', default_model: 'deepseek-chat', supports_account: false, default_max_tokens: 0 },
+]
 const profiles = EMPTY ? [] : [
   { id: 1, name: 'Somente diff', include_related: false, agentic: false, execution: false, max_iterations: 0, created_at: stamp, updated_at: stamp },
   { id: 2, name: 'Completo', include_related: true, agentic: true, execution: false, max_iterations: 12, created_at: stamp, updated_at: stamp },
 ]
-const profileAssignments = EMPTY ? [] : [{ id: 1, profile_id: 1, profile_name: 'Somente diff', scope: 'global', client_name: '', project_ref: '' }]
+const profileAssignments = EMPTY ? [] : [{ id: 1, target_id: 1, target_name: 'Somente diff', scope: 'global', client_name: '', project_ref: '' }]
 const users = [
   { id: 1, username: 'admin', role: 'super', created_at: stamp, updated_at: stamp },
   ...(EMPTY ? [] : [
@@ -94,6 +100,12 @@ const send = (res, code, body) => {
   res.end(body === undefined ? '' : JSON.stringify(body))
 }
 
+// Erro como o Go (http.Error): texto puro com quebra de linha no fim.
+const fail = (res, code, msg) => {
+  res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' })
+  res.end(msg + '\n')
+}
+
 const readBody = (req) => new Promise((resolve) => {
   let raw = ''
   req.on('data', (c) => { raw += c })
@@ -117,7 +129,7 @@ createServer(async (req, res) => {
 
   if (m === 'POST' && path === '/auth/login') {
     const b = await readBody(req)
-    if (!b.username || !b.password) return send(res, 401, { error: 'credenciais inválidas' })
+    if (!b.username || !b.password) return fail(res, 401, 'credenciais inválidas')
     return send(res, 200, { token: 'mock-token' })
   }
   if (m === 'GET' && path === '/auth/me') return send(res, 200, { id: 1, username: 'admin', role: 'super' })
@@ -139,7 +151,8 @@ createServer(async (req, res) => {
   if (m === 'GET' && path === '/events') {
     const client = q.get('client')
     const search = (q.get('search') || '').toLowerCase()
-    let items = events.filter((e) => (!client || e.client_name === client) &&
+    const status = q.get('status')
+    let items = events.filter((e) => (!client || e.client_name === client) && (!status || e.status === status) &&
       (!search || `${e.mr_title} ${e.project_ref}`.toLowerCase().includes(search)))
     const total = items.length
     const offset = Number(q.get('offset')) || 0
@@ -155,23 +168,30 @@ createServer(async (req, res) => {
   if (r) {
     if (parts[1] === 'assignments') {
       if (m === 'GET') return send(res, 200, r.assignments || [])
+      if (m === 'PUT') {
+        const b = await readBody(req)
+        if (!b.target_id) return fail(res, 400, 'target_id obrigatório')
+        if (b.scope !== 'global' && !b.client_name) return fail(res, 400, 'client_name obrigatório para este escopo')
+        if (b.scope === 'project' && !b.project_ref) return fail(res, 400, 'project_ref obrigatório para o escopo project')
+      }
       return send(res, 204)
     }
+    if (parts[0] === 'ai-configs' && parts[1] === 'providers' && m === 'GET') return send(res, 200, aiProviders)
     if (parts[0] === 'ai-configs' && parts[1] === 'oauth') {
       return send(res, 200, parts[3] === 'start' ? { authorize_url: 'https://claude.ai/oauth/authorize?mock=1', state: 'mock-state' } : aiConfigs[0] ?? {})
     }
     if (parts[0] === 'ai-configs' && parts[2] === 'test' && m === 'POST') {
-      return send(res, 200, { ok: true, review_markdown: '**Revisão de teste**\n\nNenhum problema encontrado.', inline_comments: null, usage: { PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160 } })
+      return send(res, 200, { ok: true, review_markdown: '**Revisão de teste**\n\nNenhum problema encontrado.', inline_comments: null, usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 } })
     }
     if (parts.length === 1) {
       if (m === 'GET') return send(res, 200, r.list)
       if (m === 'POST') return send(res, 201, { id: nextId++, created_at: stamp, updated_at: stamp, ...(await readBody(req)) })
     } else {
       const item = r.list.find((x) => String(x[r.key]) === decodeURIComponent(parts[1]))
-      if (m === 'GET') return item ? send(res, 200, item) : send(res, 404, { error: 'não encontrado' })
+      if (m === 'GET') return item ? send(res, 200, item) : fail(res, 404, 'não encontrado')
       if (m === 'PUT') return send(res, 200, { ...(item || {}), ...(await readBody(req)) })
       if (m === 'DELETE') return send(res, 204)
     }
   }
-  send(res, 404, { error: 'rota não encontrada' })
+  fail(res, 404, 'rota não encontrada')
 }).listen(PORT, () => console.log(`API fictícia em :${PORT}${EMPTY ? ' (--empty)' : ''}`))

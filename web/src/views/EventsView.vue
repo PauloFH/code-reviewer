@@ -1,6 +1,5 @@
 <template>
   <div class="page">
-    <!-- Page head -->
     <div class="page-head">
       <div>
         <div class="page-eyebrow">histórico</div>
@@ -15,24 +14,23 @@
       </div>
     </div>
 
-    <!-- Filterbar -->
     <div class="filterbar">
       <div class="field">
         <AppIcon name="search" :size="13" />
         <input v-model="filterSearch" aria-label="Buscar" placeholder="Buscar por título, autor ou hash…" @keyup.enter="applyFilter" />
       </div>
-      <div class="field">
+      <div v-if="clients.length" class="field">
         <label for="filtro-cliente">Cliente</label>
         <select id="filtro-cliente" v-model="filterClient">
           <option value="">todos</option>
-          <option v-for="c in clients" :key="c" :value="c">{{ c }}</option>
+          <option v-for="c in clients" :key="c.name" :value="c.name">{{ c.name }}</option>
         </select>
       </div>
       <div class="field">
         <label for="filtro-situacao">Situação</label>
         <select id="filtro-situacao" v-model="filterStatus">
           <option value="">todas</option>
-          <option v-for="s in statuses" :key="s" :value="s">{{ statusMark(s).label }}</option>
+          <option v-for="s in EVENT_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
       </div>
       <div class="field">
@@ -42,17 +40,15 @@
         <input v-model="filterUntil" type="date" aria-label="Data final" @change="applyFilter" />
       </div>
       <button class="btn primary" type="button" @click="applyFilter">Aplicar</button>
-      <span class="counter">{{ formatCount(total) }} resultados · {{ formatCount(totalTokens) }} tokens · {{ formatUsd(totalCost) }}</span>
+      <span class="counter">{{ formatCount(total) }} {{ total === 1 ? 'resultado' : 'resultados' }}</span>
     </div>
 
-    <!-- Table -->
     <div class="card">
       <EventsTable :events="events" :loading="loading" />
     </div>
 
-    <!-- Pagination -->
     <div class="pagination">
-      <span>Página {{ page + 1 }} de {{ totalPages }} · {{ formatCount(total) }} resultados</span>
+      <span>Página {{ page + 1 }} de {{ totalPages }}</span>
       <div class="pagination-controls">
         <button class="btn sm" type="button" :disabled="page === 0" @click="prevPage">
           <AppIcon name="chevron-left" :size="12" />
@@ -71,34 +67,30 @@
 import { ref, computed, onMounted } from 'vue'
 import EventsTable from '@/components/EventsTable.vue'
 import AppIcon from '@/components/AppIcon.vue'
-import { statusMark } from '@/brand/status'
-import { formatCount, formatUsd } from '@/brand/format'
+import { formatCount } from '@/brand/format'
+import { toCsv } from '@/brand/csv'
 import { listEvents, type ReviewEvent } from '@/api/events'
-import { listClients } from '@/api/clients'
+import { apiErrorMessage } from '@/api/http'
+import { useToastStore } from '@/stores/toast'
+import { useClients } from '@/composables/useClients'
+import { EVENT_STATUSES, type EventStatus } from '@/domain'
 
+const PAGE_SIZE = 25
+
+const toast = useToastStore()
+const clients = useClients()
 const events = ref<ReviewEvent[]>([])
-const clients = ref<string[]>([])
 const total = ref(0)
 const page = ref(0)
 const loading = ref(false)
-const pageSize = 25
-const statuses = ['success', 'skipped', 'error']
 
 const filterSearch = ref('')
 const filterClient = ref('')
-const filterStatus = ref('')
+const filterStatus = ref<EventStatus | ''>('')
 const filterSince = ref('')
 const filterUntil = ref('')
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-
-const totalTokens = computed(() => {
-  return events.value.reduce((acc, e) => acc + (e.prompt_tokens || 0) + (e.completion_tokens || 0), 0)
-})
-
-const totalCost = computed(() => {
-  return events.value.reduce((acc, e) => acc + (e.cost_usd || 0), 0)
-})
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
 async function load() {
   loading.value = true
@@ -106,24 +98,18 @@ async function load() {
     const res = await listEvents({
       client: filterClient.value || undefined,
       search: filterSearch.value || undefined,
+      status: filterStatus.value || undefined,
       since: filterSince.value ? filterSince.value + 'T00:00:00Z' : undefined,
       until: filterUntil.value ? filterUntil.value + 'T23:59:59Z' : undefined,
-      limit: pageSize,
-      offset: page.value * pageSize,
+      limit: PAGE_SIZE,
+      offset: page.value * PAGE_SIZE,
     })
     events.value = res.items ?? []
     total.value = res.total
+  } catch (e) {
+    toast.push(apiErrorMessage(e, 'Erro ao carregar revisões'), 'error')
   } finally {
     loading.value = false
-  }
-}
-
-async function loadClients() {
-  try {
-    const c = await listClients()
-    clients.value = c.map((cl: { name: string }) => cl.name)
-  } catch {
-    // ignore
   }
 }
 
@@ -142,14 +128,14 @@ function nextPage() {
   load()
 }
 
+// shortcut: exporta só a página visível; exportar tudo pediria um endpoint de exportação no backend.
 function exportCSV() {
-  const headers = ['Time', 'Client', 'Project', 'MR IID', 'MR Title', 'Author', 'Status', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost (USD)', 'Duration (ms)', 'Reviewed At']
-  const rows = events.value.map(e => [
-    e.reviewed_at,
+  const header = ['Client', 'Project', 'MR IID', 'MR Title', 'Author', 'Status', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost (USD)', 'Duration (ms)', 'Reviewed At']
+  const rows = events.value.map((e) => [
     e.client_name,
     e.project_ref,
     e.mr_iid,
-    `"${(e.mr_title || '').replace(/"/g, '""')}"`,
+    e.mr_title,
     e.author_username,
     e.status,
     e.prompt_tokens,
@@ -159,8 +145,7 @@ function exportCSV() {
     e.duration_ms,
     e.reviewed_at,
   ])
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob([toCsv([header, ...rows])], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -169,26 +154,88 @@ function exportCSV() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(() => {
-  load()
-  loadClients()
-})
+onMounted(load)
 </script>
 
 <style scoped>
-.page {
+.filterbar {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 16px 0 24px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 24px;
+}
+
+.filterbar .field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--field-border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  max-width: 100%;
+}
+
+.filterbar .field svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.filterbar .field input,
+.filterbar .field select {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  font: inherit;
+  min-width: 100px;
+}
+
+.filterbar .field:focus-within {
+  border-color: var(--accent);
+}
+
+.filterbar .field label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+}
+
+/* largura reservada: a linha não quebra quando os dados chegam */
+.filterbar .counter {
+  margin-left: auto;
+  min-width: 14ch;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 6px;
 }
 
 .seta {
   color: var(--muted);
-}
-
-.counter {
-  overflow-wrap: anywhere;
-  /* reserva a largura do texto com números grandes: a linha não quebra quando os dados chegam */
-  min-width: min(48ch, 100%);
 }
 </style>

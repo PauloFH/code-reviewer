@@ -1,7 +1,7 @@
 <script setup lang="ts">
 export type IconName =
   | 'plus' | 'trash' | 'edit' | 'close' | 'refresh' | 'activity' | 'document' | 'layers'
-  | 'check' | 'play' | 'settings' | 'merge' | 'external' | 'search' | 'calendar'
+  | 'check' | 'play' | 'settings' | 'merge' | 'search' | 'calendar'
   | 'chevron-left' | 'chevron-right' | 'sun' | 'moon' | 'logout' | 'menu' | 'keyboard'
 
 withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 14 })
@@ -20,7 +20,6 @@ const PATHS: Record<IconName, string> = {
   play: 'M7 4l13 8-13 8z',
   settings: 'M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2M12 4h4v4h-4zM6 10h4v4H6zM14 16h4v4h-4z',
   merge: 'M4 3h4v4H4zM16 3h4v4h-4zM4 17h4v4H4zM6 7v10M18 7v3L6 14',
-  external: 'M14 4h6v6M20 4L10 14M18 14v6H4V6h6',
   search: 'M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zM15 15l6 6',
   calendar: 'M4 5h16v16H4zM4 10h16M8 3v4M16 3v4',
   'chevron-left': 'M15 5l-7 7 7 7',

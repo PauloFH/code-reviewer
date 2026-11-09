@@ -1,23 +1,19 @@
 <template>
   <div>
-    <SkeletonRows v-if="loading && !events.length" :cols="9" :rows="25" />
+    <SkeletonRows v-if="loading && !events.length" :cols="COLUMNS.length" :rows="25" />
     <div v-else class="scroll-x">
       <table class="table">
         <thead>
           <tr>
-            <th>Horário</th>
-            <th>Cliente</th>
-            <th>MR</th>
-            <th class="situacao">Situação</th>
-            <th class="num">Tokens</th>
-            <th class="num">Custo</th>
-            <th class="num">Duração</th>
-            <th class="acao"><span class="sr">Ações</span></th>
+            <th v-for="c in COLUMNS" :key="c.label" :class="c.class">
+              <span v-if="c.class === 'acao'" class="sr-only">{{ c.label }}</span>
+              <template v-else>{{ c.label }}</template>
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="e in events" :key="e.id">
-            <td class="mono">{{ fmtDate(e.reviewed_at) }}</td>
+            <td class="mono">{{ formatDateTime(e.reviewed_at) }}</td>
             <td class="muted cliente">{{ e.client_name }}</td>
             <td class="mr-cell">
               <a v-if="e.mr_url" :href="e.mr_url" target="_blank" rel="noopener" class="mr-link" :title="mrTitle(e)">
@@ -33,7 +29,7 @@
             </td>
             <td class="num mono">{{ formatCount(e.total_tokens) }}</td>
             <td class="num mono">{{ formatUsd(e.cost_usd) }}</td>
-            <td class="num mono">{{ fmtDuration(e.duration_ms) }}</td>
+            <td class="num mono">{{ formatDuration(e.duration_ms) }}</td>
             <td>
               <button
                 class="btn sm ghost"
@@ -48,7 +44,7 @@
             </td>
           </tr>
           <tr v-if="events.length === 0">
-            <td colspan="8" class="vazio">Nenhuma revisão encontrada</td>
+            <td :colspan="COLUMNS.length" class="vazio">Nenhuma revisão encontrada</td>
           </tr>
         </tbody>
       </table>
@@ -61,31 +57,27 @@ import { ref } from 'vue'
 import SkeletonRows from '@/components/SkeletonRows.vue'
 import type { ReviewEvent } from '@/api/events'
 import { reanalyze } from '@/api/reanalyze'
+import { apiErrorMessage } from '@/api/http'
 import { useToastStore } from '@/stores/toast'
 import AppIcon from '@/components/AppIcon.vue'
-import { statusMark } from '@/brand/status'
-import { formatCount, formatUsd } from '@/brand/format'
+import { statusMark } from '@/domain'
+import { formatCount, formatDateTime, formatDuration, formatUsd, mrTitle } from '@/brand/format'
 
 defineProps<{ events: ReviewEvent[]; loading: boolean }>()
 
+const COLUMNS = [
+  { label: 'Horário' },
+  { label: 'Cliente' },
+  { label: 'MR' },
+  { label: 'Situação', class: 'situacao' },
+  { label: 'Tokens', class: 'num' },
+  { label: 'Custo', class: 'num' },
+  { label: 'Duração', class: 'num' },
+  { label: 'Ações', class: 'acao' },
+]
+
 const toast = useToastStore()
 const reanalyzing = ref<number | null>(null)
-
-function fmtDate(ts: string) {
-  return new Date(ts).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-const mrTitle = (e: ReviewEvent) => e.mr_title || '#' + e.mr_iid
-
-function fmtDuration(ms: number) {
-  return (ms / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' s'
-}
 
 async function handleReanalyze(e: ReviewEvent) {
   reanalyzing.value = e.id
@@ -96,8 +88,8 @@ async function handleReanalyze(e: ReviewEvent) {
       mr_iid: e.mr_iid,
     })
     toast.push('Re-análise iniciada', 'success')
-  } catch {
-    toast.push('Erro ao re-analisar', 'error')
+  } catch (err) {
+    toast.push(apiErrorMessage(err, 'Erro ao re-analisar'), 'error')
   } finally {
     reanalyzing.value = null
   }
@@ -105,6 +97,10 @@ async function handleReanalyze(e: ReviewEvent) {
 </script>
 
 <style scoped>
+.scroll-x {
+  overflow-x: auto;
+}
+
 /* Abaixo disso a tabela rola dentro de .scroll-x em vez de espremer as colunas. */
 .table {
   min-width: 760px;
@@ -135,7 +131,7 @@ async function handleReanalyze(e: ReviewEvent) {
 
 .acao {
   width: 60px;
-  position: relative; /* ancora o .sr, que senão escapa do .scroll-x e alarga a página */
+  position: relative; /* ancora o .sr-only, que senão escapa do .scroll-x e alarga a página */
 }
 
 .mr-cell {
@@ -173,15 +169,6 @@ async function handleReanalyze(e: ReviewEvent) {
 
 .sinal {
   font-weight: 500;
-}
-
-.sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 .num {

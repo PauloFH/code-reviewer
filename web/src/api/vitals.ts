@@ -1,3 +1,4 @@
+import { API_BASE, authHeader } from './http'
 import { clsFromShifts, inpFromEvents, type InteractionEntry, type ShiftEntry } from '@/brand/vitals'
 
 // Medidas de um carregamento de página, em ms (CLS é adimensional). Ausente = o navegador não mediu.
@@ -19,8 +20,8 @@ function observe(type: string, onEntries: (list: PerformanceEntry[]) => void, ex
 }
 
 // Coleta TTFB, FCP, LCP, CLS e INP do carregamento atual e envia uma vez, quando a aba some.
-// getToken é lido só no envio: a página de login começa sem token e o envio é ignorado.
-export function startVitals(getToken: () => string | null): void {
+// O token é lido só no envio: a página de login começa sem token e o envio é ignorado.
+export function startVitals(): void {
   if (typeof PerformanceObserver === 'undefined') return
   const path = location.pathname
   const shifts: ShiftEntry[] = []
@@ -39,8 +40,8 @@ export function startVitals(getToken: () => string | null): void {
 
   let sent = false
   function send() {
-    const token = getToken()
-    if (sent || !token) return
+    const auth = authHeader()
+    if (sent || !auth.Authorization) return
     sent = true
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
     const inp = inpFromEvents(events)
@@ -56,10 +57,10 @@ export function startVitals(getToken: () => string | null): void {
       inp: inp ? Math.round(inp) : undefined, // sem interação real não há INP
     }
     // keepalive sobrevive ao fechamento da aba e, ao contrário do sendBeacon, aceita o header de auth.
-    fetch('/api/v1/vitals', {
+    fetch(`${API_BASE}/vitals`, {
       method: 'POST',
       keepalive: true,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify(body),
     }).catch(() => {})
   }

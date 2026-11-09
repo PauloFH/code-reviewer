@@ -1,11 +1,12 @@
 package http
 
 import (
+	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -19,115 +20,93 @@ import (
 // jwtHeader is the fixed base64url-encoded header for HS256 JWTs.
 var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 
-// tokenTTL is the JWT validity window.
 const tokenTTL = 24 * time.Hour
 
-// AuthHandler handles /api/v1/auth/login and /api/v1/auth/me.
-type AuthHandler struct {
-	userRepo  domain.UserRepository
-	jwtSecret []byte
+type authHandler struct {
+	users  domain.UserRepository
+	secret []byte
 }
 
-func NewAuthHandler(userRepo domain.UserRepository, jwtSecret string) *AuthHandler {
-	secret := []byte(jwtSecret)
-	if len(secret) == 0 {
-		secret = make([]byte, 32)
-		_, _ = rand.Read(secret)
+func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
-	return &AuthHandler{userRepo: userRepo, jwtSecret: secret}
-}
-
-type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type loginResponse struct {
-	Token string `json:"token"`
-}
-
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-
-	user, err := h.userRepo.GetByUsername(req.Username)
-	if err != nil || user == nil {
+	user, err := h.users.GetByUsername(req.Username)
+	if errors.Is(err, domain.ErrNotFound) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-
-	token, err := h.issueToken(user)
-	if err != nil {
-		http.Error(w, "failed to issue token", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, loginResponse{Token: token})
+	writeJSON(w, http.StatusOK, map[string]string{"token": issueToken(user, h.secret)})
 }
 
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	claims, ok := userClaimsFromCtx(r)
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+func (h *authHandler) me(w http.ResponseWriter, r *http.Request) {
+	claims, _ := userClaimsFromCtx(r)
+	user, err := h.users.GetByID(claims.ID)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
-
-	user, err := h.userRepo.GetByID(claims.ID)
-	if err != nil || user == nil {
-		http.Error(w, "user not found", http.StatusNotFound)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, user)
 }
 
 // issueToken creates a signed HS256 JWT with id, sub, role, and exp claims.
-func (h *AuthHandler) issueToken(user *domain.User) (string, error) {
+func issueToken(user *domain.User, secret []byte) string {
 	now := time.Now().UTC()
 	payload := fmt.Sprintf(
 		`{"id":%d,"sub":%q,"role":%q,"iat":%d,"exp":%d}`,
 		user.ID, user.Username, user.Role, now.Unix(), now.Add(tokenTTL).Unix(),
 	)
-	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
-
-	signingInput := jwtHeader + "." + encodedPayload
-	mac := hmac.New(sha256.New, h.jwtSecret)
+	signingInput := jwtHeader + "." + base64.RawURLEncoding.EncodeToString([]byte(payload))
+	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(signingInput))
-	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-
-	return signingInput + "." + sig, nil
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// jwtAuth returns a middleware that validates Bearer tokens and injects UserClaims into context.
-func jwtAuth(secret []byte) func(http.Handler) http.Handler {
+// UserClaims is the authenticated identity carried by the JWT.
+type UserClaims struct {
+	ID       int64
+	Username string
+	Role     domain.Role
+}
+
+type userClaimsKey struct{}
+
+func userClaimsFromCtx(r *http.Request) (UserClaims, bool) {
+	v, ok := r.Context().Value(userClaimsKey{}).(UserClaims)
+	return v, ok
+}
+
+// jwtAuth requires a valid Bearer token (or, with allowQuery, a ?token= one)
+// and puts its claims in the request context.
+func jwtAuth(secret []byte, allowQuery bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := r.URL.Query().Get("token")
-			if token == "" {
-				token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if allowQuery && token == "" {
+				token = r.URL.Query().Get("token")
 			}
-
 			claims, err := validateToken(token, secret)
 			if err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-
-			r = withUserClaims(r, *claims)
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userClaimsKey{}, *claims)))
 		})
 	}
 }
 
-// validateToken checks the JWT signature, expiry, and extracts claims.
 func validateToken(token string, secret []byte) (*UserClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -169,7 +148,6 @@ func validateToken(token string, secret []byte) (*UserClaims, error) {
 	}, nil
 }
 
-// HashPassword generates a bcrypt hash for the given password.
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

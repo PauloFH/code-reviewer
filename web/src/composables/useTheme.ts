@@ -18,3 +18,8 @@ function toggleTheme(): void {
 export function useTheme() {
   return { theme, toggleTheme }
 }
+
+// Canvas não entende var(--x): quem desenha lê o valor resolvido do token.
+export function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}

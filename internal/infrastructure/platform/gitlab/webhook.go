@@ -1,20 +1,33 @@
 package gitlab
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-// ValidateWebhook checks the X-Gitlab-Token header against the configured secret.
 func (c *Client) ValidateWebhook(w domain.RawWebhook) bool {
-	return w.Headers["x-gitlab-token"] == c.secret
+	secret := c.Client.WebhookSecret
+	return secret != "" && subtle.ConstantTimeCompare([]byte(w.Header("X-Gitlab-Token")), []byte(secret)) == 1
 }
 
-// ParseWebhook normalises a GitLab webhook into a domain.WebhookEvent.
-// Supports merge_request and note (comment) events.
+type project struct {
+	ID                int64  `json:"id"`
+	PathWithNamespace string `json:"path_with_namespace"`
+}
+
+func (p project) ref() string {
+	if p.PathWithNamespace != "" {
+		return p.PathWithNamespace
+	}
+	return strconv.FormatInt(p.ID, 10)
+}
+
+// ParseWebhook accepts merge_request events and /review or #revisar notes on an MR.
 func (c *Client) ParseWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error) {
 	var base struct {
 		ObjectKind string `json:"object_kind"`
@@ -35,12 +48,8 @@ func (c *Client) ParseWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error)
 
 func (c *Client) parseMergeRequestWebhook(w domain.RawWebhook) (*domain.WebhookEvent, error) {
 	var payload struct {
-		Project struct {
-			ID                int64  `json:"id"`
-			PathWithNamespace string `json:"path_with_namespace"`
-		} `json:"project"`
+		Project          project `json:"project"`
 		ObjectAttributes struct {
-			ID     int64  `json:"id"`
 			IID    int64  `json:"iid"`
 			Action string `json:"action"`
 		} `json:"object_attributes"`
@@ -50,16 +59,10 @@ func (c *Client) parseMergeRequestWebhook(w domain.RawWebhook) (*domain.WebhookE
 		return nil, fmt.Errorf("gitlab: parsing merge_request webhook: %w", err)
 	}
 
-	projectRef := payload.Project.PathWithNamespace
-	if projectRef == "" {
-		projectRef = fmt.Sprintf("%d", payload.Project.ID)
-	}
-
 	return &domain.WebhookEvent{
-		ClientName: c.name,
-		ProjectRef: projectRef,
+		ClientName: c.Client.Name,
+		ProjectRef: payload.Project.ref(),
 		MRIID:      payload.ObjectAttributes.IID,
-		MRID:       payload.ObjectAttributes.ID,
 		Action:     payload.ObjectAttributes.Action,
 	}, nil
 }
@@ -72,13 +75,9 @@ func (c *Client) parseNoteWebhook(w domain.RawWebhook) (*domain.WebhookEvent, er
 		} `json:"object_attributes"`
 		MergeRequest struct {
 			IID int64 `json:"iid"`
-			ID  int64 `json:"id"`
 		} `json:"merge_request"`
-		Project struct {
-			ID                int64  `json:"id"`
-			PathWithNamespace string `json:"path_with_namespace"`
-		} `json:"project"`
-		User struct {
+		Project project `json:"project"`
+		User    struct {
 			Username string `json:"username"`
 		} `json:"user"`
 	}
@@ -91,43 +90,30 @@ func (c *Client) parseNoteWebhook(w domain.RawWebhook) (*domain.WebhookEvent, er
 		return nil, fmt.Errorf("gitlab: note not on MR, ignoring")
 	}
 
+	event := &domain.WebhookEvent{
+		ClientName:    c.Client.Name,
+		ProjectRef:    payload.Project.ref(),
+		MRIID:         payload.MergeRequest.IID,
+		Action:        "note",
+		IsReanalyze:   true,
+		CommentAuthor: payload.User.Username,
+	}
+
 	note := strings.TrimSpace(payload.ObjectAttributes.Note)
+	// "#revisar" alone or followed by whitespace and a justification.
 	if strings.HasPrefix(strings.ToLower(note), "#revisar") {
 		suffix := note[len("#revisar"):]
-		justification := strings.TrimSpace(suffix)
-		if justification == "" || suffix != strings.TrimLeft(suffix, " \t\r\n") {
-			projectRef := payload.Project.PathWithNamespace
-			if projectRef == "" {
-				projectRef = fmt.Sprintf("%d", payload.Project.ID)
-			}
-			return &domain.WebhookEvent{
-				ClientName: c.name, ProjectRef: projectRef, MRIID: payload.MergeRequest.IID, MRID: payload.MergeRequest.ID,
-				Action: "note", IsReanalyze: true, CommentAuthor: payload.User.Username, ReviewJustification: justification,
-			}, nil
+		if suffix == "" || strings.TrimLeft(suffix, " \t\r\n") != suffix {
+			event.ReviewJustification = strings.TrimSpace(suffix)
+			return event, nil
 		}
 	}
 	fields := strings.Fields(note)
 	if len(fields) == 0 || fields[0] != "/review" {
 		return nil, fmt.Errorf("gitlab: note is not /review command, ignoring")
 	}
-	requestedProfile := ""
 	if len(fields) > 1 {
-		requestedProfile = strings.ToLower(fields[1])
+		event.RequestedProfile = strings.ToLower(fields[1])
 	}
-
-	projectRef := payload.Project.PathWithNamespace
-	if projectRef == "" {
-		projectRef = fmt.Sprintf("%d", payload.Project.ID)
-	}
-
-	return &domain.WebhookEvent{
-		ClientName:       c.name,
-		ProjectRef:       projectRef,
-		MRIID:            payload.MergeRequest.IID,
-		MRID:             payload.MergeRequest.ID,
-		Action:           "note",
-		IsReanalyze:      true,
-		CommentAuthor:    payload.User.Username,
-		RequestedProfile: requestedProfile,
-	}, nil
+	return event, nil
 }

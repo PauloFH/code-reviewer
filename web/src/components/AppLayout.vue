@@ -2,7 +2,6 @@
   <div class="layout">
     <BackgroundMotion />
 
-    <!-- Mobile overlay -->
     <div v-if="menuOpen" class="overlay-bg" @click="menuOpen = false" />
 
     <aside :class="['sidebar', { open: menuOpen }]">
@@ -14,36 +13,10 @@
       </div>
 
       <nav class="nav" aria-label="Principal">
-        <div class="nav-section">
-          <div class="nav-label">Operação</div>
-          <router-link to="/dashboard" class="nav-item" @click="menuOpen = false">
-            <span>Painel</span><kbd v-if="atalhos" class="nav-kbd">P</kbd>
-          </router-link>
-          <router-link to="/events" class="nav-item" @click="menuOpen = false">
-            <span>Revisões</span><kbd v-if="atalhos" class="nav-kbd">R</kbd>
-          </router-link>
-          <router-link v-if="auth.canManageResources" to="/clients" class="nav-item" @click="menuOpen = false">
-            <span>Clientes</span><kbd v-if="atalhos" class="nav-kbd">C</kbd>
-          </router-link>
-        </div>
-
-        <div v-if="auth.canManageResources" class="nav-section">
-          <div class="nav-label">Configuração</div>
-          <router-link to="/prompts" class="nav-item" @click="menuOpen = false">
-            <span>Prompts</span><kbd v-if="atalhos" class="nav-kbd">O</kbd>
-          </router-link>
-          <router-link to="/ai-configs" class="nav-item" @click="menuOpen = false">
-            <span>Modelos</span><kbd v-if="atalhos" class="nav-kbd">M</kbd>
-          </router-link>
-          <router-link to="/review-profiles" class="nav-item" @click="menuOpen = false">
-            <span>Perfis de revisão</span><kbd v-if="atalhos" class="nav-kbd">F</kbd>
-          </router-link>
-        </div>
-
-        <div v-if="auth.canManageUsers" class="nav-section">
-          <div class="nav-label">Acesso</div>
-          <router-link to="/users" class="nav-item" @click="menuOpen = false">
-            <span>Usuários</span><kbd v-if="atalhos" class="nav-kbd">U</kbd>
+        <div v-for="sec in sections" :key="sec.name" class="nav-section">
+          <div class="nav-label">{{ sec.name }}</div>
+          <router-link v-for="n in sec.items" :key="n.path" :to="n.path" class="nav-item" @click="menuOpen = false">
+            <span>{{ n.label }}</span><kbd v-if="atalhos" class="nav-kbd">{{ n.key.toUpperCase() }}</kbd>
           </router-link>
         </div>
       </nav>
@@ -51,8 +24,10 @@
       <div class="sidebar-foot">
         <div class="user-row">
           <div class="user-info">
-            <div class="user-name">{{ auth.user?.username || 'admin' }}</div>
-            <div class="user-role">{{ formatRole(auth.user?.role || 'super') }}</div>
+            <template v-if="auth.user">
+              <div class="user-name">{{ auth.user.username }}</div>
+              <div class="user-role">{{ roleLabel(auth.user.role) }}</div>
+            </template>
           </div>
           <button class="icon-btn" title="Sair" aria-label="Sair" @click="handleLogout">
             <AppIcon name="logout" :size="14" />
@@ -70,7 +45,6 @@
       </div>
     </aside>
 
-    <!-- Main content -->
     <div class="body">
       <header class="topbar">
         <button class="menu-btn" aria-label="Abrir menu" @click="menuOpen = true">
@@ -86,12 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
-import { NAV_SHORTCUTS, isEditableTarget } from '@/brand/shortcuts'
-import { formatRole } from '@/brand/format'
+import { isEditableTarget } from '@/brand/shortcuts'
+import { NAV, roleLabel } from '@/domain'
 import { readStorage, writeStorage } from '@/brand/storage'
 import AppIcon from '@/components/AppIcon.vue'
 import BackgroundMotion from '@/components/BackgroundMotion.vue'
@@ -101,6 +75,14 @@ const auth = useAuthStore()
 const router = useRouter()
 const { theme, toggleTheme } = useTheme()
 const menuOpen = ref(false)
+
+const allowed = computed(() => NAV.filter((n) => auth.can(n.need)))
+// Seções na ordem em que aparecem pela primeira vez em NAV.
+const sections = computed(() => {
+  const bySection = new Map<string, (typeof NAV)[number][]>()
+  for (const n of allowed.value) bySection.set(n.section, [...(bySection.get(n.section) ?? []), n])
+  return [...bySection].map(([name, items]) => ({ name, items }))
+})
 // Atalhos de uma tecla podem ser desligados (WCAG 2.1.4); a escolha persiste.
 const atalhos = ref(readStorage('shortcuts') !== 'off')
 
@@ -123,9 +105,9 @@ function handleKeydown(e: KeyboardEvent) {
   if (isEditableTarget(e.target as HTMLElement | null)) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
 
-  const path = NAV_SHORTCUTS[e.key.toLowerCase()]
-  if (path) {
-    router.push(path)
+  const item = allowed.value.find((n) => n.key === e.key.toLowerCase())
+  if (item) {
+    router.push(item.path)
     e.preventDefault()
   }
 }
@@ -141,7 +123,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   background: var(--bg);
 }
 
-/* ── Sidebar ──────────────────────────────── */
 .sidebar {
   width: 236px;
   border-right: 1px solid var(--hairline);
@@ -188,7 +169,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   background: var(--panel);
 }
 
-/* Navigation */
 .nav {
   display: flex;
   flex-direction: column;
@@ -242,15 +222,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 .nav-kbd {
   font: 11px var(--font-mono);
   color: var(--muted);
-  border: 0; /* só a letra, sem a caixa do tokens.css */
-  padding: 0;
 }
 
 .nav-item.router-link-active .nav-kbd {
   color: var(--ink);
 }
 
-/* Sidebar footer */
 .sidebar-foot {
   margin-top: auto;
   padding-top: 14px;
@@ -312,7 +289,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   text-align: center;
 }
 
-/* ── Main body ─────────────────────────────── */
 .body {
   position: relative;
   z-index: 1;
@@ -367,7 +343,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   z-index: 190;
 }
 
-/* ── Responsive ────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);

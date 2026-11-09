@@ -2,96 +2,88 @@ package domain
 
 import "time"
 
+// Lookups of a single record return ErrNotFound when it does not exist;
+// writes return ErrConflict on a duplicate name and ErrNotFound for a missing id.
+
 // ReviewRepository tracks which MRs have already been reviewed per client,
 // guaranteeing idempotency across service restarts.
 type ReviewRepository interface {
 	ClaimReview(clientName, projectRef string, mrIID, mrID int64, username string) (bool, error)
+	// GetReviewHistory returns nil when no review body is stored.
 	GetReviewHistory(clientName, projectRef string, mrIID int64, username string) (*ReviewHistory, error)
 	CompleteReview(clientName, projectRef string, mrIID int64, username, headSHA, body string) error
 	ClearReview(clientName, projectRef string, mrIID int64) error
 }
 
-// UserRepository manages user accounts and authentication.
 type UserRepository interface {
 	GetByUsername(username string) (*User, error)
 	GetByID(id int64) (*User, error)
 	ListUsers() ([]User, error)
 	CreateUser(u User) (*User, error)
+	// UpdateUser keeps the stored password when u.Password is empty. UpdateUser
+	// and DeleteUser return ErrLastSuper instead of leaving no super user.
 	UpdateUser(id int64, u User) (*User, error)
 	DeleteUser(id int64) error
 	CountUsers() (int, error)
-	UserExists(username string) (bool, error)
 }
 
-// AIReviewer sends a diff to an AI API and returns the review text.
 type AIReviewer interface {
 	ReviewDiff(input ReviewInput) (*ReviewResult, error)
 }
 
-// ClientRepository manages persistent platform client configurations.
-// It is the source of truth after the initial seed from clients.json.
+// ClientRepository is the source of truth for clients after the first-boot
+// seed from clients.json.
 type ClientRepository interface {
 	ListClients() ([]Client, error)
 	GetClient(name string) (*Client, error)
 	CreateClient(c Client) (*Client, error)
 	UpdateClient(oldName string, c Client) (*Client, error)
 	DeleteClient(name string) error
-	// SeedFromConfigs inserts clients that don't already exist (one-time migration).
-	SeedFromConfigs(clients []Client) error
-	// CountClients returns the number of persisted clients.
+	// SeedClients inserts the clients whose name is not stored yet.
+	SeedClients(clients []Client) error
 	CountClients() (int, error)
 }
 
-// ReviewEventRepository records and queries the per-review event log.
 type ReviewEventRepository interface {
 	SaveEvent(event ReviewEvent) error
 	ListEvents(filter ReviewEventFilter) ([]ReviewEvent, error)
 	CountEvents(filter ReviewEventFilter) (int64, error)
-	GetStats(clientName, since, until string) (*ReviewStats, error)
+	// GetStats aggregates successful reviews; filter.Status is ignored.
+	GetStats(filter ReviewEventFilter) (*ReviewStats, error)
 	GetDailyCosts(clientName string, days int) ([]DailyCostPoint, error)
 }
 
-// AIConfigRepository manages the AI provider configuration library and
-// scope-based assignments. Credentials are encrypted at rest by the implementation.
+// Library is the CRUD of a named, id-keyed record type.
+type Library[T any] interface {
+	List() ([]T, error)
+	Get(id int64) (*T, error)
+	Create(v T) (*T, error)
+	Update(id int64, v T) (*T, error)
+	Delete(id int64) error
+}
+
+// Assignments places library records in the scope hierarchy.
+type Assignments interface {
+	ListAssignments() ([]Assignment, error)
+	// SetAssignment normalizes the scope key and replaces whatever occupied it.
+	SetAssignment(a Assignment) error
+	RemoveAssignment(k ScopeKey) error
+}
+
+// ScopedLibrary is a library whose records are resolved by scope; Resolve
+// returns nil when nothing applies to the project.
+type ScopedLibrary[T any] interface {
+	Library[T]
+	Assignments
+	Resolve(clientName, projectRef string) (*T, error)
+}
+
+type PromptRepository = ScopedLibrary[Prompt]
+
+type ReviewProfileRepository = ScopedLibrary[ReviewProfile]
+
+// AIConfigRepository encrypts credentials at rest.
 type AIConfigRepository interface {
-	ListConfigs() ([]AIConfig, error)
-	GetConfig(id int64) (*AIConfig, error)
-	CreateConfig(c AIConfig) (*AIConfig, error)
-	UpdateConfig(id int64, c AIConfig) (*AIConfig, error)
-	DeleteConfig(id int64) error
-	SetConfigAssignment(a AIConfigAssignment) error
-	RemoveConfigAssignment(scope, clientName, projectRef string) error
-	ListConfigAssignments() ([]AIConfigAssignment, error)
-	ResolveConfig(clientName, projectRef string) (*AIConfig, error)
+	ScopedLibrary[AIConfig]
 	UpdateOAuthTokens(id int64, access, refresh string, expiresAt time.Time) error
-}
-
-// PromptRepository manages the prompt library and scope-based assignments.
-type PromptRepository interface {
-	ListPrompts() ([]Prompt, error)
-	GetPrompt(id int64) (*Prompt, error)
-	CreatePrompt(p Prompt) (*Prompt, error)
-	UpdatePrompt(id int64, p Prompt) (*Prompt, error)
-	DeletePrompt(id int64) error
-	SetAssignment(a PromptAssignment) error
-	RemoveAssignment(scope, clientName, projectRef string) error
-	ListAssignments() ([]PromptAssignment, error)
-	ResolvePrompt(clientName, projectRef string) (*Prompt, error)
-}
-
-// ReviewProfileRepository manages the review profile library and scope-based
-// assignments, mirroring AIConfigRepository naming to avoid method collision
-// with PromptRepository on SQLiteRepository.
-type ReviewProfileRepository interface {
-	ListProfiles() ([]ReviewProfile, error)
-	GetProfile(id int64) (*ReviewProfile, error)
-	CreateProfile(p ReviewProfile) (*ReviewProfile, error)
-	UpdateProfile(id int64, p ReviewProfile) (*ReviewProfile, error)
-	DeleteProfile(id int64) error
-	SetProfileAssignment(a ReviewProfileAssignment) error
-	RemoveProfileAssignment(scope, clientName, projectRef string) error
-	ListProfileAssignments() ([]ReviewProfileAssignment, error)
-	// ResolveProfile returns the profile assigned to the most specific scope
-	// (project → client → global). Returns nil when nothing is assigned.
-	ResolveProfile(clientName, projectRef string) (*ReviewProfile, error)
 }

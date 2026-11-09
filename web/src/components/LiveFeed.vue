@@ -17,11 +17,11 @@
     <div v-for="e in feed" :key="e.id" class="ev" :class="{ novo: novos.has(e.id) }">
       <span class="sinal" :class="statusMark(e.status).tone">
         <span aria-hidden="true">{{ statusMark(e.status).sign }}</span>
-        <span class="sr">{{ statusMark(e.status).label }}</span>
+        <span class="sr-only">{{ statusMark(e.status).label }}</span>
       </span>
       <div class="corpo">
-        <a v-if="e.mr_url" class="titulo" :href="e.mr_url" target="_blank" rel="noopener">{{ title(e) }}</a>
-        <span v-else class="titulo">{{ title(e) }}</span>
+        <a v-if="e.mr_url" class="titulo" :href="e.mr_url" target="_blank" rel="noopener">{{ mrTitle(e) }}</a>
+        <span v-else class="titulo">{{ mrTitle(e) }}</span>
         <div class="meta">{{ meta(e) }}</div>
         <div v-if="e.error_message" class="erro" :class="{ falha: e.status === 'error' }">{{ e.error_message }}</div>
       </div>
@@ -33,15 +33,18 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { createEventSource, listEvents, type ReviewEvent } from '@/api/events'
+import { apiErrorMessage } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import AppIcon from '@/components/AppIcon.vue'
-import { statusMark } from '@/brand/status'
+import { statusMark } from '@/domain'
 import { createEventAdmitter } from '@/brand/feed'
-import { formatCount, formatRelative, formatUsd } from '@/brand/format'
+import { formatCount, formatDuration, formatRelative, formatUsd, mrTitle } from '@/brand/format'
 
 const props = defineProps<{ client?: string }>()
 const emit = defineEmits<{ connection: [connected: boolean] }>()
 const auth = useAuthStore()
+const toast = useToastStore()
 const feed = ref<ReviewEvent[]>([])
 // Só eventos que chegam por SSE ganham a passada de marca-texto; a carga inicial não.
 const novos = ref(new Set<number>())
@@ -66,7 +69,9 @@ async function loadRecent() {
   try {
     const res = await listEvents({ client: props.client, limit: 20 })
     feed.value = res.items || []
-  } catch { /* ignore */ }
+  } catch (e) {
+    toast.push(apiErrorMessage(e, 'Erro ao carregar revisões recentes'), 'error')
+  }
   loaded.value = true
 }
 
@@ -75,28 +80,24 @@ function startSSE() {
   es = createEventSource(auth.token)
   es.onopen = () => emit('connection', true)
   es.onerror = () => emit('connection', false)
+  // Mensagem ilegível lança no console e só ela se perde; a conexão continua.
   es.onmessage = (ev) => {
-    try {
-      const e: ReviewEvent = JSON.parse(ev.data)
-      if (props.client && e.client_name !== props.client) return
-      if (!admit(feed.value, e)) return
-      novos.value.add(e.id)
-      feed.value.unshift(e)
-      if (feed.value.length > 50) novos.value.delete(feed.value.pop()!.id)
-    } catch { /* ignore */ }
+    const e: ReviewEvent = JSON.parse(ev.data)
+    if (props.client && e.client_name !== props.client) return
+    if (!admit(feed.value, e)) return
+    novos.value.add(e.id)
+    feed.value.unshift(e)
+    if (feed.value.length > 50) novos.value.delete(feed.value.pop()!.id)
   }
 }
 
-const title = (e: ReviewEvent) => e.mr_title || 'MR #' + e.mr_iid
-
 function meta(e: ReviewEvent) {
-  const seconds = (e.duration_ms / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
   return [
     e.client_name,
     e.project_ref,
     e.total_tokens ? `${formatCount(e.total_tokens)} tokens` : 'sem tokens',
     formatUsd(e.cost_usd),
-    `${seconds}s`,
+    formatDuration(e.duration_ms),
   ].join(' · ')
 }
 </script>
@@ -155,15 +156,6 @@ function meta(e: ReviewEvent) {
 
 .sinal.warn {
   color: var(--warn);
-}
-
-.sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 .corpo {

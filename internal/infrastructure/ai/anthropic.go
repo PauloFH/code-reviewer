@@ -1,11 +1,7 @@
 package ai
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
@@ -16,134 +12,138 @@ const (
 	anthropicOAuthBeta = "oauth-2025-04-20"
 	// anthropicClaudeCodeBeta is part of the Claude Code OAuth request profile.
 	anthropicClaudeCodeBeta = "claude-code-20250219"
-	// claudeCodeIdentity is the system identity that OAuth subscription tokens
-	// are scoped to. Without it as the first system block, the Messages API
-	// rejects OAuth-authenticated requests.
+	// claudeCodeIdentity must be the first system block for OAuth subscription
+	// tokens; without it the Messages API rejects the request.
 	claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
 )
 
-// anthropicTransport talks to the native Anthropic Messages API. It supports
-// both API-key auth (mode=api) and subscription OAuth auth (mode=account).
-type anthropicTransport struct {
-	baseURL   string
-	model     string
-	token     string
-	mode      domain.AIConfigMode
-	maxTokens int
-	http      *http.Client
+// anthropicConversation talks to the native Messages API (POST /v1/messages).
+// No temperature is sent: it is deprecated for the subscription models.
+type anthropicConversation struct {
+	conn     connection
+	system   []anthropicBlock
+	tools    []anthropicTool
+	messages []anthropicMessage
 }
 
-type anthropicSystemBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type anthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string           `json:"role"`
+	Content []anthropicBlock `json:"content"`
+}
+
+// anthropicBlock covers the text, tool_use and tool_result content blocks.
+type anthropicBlock struct {
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
 }
 
 type anthropicRequest struct {
-	Model     string                 `json:"model"`
-	MaxTokens int                    `json:"max_tokens"`
-	System    []anthropicSystemBlock `json:"system"`
-	Messages  []anthropicMessage     `json:"messages"`
+	Model     string             `json:"model"`
+	MaxTokens int                `json:"max_tokens"`
+	System    []anthropicBlock   `json:"system"`
+	Tools     any                `json:"tools,omitempty"`
+	Messages  []anthropicMessage `json:"messages"`
 }
 
 type anthropicResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
+	Content    []anthropicBlock `json:"content"`
+	StopReason string           `json:"stop_reason"`
 	Usage      struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
 }
 
-func (t *anthropicTransport) review(sysPrompt, userPrompt string) (*domain.ReviewResult, error) {
-	system := []anthropicSystemBlock{{Type: "text", Text: sysPrompt}}
-	if t.mode == domain.AIModeAccount {
-		// OAuth tokens require the Claude Code identity as the first system block.
-		system = []anthropicSystemBlock{
-			{Type: "text", Text: claudeCodeIdentity},
-			{Type: "text", Text: sysPrompt},
+func newAnthropicConversation(conn connection, sysPrompt, userPrompt string, tools []toolSpec) *anthropicConversation {
+	system := []anthropicBlock{{Type: "text", Text: sysPrompt}}
+	if conn.mode == domain.AIModeAccount {
+		system = append([]anthropicBlock{{Type: "text", Text: claudeCodeIdentity}}, system...)
+	}
+	var at []anthropicTool
+	for _, s := range tools {
+		at = append(at, anthropicTool{Name: s.Name, Description: s.Description, InputSchema: s.Schema})
+	}
+	return &anthropicConversation{
+		conn:     conn,
+		system:   system,
+		tools:    at,
+		messages: []anthropicMessage{{Role: "user", Content: []anthropicBlock{{Type: "text", Text: userPrompt}}}},
+	}
+}
+
+func (a *anthropicConversation) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
+	if len(results) > 0 || nudge != "" {
+		blocks := make([]anthropicBlock, 0, len(results)+1)
+		for _, r := range results {
+			blocks = append(blocks, anthropicBlock{Type: "tool_result", ToolUseID: r.ID, Content: r.Output})
+		}
+		if nudge != "" {
+			blocks = append(blocks, anthropicBlock{Type: "text", Text: nudge})
+		}
+		a.messages = append(a.messages, anthropicMessage{Role: "user", Content: blocks})
+	}
+
+	maxTokens := a.conn.maxTokens
+	req := anthropicRequest{Model: a.conn.model, MaxTokens: maxTokens, System: a.system, Messages: a.messages}
+	if a.tools != nil {
+		if allowTools {
+			req.Tools = a.tools
+		} else {
+			req.Tools = []anthropicTool{}
+			req.MaxTokens = lastTurnMaxTokens(maxTokens)
 		}
 	}
 
-	maxTokens := t.maxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultMaxTokens
-	}
-
-	reqBody, err := json.Marshal(anthropicRequest{
-		Model:     t.model,
-		MaxTokens: maxTokens,
-		System:    system,
-		Messages:  []anthropicMessage{{Role: "user", Content: userPrompt}},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, t.baseURL+"/v1/messages", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-version", anthropicVersion)
-	if t.mode == domain.AIModeAccount {
-		req.Header.Set("Authorization", "Bearer "+t.token)
-		req.Header.Set("anthropic-beta", anthropicBetaHeader())
+	headers := map[string]string{"anthropic-version": anthropicVersion}
+	if a.conn.mode == domain.AIModeAccount {
+		headers["Authorization"] = "Bearer " + a.conn.token
+		headers["anthropic-beta"] = anthropicClaudeCodeBeta + "," + anthropicOAuthBeta
 	} else {
-		req.Header.Set("x-api-key", t.token)
-	}
-
-	resp, err := t.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
+		headers["x-api-key"] = a.conn.token
 	}
 
 	var out anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding response: %w", err)
+	if err := postJSON(a.conn.http, a.conn.baseURL+"/v1/messages", headers, req, &out); err != nil {
+		return agenticStep{}, err
 	}
 
-	content := collectAnthropicText(out)
-	if content == "" {
-		return nil, fmt.Errorf("ai: empty response from API")
-	}
-
-	body, comments := parseReviewPayload(content)
-
-	return &domain.ReviewResult{
-		Body:           body,
-		InlineComments: comments,
-		Usage: domain.TokenUsage{
-			PromptTokens:     out.Usage.InputTokens,
-			CompletionTokens: out.Usage.OutputTokens,
-			TotalTokens:      out.Usage.InputTokens + out.Usage.OutputTokens,
-		},
-	}, nil
-}
-
-func anthropicBetaHeader() string {
-	return anthropicClaudeCodeBeta + "," + anthropicOAuthBeta
-}
-
-func collectAnthropicText(resp anthropicResponse) string {
-	var out bytes.Buffer
-	for _, block := range resp.Content {
-		if block.Type == "text" {
-			out.WriteString(block.Text)
+	// The assistant turn must be recorded before the next tool_result message.
+	assistant := anthropicMessage{Role: "assistant"}
+	var text strings.Builder
+	var calls []toolCall
+	for _, b := range out.Content {
+		switch b.Type {
+		case "text":
+			text.WriteString(b.Text)
+			assistant.Content = append(assistant.Content, anthropicBlock{Type: "text", Text: b.Text})
+		case "tool_use":
+			assistant.Content = append(assistant.Content, anthropicBlock{Type: "tool_use", ID: b.ID, Name: b.Name, Input: b.Input})
+			calls = append(calls, toolCall{ID: b.ID, Name: b.Name, Input: b.Input})
 		}
 	}
-	return out.String()
+	a.messages = append(a.messages, assistant)
+
+	usage := domain.TokenUsage{
+		PromptTokens:     out.Usage.InputTokens,
+		CompletionTokens: out.Usage.OutputTokens,
+		TotalTokens:      out.Usage.InputTokens + out.Usage.OutputTokens,
+	}
+	if out.StopReason == "tool_use" && len(calls) > 0 {
+		return agenticStep{Calls: calls, Usage: usage}, nil
+	}
+	if strings.TrimSpace(text.String()) == "" {
+		return agenticStep{}, emptyResponseError(out.StopReason)
+	}
+	return agenticStep{Final: text.String(), Usage: usage}, nil
 }

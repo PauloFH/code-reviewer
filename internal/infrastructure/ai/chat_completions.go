@@ -1,40 +1,61 @@
 package ai
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-type chatCompletionsTransport struct {
-	baseURL   string
-	token     string
-	model     string
-	maxTokens int
-	http      *http.Client
+// chatConversation talks to an OpenAI-compatible POST /chat/completions.
+type chatConversation struct {
+	conn     connection
+	tools    []chatTool
+	messages []chatMessage
+}
+
+type chatTool struct {
+	Type     string          `json:"type"`
+	Function chatFunctionDef `json:"function"`
+}
+
+type chatFunctionDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+type chatToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+type chatMessage struct {
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
 }
 
 type chatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-}
-
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Tools       any           `json:"tools,omitempty"`
+	Temperature float64       `json:"temperature"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
 }
 
 type chatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string         `json:"content"`
+			ToolCalls []chatToolCall `json:"tool_calls"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -43,56 +64,73 @@ type chatResponse struct {
 	} `json:"usage"`
 }
 
-func (t *chatCompletionsTransport) review(sysPrompt, userPrompt string) (*domain.ReviewResult, error) {
-	reqBody, err := json.Marshal(chatRequest{
-		Model: t.model,
-		Messages: []message{
+func newChatConversation(conn connection, sysPrompt, userPrompt string, tools []toolSpec) *chatConversation {
+	var ct []chatTool
+	for _, s := range tools {
+		ct = append(ct, chatTool{Type: "function", Function: chatFunctionDef{
+			Name: s.Name, Description: s.Description, Parameters: s.Schema,
+		}})
+	}
+	return &chatConversation{
+		conn:  conn,
+		tools: ct,
+		messages: []chatMessage{
 			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature: 0.2,
-		MaxTokens:   t.maxTokens,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling request: %w", err)
+	}
+}
+
+func (c *chatConversation) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
+	for _, r := range results {
+		c.messages = append(c.messages, chatMessage{Role: "tool", ToolCallID: r.ID, Content: r.Output})
+	}
+	if nudge != "" {
+		c.messages = append(c.messages, chatMessage{Role: "user", Content: nudge})
 	}
 
-	req, err := http.NewRequest(http.MethodPost, t.baseURL+"/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+t.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := t.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
+	req := chatRequest{Model: c.conn.model, Messages: c.messages, Temperature: temperature, MaxTokens: c.conn.maxTokens}
+	if c.tools != nil {
+		if allowTools {
+			req.Tools = c.tools
+		} else {
+			req.Tools = []chatTool{}
+			req.MaxTokens = lastTurnMaxTokens(req.MaxTokens)
+		}
 	}
 
 	var out chatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding response: %w", err)
+	headers := map[string]string{"Authorization": "Bearer " + c.conn.token}
+	if err := postJSON(c.conn.http, c.conn.baseURL+"/chat/completions", headers, req, &out); err != nil {
+		return agenticStep{}, err
+	}
+	if len(out.Choices) == 0 {
+		return agenticStep{}, emptyResponseError("")
 	}
 
-	if len(out.Choices) == 0 || out.Choices[0].Message.Content == "" {
-		return nil, fmt.Errorf("ai: empty response from API")
+	usage := domain.TokenUsage{
+		PromptTokens:     out.Usage.PromptTokens,
+		CompletionTokens: out.Usage.CompletionTokens,
+		TotalTokens:      out.Usage.TotalTokens,
 	}
+	choice := out.Choices[0]
+	msg := choice.Message
+	// The assistant turn must be recorded before the next tool result messages.
+	c.messages = append(c.messages, chatMessage{Role: "assistant", Content: msg.Content, ToolCalls: msg.ToolCalls})
 
-	body, comments := parseReviewPayload(out.Choices[0].Message.Content)
-
-	return &domain.ReviewResult{
-		Body:           body,
-		InlineComments: comments,
-		Usage: domain.TokenUsage{
-			PromptTokens:     out.Usage.PromptTokens,
-			CompletionTokens: out.Usage.CompletionTokens,
-			TotalTokens:      out.Usage.TotalTokens,
-		},
-	}, nil
+	if len(msg.ToolCalls) > 0 {
+		calls := make([]toolCall, 0, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			call := toolCall{ID: tc.ID, Name: tc.Function.Name, Input: map[string]any{}}
+			if tc.Function.Arguments != "" {
+				call.ArgsErr = json.Unmarshal([]byte(tc.Function.Arguments), &call.Input)
+			}
+			calls = append(calls, call)
+		}
+		return agenticStep{Calls: calls, Usage: usage}, nil
+	}
+	if strings.TrimSpace(msg.Content) == "" {
+		return agenticStep{}, emptyResponseError(choice.FinishReason)
+	}
+	return agenticStep{Final: msg.Content, Usage: usage}, nil
 }

@@ -8,167 +8,123 @@ import (
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-func newTestClient() *Client {
-	return New("test-gitlab", "https://gitlab.com", "token", "mysecret", "paulorfholanda", 30*time.Second, "")
-}
-
-func rawWebhook(headers map[string]string, body []byte) domain.RawWebhook {
-	return domain.RawWebhook{Headers: headers, Body: body}
-}
-
-// ---------- ValidateWebhook ----------
-
-func TestValidateWebhook_CorrectSecret(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, nil)
-	if !c.ValidateWebhook(w) {
-		t.Error("expected valid webhook to pass validation")
+func TestValidateWebhook(t *testing.T) {
+	cases := []struct {
+		name, secret, header string
+		want                 bool
+	}{
+		{"matching token", "mysecret", "mysecret", true},
+		{"wrong token", "mysecret", "wrong", false},
+		{"missing header", "mysecret", "", false},
+		{"empty configured secret never validates", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(domain.Client{WebhookSecret: tc.secret}, time.Second, "")
+			headers := map[string][]string{}
+			if tc.header != "" {
+				headers["X-Gitlab-Token"] = []string{tc.header}
+			}
+			if got := c.ValidateWebhook(domain.NewRawWebhook(headers, nil)); got != tc.want {
+				t.Errorf("ValidateWebhook = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestValidateWebhook_WrongSecret(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "wrong"}, nil)
-	if c.ValidateWebhook(w) {
-		t.Error("expected wrong secret to fail validation")
-	}
-}
-
-func TestValidateWebhook_MissingHeader(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{}, nil)
-	if c.ValidateWebhook(w) {
-		t.Error("expected missing header to fail validation")
-	}
-}
-
-// ---------- ParseWebhook ----------
-
-func mrPayload(projectID, mrID, mrIID int64, action string) []byte {
-	payload := map[string]any{
-		"object_kind": "merge_request",
-		"project":     map[string]any{"id": projectID},
-		"object_attributes": map[string]any{
-			"id":     mrID,
-			"iid":    mrIID,
-			"action": action,
-		},
-	}
-	b, _ := json.Marshal(payload)
-	return b
-}
-
-func TestParseWebhook_MergeRequestEvent(t *testing.T) {
-	c := newTestClient()
-	body := mrPayload(42, 100, 7, "open")
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, body)
-
-	event, err := c.ParseWebhook(w)
+func parse(t *testing.T, payload any) (*domain.WebhookEvent, error) {
+	t.Helper()
+	body, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
+	return New(domain.Client{Name: "gl"}, time.Second, "").ParseWebhook(domain.NewRawWebhook(nil, body))
+}
 
-	if event.ClientName != "test-gitlab" {
-		t.Errorf("ClientName = %q, want %q", event.ClientName, "test-gitlab")
+func TestParseMergeRequestWebhook(t *testing.T) {
+	cases := []struct {
+		name    string
+		project map[string]any
+		wantRef string
+	}{
+		{"numeric id fallback", map[string]any{"id": 42}, "42"},
+		{"path preferred over id", map[string]any{"id": 42, "path_with_namespace": "grp/repo"}, "grp/repo"},
 	}
-	if event.ProjectRef != "42" {
-		t.Errorf("ProjectRef = %q, want %q", event.ProjectRef, "42")
-	}
-	if event.MRIID != 7 {
-		t.Errorf("MRIID = %d, want 7", event.MRIID)
-	}
-	if event.MRID != 100 {
-		t.Errorf("MRID = %d, want 100", event.MRID)
-	}
-	if event.Action != "open" {
-		t.Errorf("Action = %q, want %q", event.Action, "open")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev, err := parse(t, map[string]any{
+				"object_kind":       "merge_request",
+				"project":           tc.project,
+				"object_attributes": map[string]any{"id": 100, "iid": 7, "action": "open"},
+			})
+			if err != nil {
+				t.Fatalf("ParseWebhook: %v", err)
+			}
+			want := domain.WebhookEvent{ClientName: "gl", ProjectRef: tc.wantRef, MRIID: 7, Action: "open"}
+			if *ev != want {
+				t.Errorf("event = %+v, want %+v", *ev, want)
+			}
+		})
 	}
 }
 
-func TestParseWebhook_UnsupportedObjectKind(t *testing.T) {
-	c := newTestClient()
-	body, _ := json.Marshal(map[string]any{"object_kind": "push"})
-	w := rawWebhook(map[string]string{}, body)
-
-	if _, err := c.ParseWebhook(w); err == nil {
-		t.Error("expected error for unsupported object_kind")
+func TestParseWebhookRejectsUnsupported(t *testing.T) {
+	if _, err := parse(t, map[string]any{"object_kind": "push"}); err == nil {
+		t.Error("expected error for push event")
 	}
-}
-
-func TestParseWebhook_InvalidJSON(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{}, []byte("not json"))
-
-	if _, err := c.ParseWebhook(w); err == nil {
+	if _, err := New(domain.Client{}, time.Second, "").ParseWebhook(domain.NewRawWebhook(nil, []byte("not json"))); err == nil {
 		t.Error("expected error for invalid JSON")
 	}
 }
 
-func notePayload(note string) []byte {
-	payload := map[string]any{
-		"object_kind": "note",
-		"project":     map[string]any{"id": 42},
-		"object_attributes": map[string]any{
-			"note":          note,
-			"noteable_type": "MergeRequest",
-		},
-		"merge_request": map[string]any{"id": 100, "iid": 7},
-		"user":          map[string]any{"username": "carol"},
+func TestParseNoteWebhook(t *testing.T) {
+	cases := []struct {
+		name          string
+		note          string
+		noteableType  string
+		wantErr       bool
+		wantJustify   string
+		wantRequested string
+	}{
+		{name: "bare /review", note: "/review"},
+		{name: "/review with preset", note: "/review Deep", wantRequested: "deep"},
+		{name: "bare #revisar", note: "#revisar"},
+		{name: "#revisar with justification", note: "#revisar  o setor nulo é esperado ", wantJustify: "o setor nulo é esperado"},
+		{name: "#revisar glued to text", note: "#revisarX", wantErr: true},
+		{name: "plain comment", note: "just a comment", wantErr: true},
+		{name: "/reviewer is not /review", note: "/reviewer", wantErr: true},
+		{name: "note not on MR", note: "/review", noteableType: "Issue", wantErr: true},
 	}
-	b, _ := json.Marshal(payload)
-	return b
-}
-
-func TestParseWebhook_ReviewCommandNoPreset(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("/review"))
-
-	event, err := c.ParseWebhook(w)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !event.IsReanalyze || event.CommentAuthor != "carol" {
-		t.Fatalf("expected reanalyze by carol, got %+v", event)
-	}
-	if event.RequestedProfile != "" {
-		t.Errorf("RequestedProfile = %q, want empty", event.RequestedProfile)
-	}
-}
-
-func TestParseWebhook_ReviewCommandWithPreset(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("/review deep"))
-
-	event, err := c.ParseWebhook(w)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if event.RequestedProfile != "deep" {
-		t.Errorf("RequestedProfile = %q, want %q", event.RequestedProfile, "deep")
-	}
-}
-
-func TestParseWebhook_HashRevisarCarriesJustification(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("#revisar o setor nulo é esperado neste fluxo"))
-
-	event, err := c.ParseWebhook(w)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !event.IsReanalyze {
-		t.Fatal("expected #revisar to trigger a reanalysis")
-	}
-	if event.ReviewJustification != "o setor nulo é esperado neste fluxo" {
-		t.Fatalf("ReviewJustification = %q", event.ReviewJustification)
-	}
-}
-
-func TestParseWebhook_NonReviewNoteIgnored(t *testing.T) {
-	c := newTestClient()
-	w := rawWebhook(map[string]string{"x-gitlab-token": "mysecret"}, notePayload("just a comment"))
-
-	if _, err := c.ParseWebhook(w); err == nil {
-		t.Error("expected non-/review note to be ignored with an error")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			noteable := tc.noteableType
+			if noteable == "" {
+				noteable = "MergeRequest"
+			}
+			ev, err := parse(t, map[string]any{
+				"object_kind":       "note",
+				"project":           map[string]any{"id": 42, "path_with_namespace": "grp/repo"},
+				"object_attributes": map[string]any{"note": tc.note, "noteable_type": noteable},
+				"merge_request":     map[string]any{"id": 100, "iid": 7},
+				"user":              map[string]any{"username": "carol"},
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected note %q to be rejected, got %+v", tc.note, ev)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseWebhook: %v", err)
+			}
+			want := domain.WebhookEvent{
+				ClientName: "gl", ProjectRef: "grp/repo", MRIID: 7, Action: "note",
+				IsReanalyze: true, CommentAuthor: "carol",
+				ReviewJustification: tc.wantJustify, RequestedProfile: tc.wantRequested,
+			}
+			if *ev != want {
+				t.Errorf("event = %+v, want %+v", *ev, want)
+			}
+		})
 	}
 }

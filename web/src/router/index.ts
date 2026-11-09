@@ -1,5 +1,17 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { NAV, type Capability, type NavPath } from '@/domain'
+
+// Uma view por item de NAV: o tipo não compila se faltar ou sobrar uma.
+const VIEWS: Record<NavPath, () => Promise<RouteComponent>> = {
+  '/dashboard': () => import('@/views/DashboardView.vue'),
+  '/events': () => import('@/views/EventsView.vue'),
+  '/clients': () => import('@/views/ClientsView.vue'),
+  '/prompts': () => import('@/views/PromptsView.vue'),
+  '/ai-configs': () => import('@/views/AiConfigView.vue'),
+  '/review-profiles': () => import('@/views/ReviewProfilesView.vue'),
+  '/users': () => import('@/views/UsersView.vue'),
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,66 +39,26 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('@/components/AppLayout.vue'),
-      children: [
-        {
-          path: 'dashboard',
-          name: 'dashboard',
-          component: () => import('@/views/DashboardView.vue'),
-          meta: { title: 'Painel' },
-        },
-        {
-          path: 'events',
-          name: 'events',
-          component: () => import('@/views/EventsView.vue'),
-          meta: { title: 'Revisões' },
-        },
-        {
-          path: 'clients',
-          name: 'clients',
-          component: () => import('@/views/ClientsView.vue'),
-          meta: { roles: ['super', 'gestor'], title: 'Clientes' },
-        },
-        {
-          path: 'prompts',
-          name: 'prompts',
-          component: () => import('@/views/PromptsView.vue'),
-          meta: { roles: ['super', 'gestor'], title: 'Prompts' },
-        },
-        {
-          path: 'ai-configs',
-          name: 'ai-configs',
-          component: () => import('@/views/AiConfigView.vue'),
-          meta: { roles: ['super', 'gestor'], title: 'Modelos' },
-        },
-        {
-          path: 'review-profiles',
-          name: 'review-profiles',
-          component: () => import('@/views/ReviewProfilesView.vue'),
-          meta: { roles: ['super', 'gestor'], title: 'Perfis de revisão' },
-        },
-        {
-          path: 'users',
-          name: 'users',
-          component: () => import('@/views/UsersView.vue'),
-          meta: { roles: ['super'], title: 'Usuários' },
-        },
-      ],
+      children: NAV.map((n) => ({
+        path: n.path.slice(1),
+        name: n.path.slice(1),
+        component: VIEWS[n.path],
+        meta: { title: n.label, need: n.need },
+      })),
     },
   ],
 })
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (to.name === 'landing' && auth.isAuthenticated) return { name: 'dashboard' }
-  if (!to.meta.public && !auth.isAuthenticated) {
-    return { name: 'login' }
-  }
-  const roles = to.meta.roles as string[] | undefined
-  if (roles) {
+  if (to.path === '/' && auth.isAuthenticated) return '/dashboard'
+  if (to.meta.public) return
+  if (!auth.isAuthenticated) return '/login'
+  const need = to.meta.need as Capability | undefined
+  if (need) {
     await auth.initPromise
-    if (auth.user && !roles.includes(auth.user.role)) {
-      return { name: 'dashboard' }
-    }
+    if (!auth.isAuthenticated) return '/login'
+    if (!auth.can(need)) return '/dashboard'
   }
 })
 

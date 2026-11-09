@@ -1,4 +1,5 @@
-import { http } from './http'
+import { http, API_BASE } from './http'
+import type { EventStatus } from '@/domain'
 
 export interface ReviewEvent {
   id: number
@@ -14,7 +15,7 @@ export interface ReviewEvent {
   total_tokens: number
   cost_usd: number
   duration_ms: number
-  status: 'success' | 'skipped' | 'error'
+  status: EventStatus
   error_message: string
   reviewed_at: string
 }
@@ -47,6 +48,7 @@ export interface EventsResponse {
 export interface EventFilter {
   client?: string
   search?: string
+  status?: EventStatus
   since?: string
   until?: string
   limit?: number
@@ -58,16 +60,17 @@ export async function listEvents(filter: EventFilter = {}): Promise<EventsRespon
   return res.data
 }
 
-export async function getStats(client?: string, since?: string, until?: string): Promise<ReviewStats> {
-  const res = await http.get('/events/stats', { params: { client, since, until } })
+export async function getStats(client?: string): Promise<ReviewStats> {
+  const res = await http.get('/events/stats', { params: { client } })
   return res.data
 }
 
-export async function getDailyCosts(client?: string, days = 30): Promise<DailyCostPoint[]> {
+export async function getDailyCosts(client: string | undefined, days: number): Promise<DailyCostPoint[]> {
   const res = await http.get('/events/daily', { params: { days, ...(client ? { client } : {}) } })
   return res.data
 }
 
+// EventSource não envia headers: o token vai na query string.
 export function createEventSource(token: string): EventSource {
-  return new EventSource(`/api/v1/events/stream?token=${encodeURIComponent(token)}`)
+  return new EventSource(`${API_BASE}/events/stream?token=${encodeURIComponent(token)}`)
 }

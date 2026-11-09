@@ -1,130 +1,124 @@
 <template>
-  <Modal :title="initial ? 'Editar configuração' : 'Nova configuração de IA'" max-width="520px" @close="$emit('close')">
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <form @submit.prevent="submit" class="form">
+  <FormModal :title="initial ? 'Editar configuração' : 'Nova configuração de IA'" max-width="520px" :saving="saving" :error="error" @close="$emit('close')" @submit="onSubmit">
+    <div class="field">
+      <label for="ai-name">Nome</label>
+      <input id="ai-name" v-model="form.name" required placeholder="Ex: Claude produção" />
+    </div>
+
+    <div class="field-row">
       <div class="field">
-        <label for="ai-name">Nome</label>
-        <input id="ai-name" v-model="form.name" required placeholder="Ex: Claude produção" />
+        <label for="ai-provider">Provedor</label>
+        <select id="ai-provider" v-model="form.provider" required @change="onProviderChange">
+          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.label }}</option>
+        </select>
       </div>
-
-      <div class="field-row">
-        <div class="field">
-          <label for="ai-provider">Provedor</label>
-          <select id="ai-provider" v-model="form.provider" @change="onProviderChange">
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="gemini">Gemini (Google)</option>
-            <option value="deepseek">DeepSeek</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="ai-mode">Modo</label>
-          <select id="ai-mode" v-model="form.mode" :disabled="form.provider !== 'claude'">
-            <option value="api">API (chave)</option>
-            <option value="account">Conta (login)</option>
-          </select>
-        </div>
-      </div>
-
-      <p v-if="form.provider !== 'claude'" class="hint">O modo "Conta" só está disponível para o Claude.</p>
-
-      <div v-if="form.mode === 'api'" class="field">
-        <label for="ai-api-key">Chave de API</label>
-        <input
-          id="ai-api-key"
-          v-model="form.api_key"
-          type="password"
-          :placeholder="initial?.has_api_key ? '•••••• (deixe vazio para manter)' : 'Cole a chave de API'"
-        />
-      </div>
-
       <div class="field">
-        <label for="ai-model">Modelo <span class="opt">(opcional)</span></label>
-        <input id="ai-model" v-model="form.model" :placeholder="modelPlaceholder" />
+        <label for="ai-mode">Modo</label>
+        <select id="ai-mode" v-model="form.mode" :disabled="!provider?.supports_account">
+          <option v-for="m in AI_MODES" :key="m.value" :value="m.value">{{ m.label }} ({{ m.hint }})</option>
+        </select>
       </div>
+    </div>
 
+    <p v-if="!provider?.supports_account && accountLabels" class="hint">O modo "Conta" só está disponível para {{ accountLabels }}.</p>
+
+    <div v-if="form.mode === 'api'" class="field">
+      <label for="ai-api-key">Chave de API</label>
+      <input
+        id="ai-api-key"
+        v-model="form.api_key"
+        type="password"
+        :placeholder="initial?.has_api_key ? '•••••• (vazio mantém; obrigatória ao trocar provedor ou base URL)' : 'Cole a chave de API'"
+      />
+    </div>
+
+    <div class="field">
+      <label for="ai-model">Modelo <span class="opt">(opcional)</span></label>
+      <input id="ai-model" v-model="form.model" :placeholder="provider?.default_model" />
+    </div>
+
+    <div class="field">
+      <label for="ai-base-url">Base URL <span class="opt">(opcional)</span></label>
+      <input id="ai-base-url" v-model="form.base_url" :placeholder="provider?.default_base_url" />
+    </div>
+
+    <div class="field-row">
       <div class="field">
-        <label for="ai-base-url">Base URL <span class="opt">(opcional)</span></label>
-        <input id="ai-base-url" v-model="form.base_url" :placeholder="baseURLPlaceholder" />
+        <label for="ai-price-in">Preço / M tokens (entrada)</label>
+        <input id="ai-price-in" v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
       </div>
-
-      <div class="field-row">
-        <div class="field">
-          <label for="ai-price-in">Preço / M tokens (entrada)</label>
-          <input id="ai-price-in" v-model.number="form.price_per_m_input_tokens" type="number" step="0.01" min="0" />
-        </div>
-        <div class="field">
-          <label for="ai-price-out">Preço / M tokens (saída)</label>
-          <input id="ai-price-out" v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
-        </div>
+      <div class="field">
+        <label for="ai-price-out">Preço / M tokens (saída)</label>
+        <input id="ai-price-out" v-model.number="form.price_per_m_output_tokens" type="number" step="0.01" min="0" />
       </div>
+    </div>
 
-      <div class="field-row">
-        <div class="field">
-          <label for="ai-max-tokens">Máx. de tokens de saída <span class="opt">(0 = padrão)</span></label>
-          <input id="ai-max-tokens" v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
-        </div>
-        <div class="field">
-          <label for="ai-timeout">Timeout (segundos)</label>
-          <input id="ai-timeout" v-model.number="form.timeout_seconds" type="number" min="1" />
-        </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="ai-max-tokens">Máx. de tokens de saída <span class="opt">(0 = padrão)</span></label>
+        <input id="ai-max-tokens" v-model.number="form.max_tokens" type="number" min="0" placeholder="0" />
       </div>
+      <div class="field">
+        <label for="ai-timeout">Timeout (segundos) <span class="opt">(0 = padrão)</span></label>
+        <input id="ai-timeout" v-model.number="form.timeout_seconds" type="number" min="0" placeholder="0" />
+      </div>
+    </div>
 
-      <p class="hint">0 usa o padrão do provedor (Claude: 4096).</p>
+    <p class="hint">{{ limitsHint }}</p>
 
-      <div v-if="form.mode === 'account'" class="oauth-box">
-        <div v-if="!initial" class="hint">Salve a configuração primeiro para conectar a conta Claude.</div>
-        <template v-else>
-          <div class="oauth-status">
-            <span :class="['dot', connected ? 'ok' : 'off']" />
-            {{ connected ? `Conta conectada${expiresLabel}` : 'Conta não conectada' }}
-          </div>
-          <p v-if="oauthError" class="error oauth-error" role="alert">{{ oauthError }}</p>
-          <button type="button" class="btn" :disabled="oauthBusy" @click="startConnect">
-            <span v-if="oauthBusy" class="spinner" />
-            {{ connected ? 'Reconectar conta Claude' : 'Conectar conta Claude' }}
+    <div v-if="form.mode === 'account'" class="oauth-box">
+      <div v-if="!initial" class="hint">Salve a configuração primeiro para conectar a conta Claude.</div>
+      <template v-else>
+        <div class="oauth-status">
+          <span :class="['dot', connected ? 'ok' : 'off']" />
+          {{ connected ? `Conta conectada${expiresLabel}` : 'Conta não conectada' }}
+        </div>
+        <p v-if="oauthError" class="error" role="alert">{{ oauthError }}</p>
+        <button type="button" class="btn" :disabled="oauthBusy" @click="startConnect">
+          <span v-if="oauthBusy" class="spinner" />
+          {{ connected ? 'Reconectar conta Claude' : 'Conectar conta Claude' }}
+        </button>
+        <div v-if="awaitingCode" class="code-step">
+          <p class="hint">Autorize na aba aberta e cole o código retornado abaixo.</p>
+          <!-- Enter aqui conclui a conexão; sem o prevent, enviaria o formulário e o código se perderia. -->
+          <input
+            v-model="pastedCode"
+            aria-label="Código de autorização"
+            placeholder="Cole o código de autorização"
+            @keydown.enter.prevent="finishConnect"
+          />
+          <button type="button" class="btn primary" :disabled="oauthBusy || !pastedCode" @click="finishConnect">
+            Concluir conexão
           </button>
-          <div v-if="awaitingCode" class="code-step">
-            <p class="hint">Autorize na aba aberta e cole o código retornado abaixo.</p>
-            <input v-model="pastedCode" aria-label="Código de autorização" placeholder="Cole o código de autorização" class="code-input" />
-            <button type="button" class="btn primary" :disabled="oauthBusy || !pastedCode" @click="finishConnect">
-              Concluir conexão
-            </button>
-          </div>
-        </template>
-      </div>
-    </form>
-    <template #footer>
-      <button class="btn" type="button" @click="$emit('close')">Cancelar</button>
-      <button class="btn primary" type="submit" :disabled="saving" @click="submit">
-        <span v-if="saving" class="spinner" />
-        {{ saving ? 'Salvando…' : 'Salvar' }}
-      </button>
-    </template>
-  </Modal>
+        </div>
+      </template>
+    </div>
+  </FormModal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import Modal from '@/components/Modal.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useSubmit } from '@/composables/useSubmit'
+import { apiErrorMessage } from '@/api/http'
+import { AI_MODES } from '@/domain'
 import {
   startClaudeOAuth, exchangeClaudeOAuth,
-  type AIConfig, type AIConfigInput, type AIProvider,
+  type AIConfig, type AIConfigInput, type AIProviderInfo,
 } from '@/api/aiConfigs'
 
-const props = defineProps<{ initial?: AIConfig | null }>()
-const emit = defineEmits<{
-  close: []
-  saved: [data: AIConfigInput & { _id?: number }]
-  connected: []
+const props = defineProps<{
+  initial: AIConfig | null
+  providers: AIProviderInfo[]
+  save: (data: AIConfigInput) => Promise<void>
 }>()
+const emit = defineEmits<{ close: []; connected: [] }>()
 
-const saving = ref(false)
-const error = ref('')
+const { saving, error, submit } = useSubmit()
 
 const form = ref<AIConfigInput>({
   name: props.initial?.name ?? '',
-  provider: props.initial?.provider ?? 'claude',
+  provider: props.initial?.provider ?? props.providers[0]?.id ?? '',
   mode: props.initial?.mode ?? 'api',
   base_url: props.initial?.base_url ?? '',
   model: props.initial?.model ?? '',
@@ -132,8 +126,17 @@ const form = ref<AIConfigInput>({
   price_per_m_input_tokens: props.initial?.price_per_m_input_tokens ?? 0,
   price_per_m_output_tokens: props.initial?.price_per_m_output_tokens ?? 0,
   max_tokens: props.initial?.max_tokens ?? 0,
-  timeout_seconds: props.initial?.timeout_seconds ?? 120,
+  timeout_seconds: props.initial?.timeout_seconds ?? 0,
 })
+
+const provider = computed(() => props.providers.find((p) => p.id === form.value.provider))
+// 0 grava "usar o padrão do servidor": mudar o default no backend alcança também as configs já salvas.
+const limitsHint = computed(() => {
+  const n = provider.value?.default_max_tokens
+  const tokens = n ? `${provider.value?.label}: ${n.toLocaleString('pt-BR')} tokens` : 'o provedor decide'
+  return `0 usa o padrão: tokens de saída (${tokens}); timeout de 120 s.`
+})
+const accountLabels = computed(() => props.providers.filter((p) => p.supports_account).map((p) => p.label).join(', '))
 
 const connected = ref(props.initial?.account_connected ?? false)
 const oauthBusy = ref(false)
@@ -149,30 +152,8 @@ const expiresLabel = computed(() => {
   return ` (expira ${d.toLocaleString('pt-BR')})`
 })
 
-const modelPlaceholder = computed(() => {
-  switch (form.value.provider) {
-    case 'gemini': return 'gemini-flash-latest'
-    case 'claude': return 'claude-sonnet-4-5'
-    case 'openai': return 'gpt-4o'
-    case 'deepseek': return 'deepseek-chat'
-    default: return ''
-  }
-})
-
-const baseURLPlaceholder = computed(() => {
-  switch (form.value.provider) {
-    case 'gemini': return 'https://generativelanguage.googleapis.com/v1beta'
-    case 'claude': return 'https://api.anthropic.com'
-    case 'openai': return 'https://api.openai.com/v1'
-    case 'deepseek': return 'https://api.deepseek.com/v1'
-    default: return ''
-  }
-})
-
 function onProviderChange() {
-  if (form.value.provider !== 'claude' && form.value.mode === 'account') {
-    form.value.mode = 'api'
-  }
+  if (!provider.value?.supports_account) form.value.mode = 'api'
 }
 
 async function startConnect() {
@@ -183,15 +164,15 @@ async function startConnect() {
     oauthState.value = state
     window.open(authorize_url, '_blank', 'noopener')
     awaitingCode.value = true
-  } catch {
-    oauthError.value = 'Não foi possível iniciar a conexão'
+  } catch (e) {
+    oauthError.value = apiErrorMessage(e, 'Não foi possível iniciar a conexão')
   } finally {
     oauthBusy.value = false
   }
 }
 
 async function finishConnect() {
-  if (!props.initial || !pastedCode.value) return
+  if (!props.initial || !pastedCode.value || oauthBusy.value) return
   oauthError.value = ''
   oauthBusy.value = true
   try {
@@ -200,92 +181,34 @@ async function finishConnect() {
     awaitingCode.value = false
     pastedCode.value = ''
     emit('connected')
-  } catch (e: unknown) {
-    oauthError.value = (e as { response?: { data?: string } })?.response?.data || 'Falha ao conectar conta'
+  } catch (e) {
+    oauthError.value = apiErrorMessage(e, 'Falha ao conectar conta')
   } finally {
     oauthBusy.value = false
   }
 }
 
-function submit() {
-  error.value = ''
-  if (form.value.provider !== ('claude' as AIProvider) && form.value.mode === 'account') {
-    error.value = 'O modo Conta só é suportado para o Claude'
-    return
-  }
-  saving.value = true
-  const data: AIConfigInput & { _id?: number } = { ...form.value }
+function onSubmit() {
+  const data: AIConfigInput = { ...form.value }
   if (!data.api_key) delete data.api_key
-  if (props.initial) data._id = props.initial.id
-  emit('saved', data)
+  submit(() => props.save(data))
 }
-
-defineExpose({
-  setSaving: (v: boolean) => { saving.value = v },
-  setError: (e: string) => { error.value = e; saving.value = false },
-})
 </script>
 
 <style scoped>
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
 
-.field label {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.field input,
-.field select {
-  padding: 8px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: 13px;
-  font-family: inherit;
-  transition: border-color 0.1s;
-}
-
-.field input:focus,
-.field select:focus {
-  border-color: var(--accent);
-}
-
-.field input::placeholder {
-  color: var(--muted-2);
-}
-
-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .opt {
-  color: var(--muted);
   font-weight: 400;
 }
 
 .hint {
   font-size: 11.5px;
   color: var(--muted);
-  margin: 0;
 }
 
 .oauth-box {
@@ -316,26 +239,9 @@ select:disabled {
 .dot.ok { background: var(--ok); }
 .dot.off { background: var(--skip); }
 
-.oauth-error {
-  margin: 0;
-}
-
 .code-step {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.code-input {
-  width: 100%;
-}
-
-.error {
-  color: var(--danger);
-  font-size: 12.5px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-  border-radius: var(--radius);
 }
 </style>

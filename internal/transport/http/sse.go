@@ -52,7 +52,6 @@ func (b *EventBroadcaster) unsubscribe(ch chan domain.ReviewEvent) {
 	b.subscribers = out
 }
 
-// ServeSSE is the HTTP handler for GET /api/v1/events/stream.
 func (b *EventBroadcaster) ServeSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -63,12 +62,10 @@ func (b *EventBroadcaster) ServeSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	ch := b.subscribe()
 	defer b.unsubscribe(ch)
 
-	// Send a ping immediately so the client knows the stream is live.
 	fmt.Fprintf(w, ": ping\n\n")
 	flusher.Flush()
 

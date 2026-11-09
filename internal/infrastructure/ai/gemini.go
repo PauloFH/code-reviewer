@@ -1,34 +1,45 @@
 package ai
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/paulofh/code-reviewer/internal/domain"
 )
 
-type geminiTransport struct {
-	baseURL   string
-	apiKey    string
-	model     string
-	maxTokens int
-	http      *http.Client
+// geminiConversation talks to POST /models/{model}:generateContent.
+type geminiConversation struct {
+	conn     connection
+	system   *geminiContent
+	tools    []geminiTool
+	contents []geminiContent
 }
 
-type geminiRequest struct {
-	SystemInstruction *geminiContent         `json:"systemInstruction,omitempty"`
-	Contents          []geminiContent        `json:"contents"`
-	GenerationConfig  geminiGenerationConfig `json:"generationConfig"`
+type geminiTool struct {
+	FunctionDeclarations []geminiFunctionDecl `json:"functionDeclarations"`
 }
 
-type geminiGenerationConfig struct {
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
+type geminiFunctionDecl struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+type geminiPart struct {
+	Text             string                  `json:"text,omitempty"`
+	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
+	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
+}
+
+type geminiFunctionCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args"`
+}
+
+type geminiFunctionResponse struct {
+	Name     string         `json:"name"`
+	Response map[string]any `json:"response"`
 }
 
 type geminiContent struct {
@@ -36,8 +47,16 @@ type geminiContent struct {
 	Parts []geminiPart `json:"parts"`
 }
 
-type geminiPart struct {
-	Text string `json:"text,omitempty"`
+type geminiGenerationConfig struct {
+	Temperature     float64 `json:"temperature"`
+	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
+}
+
+type geminiRequest struct {
+	SystemInstruction *geminiContent         `json:"systemInstruction,omitempty"`
+	Contents          []geminiContent        `json:"contents"`
+	Tools             []geminiTool           `json:"tools,omitempty"`
+	GenerationConfig  geminiGenerationConfig `json:"generationConfig"`
 }
 
 type geminiResponse struct {
@@ -55,79 +74,90 @@ type geminiResponse struct {
 	} `json:"usageMetadata"`
 }
 
-func (t *geminiTransport) review(sysPrompt, userPrompt string) (*domain.ReviewResult, error) {
-	reqBody, err := json.Marshal(geminiRequest{
-		SystemInstruction: &geminiContent{
-			Parts: []geminiPart{{Text: sysPrompt}},
-		},
-		Contents: []geminiContent{
-			{Role: "user", Parts: []geminiPart{{Text: userPrompt}}},
-		},
-		GenerationConfig: geminiGenerationConfig{Temperature: 0.2, MaxOutputTokens: t.maxTokens},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshalling request: %w", err)
+func newGeminiConversation(conn connection, sysPrompt, userPrompt string, tools []toolSpec) *geminiConversation {
+	g := &geminiConversation{
+		conn:     conn,
+		system:   &geminiContent{Parts: []geminiPart{{Text: sysPrompt}}},
+		contents: []geminiContent{{Role: "user", Parts: []geminiPart{{Text: userPrompt}}}},
+	}
+	if len(tools) > 0 {
+		decls := make([]geminiFunctionDecl, 0, len(tools))
+		for _, s := range tools {
+			decls = append(decls, geminiFunctionDecl{Name: s.Name, Description: s.Description, Parameters: s.Schema})
+		}
+		g.tools = []geminiTool{{FunctionDeclarations: decls}}
+	}
+	return g
+}
+
+func (g *geminiConversation) step(results []toolResult, nudge string, allowTools bool) (agenticStep, error) {
+	if len(results) > 0 {
+		parts := make([]geminiPart, 0, len(results))
+		for _, r := range results {
+			parts = append(parts, geminiPart{FunctionResponse: &geminiFunctionResponse{
+				Name:     r.Name,
+				Response: map[string]any{"output": r.Output},
+			}})
+		}
+		// Gemini expects tool results in a content with role "function".
+		g.contents = append(g.contents, geminiContent{Role: "function", Parts: parts})
+	}
+	if nudge != "" {
+		// A separate user turn, so the nudge doesn't read as part of a tool's output.
+		g.contents = append(g.contents, geminiContent{Role: "user", Parts: []geminiPart{{Text: nudge}}})
 	}
 
-	req, err := http.NewRequest(http.MethodPost, t.generateContentURL(), bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("ai: building request: %w", err)
+	req := geminiRequest{
+		SystemInstruction: g.system,
+		Contents:          g.contents,
+		GenerationConfig:  geminiGenerationConfig{Temperature: temperature, MaxOutputTokens: g.conn.maxTokens},
 	}
-	req.Header.Set("X-goog-api-key", t.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := t.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ai: calling API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: API returned status %d: %s", resp.StatusCode, rb)
+	if g.tools != nil {
+		if allowTools {
+			req.Tools = g.tools
+		} else {
+			req.GenerationConfig.MaxOutputTokens = lastTurnMaxTokens(g.conn.maxTokens)
+		}
 	}
 
+	model := strings.TrimPrefix(g.conn.model, "models/")
+	endpoint := g.conn.baseURL + "/models/" + url.PathEscape(model) + ":generateContent"
 	var out geminiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ai: decoding response: %w", err)
+	if err := postJSON(g.conn.http, endpoint, map[string]string{"X-goog-api-key": g.conn.token}, req, &out); err != nil {
+		return agenticStep{}, err
 	}
-
 	if len(out.Candidates) == 0 {
 		if out.PromptFeedback.BlockReason != "" {
-			return nil, fmt.Errorf("ai: Gemini returned no candidates: prompt blocked: %s", out.PromptFeedback.BlockReason)
+			return agenticStep{}, fmt.Errorf("ai: Gemini returned no candidates: prompt blocked: %s", out.PromptFeedback.BlockReason)
 		}
-		return nil, fmt.Errorf("ai: empty response from API")
+		return agenticStep{}, emptyResponseError("")
 	}
-	content := collectText(out.Candidates[0].Content.Parts)
-	if content == "" {
-		if out.Candidates[0].FinishReason != "" {
-			return nil, fmt.Errorf("ai: empty response from API (finish reason: %s)", out.Candidates[0].FinishReason)
+
+	usage := domain.TokenUsage{
+		PromptTokens:     out.UsageMetadata.PromptTokenCount,
+		CompletionTokens: out.UsageMetadata.CandidatesTokenCount,
+		TotalTokens:      out.UsageMetadata.TotalTokenCount,
+	}
+	cand := out.Candidates[0]
+	// The model turn must be recorded before the next functionResponse content.
+	g.contents = append(g.contents, geminiContent{Role: "model", Parts: cand.Content.Parts})
+
+	var text strings.Builder
+	var calls []toolCall
+	for _, p := range cand.Content.Parts {
+		if p.FunctionCall != nil {
+			// Gemini has no call ids; the function name stands in for one.
+			calls = append(calls, toolCall{ID: p.FunctionCall.Name, Name: p.FunctionCall.Name, Input: p.FunctionCall.Args})
+		} else {
+			text.WriteString(p.Text)
 		}
-		return nil, fmt.Errorf("ai: empty response from API")
 	}
-
-	body, comments := parseReviewPayload(content)
-
-	return &domain.ReviewResult{
-		Body:           body,
-		InlineComments: comments,
-		Usage: domain.TokenUsage{
-			PromptTokens:     out.UsageMetadata.PromptTokenCount,
-			CompletionTokens: out.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      out.UsageMetadata.TotalTokenCount,
-		},
-	}, nil
-}
-
-func (t *geminiTransport) generateContentURL() string {
-	model := strings.TrimPrefix(t.model, "models/")
-	return t.baseURL + "/models/" + url.PathEscape(model) + ":generateContent"
-}
-
-func collectText(parts []geminiPart) string {
-	var out strings.Builder
-	for _, part := range parts {
-		out.WriteString(part.Text)
+	if len(calls) > 0 {
+		return agenticStep{Calls: calls, Usage: usage}, nil
 	}
-	return strings.TrimSpace(out.String())
+	final := strings.TrimSpace(text.String())
+	if final == "" {
+		return agenticStep{}, emptyResponseError(cand.FinishReason)
+	}
+	return agenticStep{Final: final, Usage: usage}, nil
 }

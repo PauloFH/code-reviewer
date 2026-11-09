@@ -12,10 +12,19 @@ A IA é configurável pelo frontend (entidade `AIConfig`, atribuível por escopo
 
 Credenciais são cifradas em repouso (AES-256-GCM). Se nenhuma `AIConfig` for resolvida, o serviço cai no **fallback configurado por env** (`gemini` ou `chat_completions`), preservando o comportamento legado.
 
+## Quando a revisão roda
+
+Uma vez por MR e usuário monitorado: a claim em `reviewed_merge_requests` impede que novos commits, edições de título/descrição, outros reviewers ou webhooks reentregues disparem outra revisão. Revisar de novo é sempre um pedido explícito:
+
+- comentário `/review [preset]` ou `#revisar [justificativa]` no MR (só GitLab), aceito do autor do MR ou de um usuário do painel; com justificativa, a IA recebe a revisão anterior e só o diff desde o último commit revisado;
+- botão "Reanalisar" do painel (`POST /api/v1/reanalyze`).
+
+Tokens, webhook secrets e chaves de IA nunca vão para log nem para respostas da API (o painel só vê `***` ou `has_api_key`).
+
 ## Retentativas
 
 O `WebhookHandler` responde `200` ao webhook assim que o evento é parseado e processa a MR numa
-goroutine em background (`internal/transport/http/handler.go`). Dentro do pipeline
+goroutine em background (`internal/transport/http/webhook.go`). Dentro do pipeline
 (`internal/usecase/process_merge_request.go`), as chamadas de rede (buscar MR/diff na plataforma,
 enviar à IA, postar o comentário) são retentadas com backoff exponencial (`RETRY_MAX_ATTEMPTS`,
 default 3; `RETRY_BASE_DELAY_SECONDS`, default 2). Se todas as tentativas de um passo falharem, o
@@ -33,7 +42,7 @@ A revisão é composta por **camadas combináveis**, definidas por um `ReviewPro
 
 - **base `diff`** (sempre): título/descrição/diff.
 - **`related`** (flag `include_related`): puxa issues vinculadas (incl. `closes_issues`), MRs relacionados e a thread de discussão, e pede checagem de compatibilidade com as issues. Capacidade opcional da plataforma via `domain.RelatedContextProvider` (só GitLab por ora).
-- **`agentic`** (flag `agentic`): clona a working tree da branch no `DiffHeadSHA` e roda um loop de tool-use (read_file/list_dir/grep) onde a IA navega o repo. Funciona com Claude/OpenAI/DeepSeek/Gemini. Repositório obtido via `domain.RepoLocator` (GitLab) + `gitfetch.GitWorkspaceFetcher`: prefere o bare local `@hashed` (via `file://`) quando `GITLAB_REPOS_PATH` está setado (same-machine), senão clona pela rede via token. Falhas degradam graciosamente para o single-shot.
+- **`agentic`** (flag `agentic`): clona a working tree da branch no `HeadSHA` e roda um loop de tool-use (read_file/list_dir/grep) onde a IA navega o repo. Funciona com Claude/OpenAI/DeepSeek/Gemini. Repositório obtido via `domain.RepoLocator` (GitLab) + `gitfetch.GitWorkspaceFetcher`: prefere o bare local `@hashed` (via `file://`) quando `GITLAB_REPOS_PATH` está setado (same-machine), senão clona pela rede, com o token passado num header que não fica gravado no clone. O workspace é confinado por `os.Root`: symlinks do MR não escapam dele e `.git` fica inacessível. Falhas degradam graciosamente para o single-shot.
 - **`execution`** (flag `execution`): adiciona a tool `run` ao loop, executando comandos (testes/build/lint) num sandbox Docker isolado (`--network=none`, `--read-only`, `-v <ws>:/src:ro`, sem env/segredos). Habilitada só quando `SANDBOX_IMAGE` está setado. Implementação em `internal/infrastructure/sandbox`.
 
 O perfil pode ser sobrescrito por MR via comentário `/review <preset>`: `diff` | `related` | `deep` (agêntico) | `full` (related+agêntico). Spec e planos em `docs/superpowers/`.
@@ -80,28 +89,24 @@ transport/http  →  usecase  →  domain interfaces
 
 ### Adicionar nova plataforma Git
 
-1. `internal/infrastructure/platform/<nome>/client.go` — implementa `domain.PlatformClient`
-2. `internal/infrastructure/platform/<nome>/webhook.go` — implementa `ValidateWebhook` e `ParseWebhook`
-3. `internal/domain/platform.go` — adiciona constante `PlatformType`
-4. `internal/infrastructure/platform/factory.go` — adiciona `case`
-5. `internal/config/clients.go` — adiciona ao switch de validação
-
-Nenhuma outra parte muda.
+1. `internal/domain/platform.go` — constante `PlatformType` e entrada em `Platforms` (a validação de clients deriva daí)
+2. `internal/infrastructure/platform/<nome>/` — implementa `domain.PlatformClient` sobre `platform/forge` (identidade, REST autenticado, HMAC); uma API no dialeto GitHub reaproveita `platform/github` como o Gitea
+3. `internal/infrastructure/platform/factory.go` — `case` em `Factory.Build`
+4. `web/src/domain.ts` — entrada em `PLATFORMS` (rótulo e iniciais)
 
 ### Trocar SQLite por outro banco
 
-Implemente `domain.ReviewRepository` no novo pacote de storage e substitua a injeção em `cmd/server/main.go`. Nenhuma outra parte muda.
+Implemente os repositórios de `internal/domain/repository.go` no novo pacote de storage e substitua a injeção em `cmd/server/main.go`. Nenhuma outra parte muda.
 
 ### Trocar a API de IA
 
-A injeção em `main.go` é o `ai.ResolvingReviewer` (implementa `domain.AIReviewer`): ele resolve a `AIConfig` por escopo, garante token OAuth válido e despacha para o transporte certo. Para substituir toda a camada de IA, implemente `domain.AIReviewer` em um novo pacote e troque a injeção em `main.go`.
+A injeção em `main.go` é o `ai.Reviewer` (implementa `domain.AIReviewer`): ele resolve a `AIConfig` por escopo (sem nenhuma, usa a `AIConfig` montada das env vars), garante token OAuth válido, conversa com o provider e calcula o custo. Para substituir toda a camada de IA, implemente `domain.AIReviewer` em um novo pacote e troque a injeção em `main.go`.
 
 ### Adicionar novo provider de IA
 
-1. `internal/infrastructure/ai/<provider>.go` — implementa a interface interna `transport`
-2. `internal/infrastructure/ai/client.go` — adiciona `case` em `transportKindForProvider`, `baseURLForConfig`, `modelForConfig` e no `transport()`
-3. `internal/domain/ai_config.go` — adiciona a constante `AIProvider`
-4. `internal/transport/http/ai_config_handler.go` — adiciona ao switch de `validateConfig`
+1. `internal/domain/ai_config.go` — constante `AIProvider` e linha em `AIProviders` (rótulo, base URL e modelo default, se aceita modo conta). A validação, os defaults e o formulário do frontend (via `GET /api/v1/ai-configs/providers`) derivam dessa tabela.
+2. Se o provider fala um protocolo novo (não OpenAI-compatible), um adaptador em `internal/infrastructure/ai/` implementando `conversation` e o `case` em `newConversation`.
+3. `web/src/views/PrivacyView.vue` — a política de privacidade lista os provedores que recebem o código (e onde ficam): nenhum teste liga essa lista à tabela, então atualize à mão.
 
 ### Trocar parâmetros do OAuth de conta (Claude)
 
@@ -111,25 +116,25 @@ Os parâmetros públicos do fluxo (client_id, endpoints, escopos, header beta) f
 
 | Arquivo | Papel |
 |---|---|
-| `internal/domain/platform.go` | Interface Strategy `PlatformClient` |
-| `internal/domain/repository.go` | Interfaces `ReviewRepository`, `AIReviewer`, `PromptRepository`, `AIConfigRepository` |
-| `internal/domain/prompt.go` | Entidades `Prompt` e `PromptAssignment` |
-| `internal/domain/ai_config.go` | Entidades `AIConfig` e `AIConfigAssignment` (modos api/account, providers) |
-| `internal/infrastructure/platform/factory.go` | Ponto de extensão para novas plataformas |
-| `internal/infrastructure/ai/resolver.go` | `ResolvingReviewer`: resolve config por escopo, refresh OAuth, despacho |
-| `internal/infrastructure/ai/client.go` | Constrói o transporte por provider/modo; defaults por provider |
-| `internal/infrastructure/ai/{gemini,chat_completions,anthropic}.go` | Transportes por provider |
+| `internal/domain/platform.go` | Interface Strategy `PlatformClient`, `Platforms`, `RawWebhook` |
+| `internal/domain/scope.go` | `Scope`/`ScopeKey`/`Assignment`: atribuição por escopo (global → client → projeto) de prompts, perfis e configs de IA |
+| `internal/domain/repository.go` | Contratos de persistência; `ScopedLibrary[T]` serve prompts, perfis e configs de IA |
+| `internal/domain/errors.go` | `ErrNotFound`, `ErrConflict`, `Invalid(...)` — o HTTP traduz em 404/409/400 |
+| `internal/domain/ai_config.go` | `AIConfig` (modos api/account) e a tabela `AIProviders` |
+| `internal/infrastructure/platform/factory.go` | Constrói o client de cada plataforma |
+| `internal/infrastructure/platform/forge/forge.go` | O que todo client de plataforma compartilha |
+| `internal/infrastructure/ai/reviewer.go` | `Reviewer`: resolve config e prompt por escopo, refresh OAuth, custo |
+| `internal/infrastructure/ai/adapter.go` | Um adaptador por protocolo (Anthropic, chat completions, Gemini) para single-shot e agêntico |
+| `internal/infrastructure/ai/payload.go` | Tabela das seções da revisão: gera o schema do prompt, decodifica e monta o Markdown |
+| `internal/infrastructure/ai/diff.go` | Modelo de linhas do diff: filtra, anota `[new:N]` e valida comentários inline |
 | `internal/infrastructure/ai/oauth_claude.go` | Fluxo OAuth Claude (PKCE, exchange, refresh) |
-| `internal/infrastructure/ai/prompt.go` | Construção do prompt + filtro de diff |
-| `internal/infrastructure/ai/html_to_text.go` | Conversão HTML (Tiptap) → texto plano |
-| `internal/infrastructure/storage/crypto.go` | AES-256-GCM para credenciais em repouso |
-| `internal/infrastructure/storage/ai_config_repository.go` | CRUD + `ResolveConfig` + tokens OAuth |
-| `internal/usecase/process_merge_request.go` | Toda a regra de negócio |
-| `internal/transport/http/router.go` | Rotas HTTP e wiring de middlewares |
-| `internal/transport/http/prompt_handler.go` | CRUD de prompts e atribuições |
-| `internal/transport/http/ai_config_handler.go` | CRUD de configs de IA, atribuições, OAuth e teste |
+| `internal/infrastructure/storage/storage.go` | `Open`: migra, verifica a chave e cifra segredos legados antes de devolver o repositório |
+| `internal/infrastructure/storage/library.go` | CRUD genérico (`record[T]`) e resolução por escopo (`scopedLibrary[T]`) |
+| `internal/usecase/process_merge_request.go` | Toda a regra de negócio da revisão |
+| `internal/transport/http/server.go` | Todas as rotas e o papel exigido por cada uma |
 | `cmd/server/main.go` | Wiring de dependências e boot |
-| `clients.json` | Configuração dos clientes monitorados (não commitado) |
+| `web/src/domain.ts` | Tabelas do frontend (escopos, papéis, plataformas, status, navegação) |
+| `clients.json` | Seed dos clientes no primeiro boot (não commitado) |
 
 ## Configuração mínima para rodar
 
@@ -145,38 +150,15 @@ Go >= 1.26.10. A lib `git.pauloholanda.com.br/paulorh/sdk-claude-oauth-go` é pr
 
 CI e deploy rodam no GitHub Actions (`.github/workflows/ci.yaml`): push no `main` testa e compila em runners hospedados; depois da aprovação no ambiente `production`, envia o binário por SSH ao `deploy/code-reviewer-deploy.sh`, instalado no servidor como comando forçado da chave. O servidor não tem token nem código. Preparação em `docs/deployment.md`.
 
-## Rotas disponíveis
+## Rotas
 
-| Método | Rota | Descrição |
-|---|---|---|
-| `POST` | `/webhook/{clientName}` | Recebe webhook de qualquer plataforma |
-| `GET` | `/healthz` | Liveness probe |
-| `GET` | `/api/v1/prompts` | Lista prompts |
-| `POST` | `/api/v1/prompts` | Cria prompt |
-| `GET` | `/api/v1/prompts/{id}` | Busca prompt por ID |
-| `PUT` | `/api/v1/prompts/{id}` | Atualiza prompt |
-| `DELETE` | `/api/v1/prompts/{id}` | Remove prompt |
-| `GET` | `/api/v1/prompts/assignments` | Lista atribuições de prompts |
-| `PUT` | `/api/v1/prompts/assignments` | Cria/atualiza atribuição |
-| `DELETE` | `/api/v1/prompts/assignments` | Remove atribuição |
-| `GET/POST` | `/api/v1/ai-configs` | Lista / cria config de IA |
-| `GET/PUT/DELETE` | `/api/v1/ai-configs/{id}` | Lê / atualiza / remove config |
-| `POST` | `/api/v1/ai-configs/{id}/test` | Roda um review de diff de exemplo na config |
-| `GET/PUT/DELETE` | `/api/v1/ai-configs/assignments` | Atribuições de config por escopo |
-| `POST` | `/api/v1/ai-configs/oauth/claude/start` | Inicia o OAuth (gera authorize_url + state) |
-| `POST` | `/api/v1/ai-configs/oauth/claude/exchange` | Troca o código por tokens e persiste |
-| `GET/POST` | `/api/v1/review-profiles` | Lista / cria perfil de revisão |
-| `GET/PUT/DELETE` | `/api/v1/review-profiles/{id}` | Lê / atualiza / remove perfil |
-| `GET/PUT/DELETE` | `/api/v1/review-profiles/assignments` | Atribuições de perfil por escopo |
-| `POST` | `/api/v1/vitals` | Web Vitals de usuários reais (uma linha de log `web vital` por carregamento) |
-
-Todas as rotas de `prompts`, `clients`, `ai-configs` e `review-profiles` exigem JWT + `requireRole(super, gestor)`; `users` exige `super`.
+Ficam em `internal/transport/http/server.go` (`NewServer`), cada uma com o papel exigido ao lado: `clients`, `prompts`, `review-profiles` e `ai-configs` exigem `super` ou `gestor`; `users`, só `super`; o resto, qualquer usuário logado. Webhooks chegam em `POST /webhook/{client}`.
 
 ## Variáveis de ambiente obrigatórias
 
 `AI_PROVIDER` define o **fallback** de IA (`gemini` ou `chat_completions`), usado quando nenhuma `AIConfig` for resolvida no banco. Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
 
-`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend e o `token`/`webhook_secret` dos clients (coluna `secrets_encrypted`; linhas antigas em texto puro são cifradas no boot por `EncryptPlaintextClientSecrets`). Na prática é obrigatória assim que existe um client — sem ela, o boot falha rápido. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
+`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend e o `token`/`webhook_secret` dos clients (coluna `secrets_encrypted`; linhas antigas em texto puro são cifradas no boot por `storage.Open`, depois de conferir que a chave decifra o que já está gravado). Na prática é obrigatória assim que existe um client — sem ela, o boot falha rápido. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
 
 A revisão agêntica (perfil com `agentic`) usa variáveis opcionais com defaults: `WORKSPACE_DIR` (raiz dos checkouts efêmeros, default `./data/workspaces`), `AGENTIC_CLONE_DEPTH` (profundidade do clone, default `1`; 0 = clone completo), `AGENTIC_TIMEOUT_SECONDS` (timeout das operações git, default `120`) e `GITLAB_REPOS_PATH` (raiz do `@hashed` para clone local same-machine; vazio = só remoto). O `WORKSPACE_DIR` fica sob `data/` (já no `.gitignore`).
 
@@ -184,12 +166,13 @@ A camada `execution` usa `SANDBOX_IMAGE` (imagem Docker; vazio = desabilitado), 
 
 ## Testes
 
-Todos os testes são unitários, sem dependências externas (mocks via interfaces e `httptest`). O pacote `storage` tem testes só de `crypto.go`; o resto do SQLite é testado via integração manual.
+Testes unitários, sem serviços externos: fakes via interfaces, `httptest` e SQLite em arquivo temporário (`storage`).
 
 ```bash
-go test ./... -v   # 94 testes, 0 falhas
+go test -race ./...
+cd web && npm test   # node --test; lógica testável fica em módulos .ts, não em .vue
 ```
 
 ## Dependências externas
 
-Apenas uma: `github.com/mattn/go-sqlite3` (CGo). Tudo mais é stdlib Go.
+`github.com/mattn/go-sqlite3` (CGo), `golang.org/x/crypto` (bcrypt) e a lib privada `sdk-claude-oauth-go`. O resto é stdlib.

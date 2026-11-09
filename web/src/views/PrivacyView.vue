@@ -56,7 +56,8 @@ const EMAIL = 'paulorfholanda@gmail.com'
         autor. Título, descrição, diff, link e nome do projeto são enviados ao provedor de IA configurado para gerar a
         revisão, que é publicada como comentário no próprio merge request. Conforme o perfil de revisão, a IA também
         recebe as issues e os merge requests relacionados e a discussão do merge request, com o nome de usuário de quem
-        comentou, e pode ler outros arquivos do repositório.
+        comentou, e pode ler outros arquivos do repositório. Num pedido de nova revisão com justificativa, a IA recebe
+        também a justificativa escrita e a revisão anterior.
       </p>
       <p>
         O histórico de revisões (cliente, projeto, título, link, nome de usuário do autor, tokens, custo, situação e
@@ -69,8 +70,9 @@ const EMAIL = 'paulorfholanda@gmail.com'
       <h2>Com quem compartilhamos</h2>
       <ul>
         <li>
-          <b>Anthropic</b> (Claude) e <b>OpenAI</b>, nos Estados Unidos: recebem o conteúdo do merge request para gerar
-          a revisão.
+          O provedor de IA configurado recebe o conteúdo do merge request para gerar a revisão: <b>Anthropic</b>
+          (Claude) e <b>OpenAI</b>, nos Estados Unidos; <b>Google</b> (Gemini), que pode processar os dados em qualquer
+          país onde opera; ou <b>DeepSeek</b>, na China.
         </li>
         <li><b>Cloudflare</b>: intermedia o acesso ao site, como descrito acima.</li>
         <li><b>Oracle Cloud</b>, em São Paulo: hospeda o servidor e o banco de dados; os dados guardados ficam no Brasil.</li>
