@@ -78,7 +78,7 @@ const EMAIL = 'paulorfholanda@gmail.com'
       </ul>
       <p>
         O envio aos provedores de IA é uma transferência internacional de dados (art. 33), feita com
-        [[PREENCHER: mecanismo do art. 33 adotado, por exemplo as cláusulas-padrão contratuais da ANPD]].
+        base nas cláusulas-padrão contratuais aprovadas pela ANPD (Resolução CD/ANPD nº 19/2024).
         Não vendemos dados pessoais nem os usamos para publicidade.
       </p>
 
