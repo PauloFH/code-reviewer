@@ -324,3 +324,19 @@ func TestNewConnectionUsesProviderTableDefaults(t *testing.T) {
 		t.Fatalf("explicit values not kept: %+v", conn)
 	}
 }
+
+// A redirect would resend the Authorization header to a host nobody configured.
+func TestProviderRedirectsAreNotFollowed(t *testing.T) {
+	var reached bool
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	defer elsewhere.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	_, err := reviewOnce(newConversation(testConfig(domain.ProviderOpenAI, srv.URL), "sys", "user", nil))
+	if err == nil || reached {
+		t.Fatalf("err = %v, redirect target reached = %v; want an error and no request elsewhere", err, reached)
+	}
+}

@@ -34,3 +34,19 @@ func TestAIConfigDefaultsComeFromProviderTable(t *testing.T) {
 		t.Fatal("explicit values must win over defaults")
 	}
 }
+
+func TestAIConfigSameEndpoint(t *testing.T) {
+	claude := AIConfig{Provider: ProviderClaude}
+	for _, tc := range []struct {
+		other AIConfig
+		want  bool
+	}{
+		{AIConfig{Provider: ProviderClaude, BaseURL: "https://api.anthropic.com/"}, true}, // default, spelled out
+		{AIConfig{Provider: ProviderClaude, BaseURL: "https://proxy.example"}, false},
+		{AIConfig{Provider: ProviderOpenAI}, false},
+	} {
+		if got := claude.SameEndpoint(tc.other); got != tc.want {
+			t.Errorf("SameEndpoint(%+v) = %v, want %v", tc.other, got, tc.want)
+		}
+	}
+}

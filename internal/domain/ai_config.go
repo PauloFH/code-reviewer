@@ -112,6 +112,14 @@ func (c AIConfig) Validate() error {
 	return nil
 }
 
+// SameEndpoint reports whether o sends requests where c does. Stored
+// credentials may only be reused for the same endpoint: otherwise editing the
+// base URL would hand the saved key or OAuth token to whatever host it names.
+func (c AIConfig) SameEndpoint(o AIConfig) bool {
+	return c.Provider == o.Provider &&
+		strings.TrimRight(c.BaseURLOrDefault(), "/") == strings.TrimRight(o.BaseURLOrDefault(), "/")
+}
+
 // BaseURLOrDefault returns BaseURL, or the provider's default when unset.
 func (c AIConfig) BaseURLOrDefault() string {
 	if c.BaseURL != "" {

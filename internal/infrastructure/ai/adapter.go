@@ -55,7 +55,11 @@ func newConnection(cfg domain.AIConfig) connection {
 		token:     token,
 		mode:      cfg.Mode,
 		maxTokens: cfg.MaxTokensOrDefault(),
-		http:      &http.Client{Timeout: time.Duration(timeout) * time.Second},
+		http: &http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
+			// A redirect would resend the credentials to a host nobody configured.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}
 }
 

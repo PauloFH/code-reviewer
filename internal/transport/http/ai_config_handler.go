@@ -72,8 +72,9 @@ func (h *AIConfigHandler) library() libraryHandler[domain.AIConfig] {
 	return libraryHandler[domain.AIConfig]{lib: h.repo, prepare: h.keepSecrets, present: toAIConfigDTO}
 }
 
-// keepSecrets preserves what the form never resends: an empty api_key keeps
-// the stored one, and OAuth tokens only change through the connect flow.
+// keepSecrets preserves what the form never resends — an empty api_key keeps
+// the stored one, and OAuth tokens only change through the connect flow — but
+// only while the config still points at the same endpoint.
 func (h *AIConfigHandler) keepSecrets(id int64, c *domain.AIConfig) error {
 	c.OAuthExpiresAt = time.Time{}
 	if id == 0 {
@@ -82,6 +83,12 @@ func (h *AIConfigHandler) keepSecrets(id int64, c *domain.AIConfig) error {
 	existing, err := h.repo.Get(id)
 	if err != nil {
 		return err
+	}
+	if !existing.SameEndpoint(*c) {
+		if c.Mode == domain.AIModeAPI && c.APIKey == "" {
+			return domain.Invalid("api_key must be entered again when the provider or base_url changes")
+		}
+		return nil // OAuth tokens stay behind; the account must be connected again
 	}
 	if c.APIKey == "" {
 		c.APIKey = existing.APIKey

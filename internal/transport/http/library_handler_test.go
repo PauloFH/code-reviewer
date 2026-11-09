@@ -112,25 +112,42 @@ func TestAIConfigNeverExposesSecrets(t *testing.T) {
 	}
 }
 
-func TestAIConfigUpdateKeepsStoredSecrets(t *testing.T) {
-	cases := []struct{ sentKey, wantKey string }{
-		{"", "sk-stored"},
-		{"sk-new", "sk-new"},
+// Stored credentials follow the config only while it keeps pointing at the
+// same endpoint; otherwise a gestor could repoint base_url and have "Testar"
+// send the saved key or OAuth token to a host of their choice.
+func TestAIConfigUpdateKeepsSecretsOnlyForTheSameEndpoint(t *testing.T) {
+	cases := []struct {
+		name, body       string
+		wantStatus       int
+		wantKey          string
+		wantOAuthCleared bool
+	}{
+		{"same endpoint, key kept", `{"name":"c2","provider":"claude","mode":"api","api_key":""}`, 200, "sk-stored", false},
+		{"same endpoint, new key", `{"name":"c2","provider":"claude","mode":"api","api_key":"sk-new"}`, 200, "sk-new", false},
+		{"default URL spelled out", `{"name":"c2","provider":"claude","mode":"api","base_url":"https://api.anthropic.com/"}`, 200, "sk-stored", false},
+		{"base_url changed without key", `{"name":"c2","provider":"claude","mode":"api","base_url":"https://evil.example"}`, 400, "sk-stored", false},
+		{"provider changed without key", `{"name":"c2","provider":"openai","mode":"api"}`, 400, "sk-stored", false},
+		{"base_url changed with new key", `{"name":"c2","provider":"claude","mode":"api","base_url":"https://proxy.example","api_key":"sk-new"}`, 200, "sk-new", true},
+		{"account repointed", `{"name":"c2","provider":"claude","mode":"account","base_url":"https://evil.example"}`, 200, "", true},
 	}
 	for _, tc := range cases {
-		e := newEnv()
-		e.aiConfigs.items[1] = domain.AIConfig{ID: 1, Name: "c", Provider: domain.ProviderClaude, Mode: domain.AIModeAPI,
-			APIKey: "sk-stored", OAuthAccessToken: "acc-stored", OAuthRefreshToken: "ref-stored"}
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.aiConfigs.items[1] = domain.AIConfig{ID: 1, Name: "c", Provider: domain.ProviderClaude, Mode: domain.AIModeAPI,
+				APIKey: "sk-stored", OAuthAccessToken: "acc-stored", OAuthRefreshToken: "ref-stored"}
 
-		rec := e.do(domain.RoleGestor, http.MethodPut, "/api/v1/ai-configs/1",
-			`{"name":"c2","provider":"claude","mode":"api","api_key":"`+tc.sentKey+`"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("api_key %q: status %d %s", tc.sentKey, rec.Code, rec.Body.String())
-		}
-		got := e.aiConfigs.items[1]
-		if got.Name != "c2" || got.APIKey != tc.wantKey || got.OAuthAccessToken != "acc-stored" || got.OAuthRefreshToken != "ref-stored" {
-			t.Errorf("api_key %q: stored %+v", tc.sentKey, got)
-		}
+			rec := e.do(domain.RoleGestor, http.MethodPut, "/api/v1/ai-configs/1", tc.body)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status %d %s, want %d", rec.Code, rec.Body.String(), tc.wantStatus)
+			}
+			got := e.aiConfigs.items[1]
+			if got.APIKey != tc.wantKey {
+				t.Errorf("api key = %q, want %q", got.APIKey, tc.wantKey)
+			}
+			if cleared := got.OAuthAccessToken == "" && got.OAuthRefreshToken == ""; cleared != tc.wantOAuthCleared {
+				t.Errorf("oauth tokens = %q/%q, cleared=%v want %v", got.OAuthAccessToken, got.OAuthRefreshToken, cleared, tc.wantOAuthCleared)
+			}
+		})
 	}
 }
 

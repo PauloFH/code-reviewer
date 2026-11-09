@@ -28,7 +28,7 @@
         id="ai-api-key"
         v-model="form.api_key"
         type="password"
-        :placeholder="initial?.has_api_key ? '•••••• (deixe vazio para manter)' : 'Cole a chave de API'"
+        :placeholder="initial?.has_api_key ? '•••••• (vazio mantém; obrigatória ao trocar provedor ou base URL)' : 'Cole a chave de API'"
       />
     </div>
 
