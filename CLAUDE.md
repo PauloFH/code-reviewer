@@ -164,6 +164,7 @@ CI e deploy rodam no GitHub Actions (`.github/workflows/ci.yaml`): push no `main
 | `GET/POST` | `/api/v1/review-profiles` | Lista / cria perfil de revisão |
 | `GET/PUT/DELETE` | `/api/v1/review-profiles/{id}` | Lê / atualiza / remove perfil |
 | `GET/PUT/DELETE` | `/api/v1/review-profiles/assignments` | Atribuições de perfil por escopo |
+| `POST` | `/api/v1/vitals` | Web Vitals de usuários reais (uma linha de log `web vital` por carregamento) |
 
 Todas as rotas de `prompts`, `clients`, `ai-configs` e `review-profiles` exigem JWT + `requireRole(super, gestor)`; `users` exige `super`.
 

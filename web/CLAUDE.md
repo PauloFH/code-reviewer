@@ -49,9 +49,9 @@ web/
 ├── tsconfig.json
 ├── tests/                # node --test + mock-api.mjs (API fictícia, fora do build)
 └── src/
-    ├── main.ts           # createApp + Pinia + router + mount (importa assets/tokens.css)
+    ├── main.ts           # createApp + Pinia + router + mount; importa fonts.css e tokens.css e inicia a coleta de Web Vitals
     ├── App.vue           # <router-view /> + <ToastContainer />
-    ├── assets/           # tokens.css (tokens, temas e classes globais) e brand/ (logos PNG)
+    ├── assets/           # tokens.css (tokens, temas e classes globais), brand/ (logos WebP) e fonts/ (woff2 self-hosted)
     ├── brand/            # funções puras: formatação pt-BR, statusMark, atalhos, readStorage, geometria da abertura da landing
     ├── composables/      # useTheme (tema claro/escuro)
     ├── router/           # Rotas e navigation guard
@@ -64,11 +64,11 @@ web/
 ## Identidade visual (Mergeye)
 
 - **Tokens:** `src/assets/tokens.css` define as variáveis CSS (`--bg`, `--panel`, `--text`, `--accent`, `--ok`, `--danger`, `--ink`, `--spectrum`, ...). O tema escuro é o `:root`; o claro é `[data-theme="light"]`, que só redefine o que muda. Cores literais (`#hex`, `rgba(`) ficam só nesse arquivo; as views e os componentes usam `var(--x)`.
-- **Fontes:** Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), via Google Fonts em `index.html`.
+- **Fontes:** Bricolage Grotesque (texto e títulos) e DM Mono (dados, código e valores), servidas pelo próprio app: `src/assets/fonts.css` + `src/assets/fonts/*.woff2` (OFL), importados no `main.ts`. Sem CDN externo (`tests/fonts.test.ts` garante).
 - **Classes globais:** `tokens.css` também traz as classes compartilhadas (`.btn`, `.pill`, `.card`, `.table`, `.page-head`, `.kpis`, `.filterbar`, `.seg`, `.feed-*`, `.empty`, ...). Estilo específico de um componente continua em `<style scoped>`.
 - **Tema:** `useTheme()` alterna e persiste (`localStorage`, chave `theme`); o script inline de `index.html` aplica `data-theme` antes do Vue montar. O canvas (gráfico e fundo animado) não entende `var(--x)`: lê as cores com `getComputedStyle` e refaz ao trocar de tema.
 - **Ícones:** só `AppIcon.vue` pode conter `<svg`; o resto usa `<AppIcon name="..." />`. A exceção é `LandingAbertura.vue`, o SVG animado da abertura da landing (redesenho do símbolo oficial, decorativo e com `aria-hidden`); não crie outro por script para escapar da varredura.
-- **Marca:** `BrandLogo.vue` escolhe o PNG de `assets/brand/` pelo tema; `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
+- **Marca:** `BrandLogo.vue` escolhe o WebP de `assets/brand/` pelo tema (600 px de largura, 3x o tamanho exibido; os masters PNG ficam em `docs/superpowers/specs/assets/mergeye/`); `BackgroundMotion.vue` é o fundo animado (respeita `prefers-reduced-motion`).
 - **Situação nunca só por cor:** `statusMark()` (`brand/status.ts`) devolve sinal e rótulo: `+` publicada, `−` erro, `~` ignorada.
 - **Armazenamento:** use `readStorage`/`writeStorage`/`removeStorage` (`brand/storage.ts`); `localStorage` bloqueado não lança, o valor vale só na sessão.
 - **Textos:** toda a interface em PT-BR com acentuação. A varredura `tests/sweep.test.ts` falha se sobrar a marca antiga, `<svg` fora de `AppIcon` e `LandingAbertura`, cor literal em `.vue` (exceto `rgba(0, 0, 0, ...)`) ou texto do glossário em inglês.

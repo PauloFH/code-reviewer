@@ -37,6 +37,7 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 | GET/PUT/DELETE | `/api/v1/ai-configs/assignments` | JWT (super/gestor) | AIConfigHandler.List/Set/RemoveAssignment |
 | POST | `/api/v1/ai-configs/oauth/claude/start` | JWT (super/gestor) | AIConfigHandler.StartClaudeOAuth |
 | POST | `/api/v1/ai-configs/oauth/claude/exchange` | JWT (super/gestor) | AIConfigHandler.ExchangeClaudeOAuth |
+| POST | `/api/v1/vitals` | JWT | vitalsHandler (loga `web vital`) |
 | `/*` | SPA catch-all | — | frontendHandler |
 
 `{name}` usa Go 1.22 `r.PathValue("name")`.
@@ -75,6 +76,10 @@ Monta o `http.ServeMux` com todas as rotas e aplica middlewares.
 ### `frontend.go`
 - Usa `embed.FS` com `//go:embed frontend/dist` para embeber a SPA Vue no binário
 - Serve arquivos estáticos; paths desconhecidos retornam `index.html` (SPA routing)
+- `assets/*` (nomes com hash do Vite) saem com `Cache-Control: public, max-age=31536000, immutable`; `index.html` e o fallback, com `no-cache` (o `embed.FS` não dá ETag/Last-Modified)
+
+### `vitals.go`
+- `vitalsHandler` recebe os Web Vitals que o frontend (`web/src/api/vitals.ts`) envia ao esconder a aba e grava uma linha `web vital` no log estruturado (`journalctl -u code-reviewer | grep "web vital"`); valida corpo (≤ 2 KB), path e faixa dos valores
 
 ### `middleware.go`
 - `webhookAuth` — lê body uma única vez, normaliza headers, valida secret via `PlatformClient.ValidateWebhook`
