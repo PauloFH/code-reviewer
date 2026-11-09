@@ -66,7 +66,7 @@ func TestEncryptPlaintextClientSecretsMigratesLegacyRows(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("EncryptPlaintextClientSecrets = %d, %v; want 1, nil", n, err)
 	}
-	if token, _, encrypted := rawClientSecrets(t, repo, "old"); !encrypted || token == "ghp-antigo" {
+	if token, _, encrypted := rawClientSecrets(t, repo, "old"); !encrypted || token == "ghp-antigo" { //nolint:gosec // G101: test fixture, not a real credential
 		t.Fatalf("legacy row still plaintext: token=%q encrypted=%v", token, encrypted)
 	}
 	got, err = repo.GetClient("old")
