@@ -176,3 +176,9 @@ VALUES('Diff', 0, 0, 0, 0, datetime('now'), datetime('now'));
 INSERT INTO review_profile_assignments(profile_id, scope, client_name, project_ref)
 VALUES((SELECT id FROM review_profiles WHERE name='Diff'), 'global', '', '');
 `
+
+// migration009 adds a covering index for the dashboard aggregates (GetStats,
+// GetDailyCosts), which all filter on status='success' and read only these columns.
+const migration009 = `
+CREATE INDEX IF NOT EXISTS idx_review_events_stats
+    ON review_events(status, reviewed_at, client_name, total_tokens, cost_usd);`

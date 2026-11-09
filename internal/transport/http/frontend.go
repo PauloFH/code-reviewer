@@ -34,10 +34,18 @@ func frontendHandlerFromFS(sub fs.FS) http.Handler {
 		f, err := sub.Open(path)
 		if err == nil {
 			f.Close()
+			// Vite hashes every file under assets/, so its content never changes; index.html must
+			// be revalidated so a deploy is picked up immediately (embed.FS gives no ETag/Last-Modified).
+			if strings.HasPrefix(path, "assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 		// Serve index.html for unknown paths (SPA catch-all).
+		w.Header().Set("Cache-Control", "no-cache")
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/"
 		fileServer.ServeHTTP(w, r2)

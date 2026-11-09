@@ -73,6 +73,7 @@ func runMigrations(db *sql.DB) error {
 		{6, migration006},
 		{7, migration007},
 		{8, migration008},
+		{9, migration009},
 	}
 
 	for _, m := range pending {
