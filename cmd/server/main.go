@@ -39,6 +39,27 @@ func main() {
 	}
 	defer repo.Close()
 
+	// ── Credential encryption ─────────────────────────────────────────────────
+	// Antes de qualquer leitura de clients: tokens e webhook secrets ficam cifrados com a mesma chave das configs de IA.
+	if cfg.AIConfigEncKey != "" {
+		if err := repo.UseEncryptionKey(cfg.AIConfigEncKey); err != nil {
+			log.Error("configuring credential encryption", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	}
+	// Valida a chave contra os segredos de IA já cifrados ANTES de migrar os clients: com a chave errada,
+	// a migração cifraria os tokens com ela e eles ficariam ilegíveis mesmo depois de corrigir a chave.
+	if _, err := repo.ListConfigs(); err != nil {
+		log.Error("reading AI configs — is AI_CONFIG_ENC_KEY set and correct?", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	if n, err := repo.EncryptPlaintextClientSecrets(); err != nil {
+		log.Error("encrypting client secrets — is AI_CONFIG_ENC_KEY set?", slog.String("error", err.Error()))
+		os.Exit(1)
+	} else if n > 0 {
+		log.Info("encrypted plaintext client secrets", slog.Int("count", n))
+	}
+
 	// ── Seed super user on first boot ─────────────────────────────────────────
 	userCount, err := repo.CountUsers()
 	if err != nil {
@@ -121,19 +142,6 @@ func main() {
 		)
 	}
 
-	// ── AI credential encryption ──────────────────────────────────────────────
-	if cfg.AIConfigEncKey != "" {
-		if err := repo.UseEncryptionKey(cfg.AIConfigEncKey); err != nil {
-			log.Error("configuring AI credential encryption", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	}
-	// Fail fast if persisted AI configs cannot be read (e.g. missing/incorrect key).
-	if _, err := repo.ListConfigs(); err != nil {
-		log.Error("reading AI configs — is AI_CONFIG_ENC_KEY set and correct?", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
-
 	// ── AI reviewer ───────────────────────────────────────────────────────────
 	// envClient is the fallback used when no AI config is assigned in the DB.
 	envClient := ai.New(cfg.AI.Provider, cfg.AI.BaseURL, cfg.AI.Token, cfg.AI.Model, aiTimeout, repo)
@@ -201,6 +209,18 @@ func main() {
 		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Retenção declarada na política de privacidade: o histórico de revisões vive 12 meses.
+	go func() {
+		for {
+			if n, err := repo.PurgeEventsBefore(time.Now().AddDate(-1, 0, 0)); err != nil {
+				log.Error("review events purge failed", slog.String("error", err.Error()))
+			} else if n > 0 {
+				log.Info("review events purged", slog.Int64("count", n))
+			}
+			time.Sleep(24 * time.Hour)
+		}
+	}()
 
 	go func() {
 		log.Info("server starting", slog.String("addr", srv.Addr), slog.String("env", cfg.App.Env))

@@ -544,6 +544,35 @@ Limites:
 
 ---
 
+## 17. Retenção de logs (política de privacidade)
+
+A política em `/privacidade` declara **6 meses** para os logs de acesso do Nginx (IP, data, URL) e para os
+logs do serviço no journald (as linhas `web vital` trazem o usuário do painel). O padrão do Ubuntu guarda o
+Nginx por só 14 dias e o journald por tamanho, não por prazo; ajuste os dois para bater com a política.
+A imagem Ubuntu da Oracle Cloud vem **sem o pacote `logrotate`**: sem ele, o `/etc/logrotate.d/nginx` nunca
+roda e o `access.log` cresce para sempre. O journald da VM ainda tem `SystemMaxUse=200M`
+(`/etc/systemd/journald.conf.d/99-limit.conf`), que corta antes dos 6 meses — por isso a política diz "até 6 meses".
+
+```bash
+sudo apt-get install -y logrotate   # liga o logrotate.timer diário
+
+# Nginx: rotação diária, 183 arquivos (~6 meses), comprimidos. Backup fora de /etc/logrotate.d,
+# senão o logrotate lê a cópia como configuração duplicada e aborta.
+sudo cp -a /etc/logrotate.d/nginx /var/backups/logrotate-nginx.bak
+sudo sed -i -e 's/^\s*rotate .*/\trotate 183/' -e 's/^\s*weekly/\tdaily/' /etc/logrotate.d/nginx
+sudo logrotate -d /etc/logrotate.d/nginx   # confere sem rodar
+
+# journald: apaga o que passar de 6 meses (vale para todos os logs da VM)
+sudo mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nMaxRetentionSec=6month\n' | sudo tee /etc/systemd/journald.conf.d/retencao.conf
+sudo systemctl restart systemd-journald
+```
+
+Mudou um prazo aqui? Mude também em `web/src/views/PrivacyView.vue`. O histórico de revisões no SQLite já é
+apagado sozinho após 12 meses (`PurgeEventsBefore`, em `cmd/server/main.go`).
+
+---
+
 ## Consumo de recursos esperado
 
 | Recurso | Em repouso |

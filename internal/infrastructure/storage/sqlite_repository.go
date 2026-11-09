@@ -33,7 +33,9 @@ func (r *SQLiteRepository) UseEncryptionKey(base64Key string) error {
 
 // New opens (or creates) the SQLite database at path and runs all pending migrations.
 func New(path string) (*SQLiteRepository, error) {
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	// secure_delete zera o conteúdo apagado ou reescrito: o histórico expurgado e o token em texto puro
+	// substituído pela versão cifrada não ficam legíveis nas páginas livres do arquivo.
+	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on&_secure_delete=true")
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite db: %w", err)
 	}
@@ -74,6 +76,7 @@ func runMigrations(db *sql.DB) error {
 		{7, migration007},
 		{8, migration008},
 		{9, migration009},
+		{10, migration010},
 	}
 
 	for _, m := range pending {
@@ -146,10 +149,10 @@ func (r *SQLiteRepository) CountClients() (int, error) {
 	return n, err
 }
 
+const clientColumns = `id,name,platform,base_url,token,webhook_secret,username,created_at,updated_at,secrets_encrypted`
+
 func (r *SQLiteRepository) ListClients() ([]domain.Client, error) {
-	rows, err := r.db.Query(`
-		SELECT id,name,platform,base_url,token,webhook_secret,username,created_at,updated_at
-		FROM clients ORDER BY name`)
+	rows, err := r.db.Query(`SELECT ` + clientColumns + ` FROM clients ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +160,7 @@ func (r *SQLiteRepository) ListClients() ([]domain.Client, error) {
 
 	var out []domain.Client
 	for rows.Next() {
-		c, err := scanClient(rows)
+		c, err := r.scanClient(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -167,10 +170,8 @@ func (r *SQLiteRepository) ListClients() ([]domain.Client, error) {
 }
 
 func (r *SQLiteRepository) GetClient(name string) (*domain.Client, error) {
-	row := r.db.QueryRow(`
-		SELECT id,name,platform,base_url,token,webhook_secret,username,created_at,updated_at
-		FROM clients WHERE name=?`, name)
-	c, err := scanClient(row)
+	row := r.db.QueryRow(`SELECT `+clientColumns+` FROM clients WHERE name=?`, name)
+	c, err := r.scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -180,12 +181,70 @@ func (r *SQLiteRepository) GetClient(name string) (*domain.Client, error) {
 	return &c, nil
 }
 
+// encryptClientSecrets returns token and webhook_secret ready to be stored (always encrypted).
+func (r *SQLiteRepository) encryptClientSecrets(c domain.Client) (token, secret string, err error) {
+	if token, err = r.encryptField(c.Token); err != nil {
+		return "", "", fmt.Errorf("encrypting client token: %w", err)
+	}
+	if secret, err = r.encryptField(c.WebhookSecret); err != nil {
+		return "", "", fmt.Errorf("encrypting client webhook secret: %w", err)
+	}
+	return token, secret, nil
+}
+
+// EncryptPlaintextClientSecrets encrypts the token and webhook_secret of rows saved before
+// migration010. Run it at boot, after UseEncryptionKey; it is a no-op once every row is encrypted.
+func (r *SQLiteRepository) EncryptPlaintextClientSecrets() (int, error) {
+	rows, err := r.db.Query(`SELECT name,token,webhook_secret FROM clients WHERE secrets_encrypted=0`)
+	if err != nil {
+		return 0, fmt.Errorf("listing plaintext client secrets: %w", err)
+	}
+	var pending []domain.Client
+	for rows.Next() {
+		var c domain.Client
+		if err := rows.Scan(&c.Name, &c.Token, &c.WebhookSecret); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		pending = append(pending, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, c := range pending {
+		token, secret, err := r.encryptClientSecrets(c)
+		if err != nil {
+			return 0, fmt.Errorf("client %q: %w", c.Name, err)
+		}
+		if _, err := r.db.Exec(`UPDATE clients SET token=?,webhook_secret=?,secrets_encrypted=1 WHERE name=? AND secrets_encrypted=0`,
+			token, secret, c.Name); err != nil {
+			return 0, fmt.Errorf("encrypting client %q: %w", c.Name, err)
+		}
+	}
+	if len(pending) > 0 {
+		// O texto puro antigo ainda vive no WAL e em páginas liberadas antes do secure_delete: reescreve o arquivo.
+		if _, err := r.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			return 0, fmt.Errorf("checkpointing after client encryption: %w", err)
+		}
+		if _, err := r.db.Exec(`VACUUM`); err != nil {
+			return 0, fmt.Errorf("vacuuming after client encryption: %w", err)
+		}
+	}
+	return len(pending), nil
+}
+
 func (r *SQLiteRepository) CreateClient(c domain.Client) (*domain.Client, error) {
+	token, secret, err := r.encryptClientSecrets(c)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	res, err := r.db.Exec(`
-		INSERT INTO clients(name,platform,base_url,token,webhook_secret,username,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`,
-		c.Name, string(c.Platform), c.BaseURL, c.Token, c.WebhookSecret, c.Username, now, now,
+		INSERT INTO clients(name,platform,base_url,token,webhook_secret,username,created_at,updated_at,secrets_encrypted)
+		VALUES(?,?,?,?,?,?,?,?,1)`,
+		c.Name, string(c.Platform), c.BaseURL, token, secret, c.Username, now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
@@ -201,11 +260,15 @@ func (r *SQLiteRepository) CreateClient(c domain.Client) (*domain.Client, error)
 }
 
 func (r *SQLiteRepository) UpdateClient(oldName string, c domain.Client) (*domain.Client, error) {
+	token, secret, err := r.encryptClientSecrets(c)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
-	_, err := r.db.Exec(`
-		UPDATE clients SET name=?,platform=?,base_url=?,token=?,webhook_secret=?,username=?,updated_at=?
+	_, err = r.db.Exec(`
+		UPDATE clients SET name=?,platform=?,base_url=?,token=?,webhook_secret=?,username=?,updated_at=?,secrets_encrypted=1
 		WHERE name=?`,
-		c.Name, string(c.Platform), c.BaseURL, c.Token, c.WebhookSecret, c.Username, now, oldName,
+		c.Name, string(c.Platform), c.BaseURL, token, secret, c.Username, now, oldName,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("updating client: %w", err)
@@ -225,11 +288,15 @@ func (r *SQLiteRepository) DeleteClient(name string) error {
 func (r *SQLiteRepository) SeedFromConfigs(clients []domain.Client) error {
 	now := time.Now().UTC()
 	for _, c := range clients {
-		_, err := r.db.Exec(`
+		token, secret, err := r.encryptClientSecrets(c)
+		if err != nil {
+			return fmt.Errorf("seeding client %q: %w", c.Name, err)
+		}
+		_, err = r.db.Exec(`
 			INSERT OR IGNORE INTO clients
-				(name,platform,base_url,token,webhook_secret,username,created_at,updated_at)
-			VALUES(?,?,?,?,?,?,?,?)`,
-			c.Name, string(c.Platform), c.BaseURL, c.Token, c.WebhookSecret, c.Username, now, now,
+				(name,platform,base_url,token,webhook_secret,username,created_at,updated_at,secrets_encrypted)
+			VALUES(?,?,?,?,?,?,?,?,1)`,
+			c.Name, string(c.Platform), c.BaseURL, token, secret, c.Username, now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("seeding client %q: %w", c.Name, err)
@@ -260,6 +327,20 @@ func (r *SQLiteRepository) SaveEvent(e domain.ReviewEvent) error {
 		return fmt.Errorf("saving review event: %w", err)
 	}
 	return nil
+}
+
+// PurgeEventsBefore apaga o histórico de revisões (autor, título e URL do MR) mais antigo que cutoff
+// e esvazia o texto guardado das revisões antigas, cumprindo o prazo da política de privacidade.
+// A claim em si fica: apagá-la permitiria revisar o mesmo MR de novo.
+func (r *SQLiteRepository) PurgeEventsBefore(cutoff time.Time) (int64, error) {
+	if _, err := r.db.Exec(`UPDATE reviewed_merge_requests SET review_body='' WHERE reviewed_at < ? AND review_body <> ''`, cutoff.UTC()); err != nil {
+		return 0, fmt.Errorf("clearing old review bodies: %w", err)
+	}
+	res, err := r.db.Exec(`DELETE FROM review_events WHERE reviewed_at < ?`, cutoff.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("purging review events: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 func (r *SQLiteRepository) ListEvents(f domain.ReviewEventFilter) ([]domain.ReviewEvent, error) {
@@ -399,12 +480,21 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanClient(s scanner) (domain.Client, error) {
+func (r *SQLiteRepository) scanClient(s scanner) (domain.Client, error) {
 	var c domain.Client
 	var platform, createdAt, updatedAt string
-	err := s.Scan(&c.ID, &c.Name, &platform, &c.BaseURL, &c.Token, &c.WebhookSecret, &c.Username, &createdAt, &updatedAt)
+	var encrypted bool
+	err := s.Scan(&c.ID, &c.Name, &platform, &c.BaseURL, &c.Token, &c.WebhookSecret, &c.Username, &createdAt, &updatedAt, &encrypted)
 	if err != nil {
 		return c, err
+	}
+	if encrypted {
+		if c.Token, err = r.decryptField(c.Token); err != nil {
+			return c, fmt.Errorf("decrypting token of client %q: %w", c.Name, err)
+		}
+		if c.WebhookSecret, err = r.decryptField(c.WebhookSecret); err != nil {
+			return c, fmt.Errorf("decrypting webhook secret of client %q: %w", c.Name, err)
+		}
 	}
 	c.Platform = domain.PlatformType(platform)
 	c.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)

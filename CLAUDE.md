@@ -23,6 +23,10 @@ serviço posta um comentário no MR explicando o erro e pedindo para comentar `/
 a claim de idempotência já é liberada nesse caso, então o `/review` não é bloqueado como duplicata.
 Essa retentativa é em memória (não sobrevive a um restart do processo no meio da janela de retry).
 
+## Retenção de dados
+
+O histórico de revisões (`review_events`: autor, título e URL do MR) é apagado após 12 meses por uma goroutine em `cmd/server/main.go` (`PurgeEventsBefore`, no boot e a cada 24 h), como declara a política de privacidade em `/privacidade` (`web/src/views/PrivacyView.vue`). Das claims de idempotência (`reviewed_merge_requests`) só o `review_body` é esvaziado: a linha fica para o MR não ser revisado de novo, e um commit novo num MR tão antigo recebe revisão completa em vez de incremental.
+
 ## Modos de revisão (perfis)
 
 A revisão é composta por **camadas combináveis**, definidas por um `ReviewProfile` resolvido por escopo (global → client → projeto, igual a prompts/AIConfig). Sem perfil resolvido, o default é `diff`-only (comportamento legado):
@@ -172,7 +176,7 @@ Todas as rotas de `prompts`, `clients`, `ai-configs` e `review-profiles` exigem 
 
 `AI_PROVIDER` define o **fallback** de IA (`gemini` ou `chat_completions`), usado quando nenhuma `AIConfig` for resolvida no banco. Para Gemini, `GEMINI_API_KEY` é obrigatória; `GEMINI_BASE_URL` e `GEMINI_MODEL` têm defaults. Para `chat_completions`, `AI_BASE_URL` e `AI_TOKEN` são obrigatórias.
 
-`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend. É obrigatória apenas quando existem configs persistidas com segredo — sem ela, o boot falha rápido ao tentar lê-las. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
+`AI_CONFIG_ENC_KEY` (base64 de 32 bytes) cifra as credenciais de IA gravadas pelo frontend e o `token`/`webhook_secret` dos clients (coluna `secrets_encrypted`; linhas antigas em texto puro são cifradas no boot por `EncryptPlaintextClientSecrets`). Na prática é obrigatória assim que existe um client — sem ela, o boot falha rápido. Gere com `openssl rand -base64 32` e **mantenha estável** (chave diferente torna os segredos ilegíveis).
 
 A revisão agêntica (perfil com `agentic`) usa variáveis opcionais com defaults: `WORKSPACE_DIR` (raiz dos checkouts efêmeros, default `./data/workspaces`), `AGENTIC_CLONE_DEPTH` (profundidade do clone, default `1`; 0 = clone completo), `AGENTIC_TIMEOUT_SECONDS` (timeout das operações git, default `120`) e `GITLAB_REPOS_PATH` (raiz do `@hashed` para clone local same-machine; vazio = só remoto). O `WORKSPACE_DIR` fica sob `data/` (já no `.gitignore`).
 

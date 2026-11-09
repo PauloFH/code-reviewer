@@ -182,3 +182,8 @@ VALUES((SELECT id FROM review_profiles WHERE name='Diff'), 'global', '', '');
 const migration009 = `
 CREATE INDEX IF NOT EXISTS idx_review_events_stats
     ON review_events(status, reviewed_at, client_name, total_tokens, cost_usd);`
+
+// migration010 marks which clients rows hold token/webhook_secret encrypted (AES-256-GCM).
+// Rows from before it start at 0 (plaintext) and are encrypted at boot by EncryptPlaintextClientSecrets.
+const migration010 = `
+ALTER TABLE clients ADD COLUMN secrets_encrypted INTEGER NOT NULL DEFAULT 0;`
